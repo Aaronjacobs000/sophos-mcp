@@ -20,6 +20,8 @@ import { loadConfig } from "./config/config.js";
 import { TokenManager } from "./auth/token-manager.js";
 import { TenantResolver } from "./client/tenant-resolver.js";
 import { SophosClient } from "./client/sophos-client.js";
+import { FusionClient } from "./client/fusion-client.js";
+import { CaseReferenceDataCache } from "./fusion/case-reference-data.js";
 
 // Tool registration modules
 import { registerTenantTools } from "./tools/tenants.js";
@@ -52,11 +54,12 @@ import { registerWebFilteringTools } from "./tools/web-filtering.js";
 import { registerSwitchTools } from "./tools/switch.js";
 import { registerAccountsTools } from "./tools/accounts.js";
 import { registerBusinessAutomationTools } from "./tools/business-automation.js";
+import { registerFusionCaseTools } from "./tools/fusion-cases.js";
 
 async function main(): Promise<void> {
   // Load and validate config
   const config = loadConfig();
-  console.error("[sophos-mcp] Starting Sophos Central MCP Server...");
+  console.error("[sophos-mcp] Starting Sophos Fusion MCP server (formerly Sophos Central)...");
 
   // Initialise auth
   const tokenManager = new TokenManager(config.clientId, config.clientSecret);
@@ -70,8 +73,10 @@ async function main(): Promise<void> {
     await tenantResolver.loadTenants();
   }
 
-  // Create the HTTP client
+  // Create the HTTP clients: REST for Sophos Central, GraphQL for Sophos Fusion
   const sophosClient = new SophosClient(tokenManager, tenantResolver);
+  const fusionClient = new FusionClient(tokenManager);
+  const caseReferenceData = new CaseReferenceDataCache(fusionClient);
 
   // Create the MCP server
   const server = new McpServer({
@@ -138,6 +143,9 @@ async function main(): Promise<void> {
   registerSwitchTools(server, sophosClient, tenantResolver);
   registerAccountsTools(server, sophosClient, tenantResolver);
   registerBusinessAutomationTools(server, sophosClient, tenantResolver);
+
+  // Fusion: GraphQL APIs on api.taegis.sophos.com, beside the Classic REST tools
+  registerFusionCaseTools(server, fusionClient, tenantResolver, caseReferenceData);
 
   console.error("[sophos-mcp] All tools registered.");
 
