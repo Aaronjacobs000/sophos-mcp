@@ -1,6 +1,8 @@
-# Sophos Central MCP Server
+# Sophos Fusion MCP Server (formerly Sophos Central)
 
-MCP (Model Context Protocol) server for interacting with Sophos Central APIs. Supports partner, organisation, and single-tenant credential types with automatic region routing. **288 tools** covering 20 Sophos API namespaces. Install it as a Claude Desktop extension (`.mcpb`), run it with npx, or host it yourself over streamable HTTP.
+MCP (Model Context Protocol) server for the Sophos Fusion and Sophos Central APIs. Supports partner, organisation, and single-tenant credential types with automatic region routing. **300 tools** covering 21 Sophos API namespaces: the Sophos Central REST APIs plus the Sophos Fusion GraphQL APIs (`sophos_fusion_*`). Install it as a Claude Desktop extension (`.mcpb`), run it with npx, or host it yourself over streamable HTTP.
+
+The npm package, the `.mcpb` bundle and the binaries keep the `sophos-central-mcp-server` name so existing installs update in place.
 
 ## Prerequisites
 
@@ -8,7 +10,7 @@ You need these before any of the install options below.
 
 ### Sophos Central API credentials
 
-Every install method needs a Client ID and Client Secret. The credential type decides what the server can see:
+Every install method needs a Client ID and Client Secret. The same credential authorises both the Sophos Central REST tools and the Sophos Fusion GraphQL tools; there is no second credential. The credential type decides what the server can see:
 
 - **Tenant-level**: In Sophos Central, go to **Settings > API Credentials Management** and create a new credential. The server operates on that one tenant.
 - **Partner-level**: In the Sophos Partner Dashboard, create API credentials under **Settings > API Credentials**. The server can query every tenant the partner manages.
@@ -129,6 +131,23 @@ The script:
 
 `build/` and `release/` are git-ignored. To inspect a bundle without installing it, `npx mcpb info release/<file>.mcpb` prints its size and signature state, and `npx mcpb unpack release/<file>.mcpb <dir>` extracts it. Signing is optional; `npx mcpb sign --self-signed release/<file>.mcpb` adds a self-signed signature if you want one.
 
+### Tests (maintainers)
+
+```bash
+npm test
+```
+
+Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and a registration check that lists all 300 tools over an in-memory transport. Nothing in `npm test` reaches Sophos.
+
+To exercise the Fusion tools against a live tenant, put credentials in `.env` (or export them) and run:
+
+```bash
+node scripts/fusion-smoke.mjs              # tenant credential
+node scripts/fusion-smoke.mjs <tenant-id>  # partner or organisation credential
+```
+
+It spawns the built server over stdio and calls `sophos_fusion_list_case_reference_data`, `sophos_fusion_list_cases`, then `sophos_fusion_get_case` and `sophos_fusion_get_case_summary` on the newest case it finds. Read-only.
+
 **Cutting a release:** bump `version` in `package.json`, run `npm run build:mcpb`, commit `package.json`, `package-lock.json`, and `manifest.json`, tag, and attach the `.mcpb` from `release/` to the GitHub release. Publish to npm as before so the Claude Code and self-hosted options pick up the same version.
 
 ## Features
@@ -141,7 +160,8 @@ The script:
 - **Rate limit handling**: Retry with backoff on 429 responses
 - **Dual transport**: stdio (Claude Desktop, Claude Code, and the `.mcpb` bundle) or streamable HTTP (self-hosted)
 - **One-click install**: Ships as a Claude Desktop extension (`.mcpb`) with credentials held in the OS secure store
-- **Full API coverage**: 288 tools across endpoints, alerts, policies, firewalls, web filtering, licensing, audit events, email, mobile, XDR, cases, SIEM, and more
+- **Two API generations**: the Sophos Central REST APIs and the Sophos Fusion GraphQL APIs on one credential, with `sophos_fusion_*` tools for the GraphQL side
+- **Full API coverage**: 300 tools across endpoints, alerts, policies, firewalls, web filtering, licensing, audit events, email, mobile, XDR, cases, SIEM, and more
 
 ## Screenshots
 
@@ -175,8 +195,18 @@ TRANSPORT=http
 | `PORT` | No | 3100 | HTTP server port |
 | `TRANSPORT` | No | http | `http` for streamable HTTP, `stdio` for subprocess mode |
 | `CHARACTER_LIMIT` | No | 50000 | Maximum characters per tool response before truncation (minimum 10000) |
+| `SOPHOS_FUSION_GRAPHQL_URL` | No | `https://api.taegis.sophos.com/graphql` | Sophos Fusion GraphQL endpoint. Override when the Fusion branded hostnames ship |
 
 ## Tools
+
+### Two API generations
+
+The server speaks to two Sophos API generations on one credential:
+
+- **Sophos Central REST APIs** (retained). Every tool without the `fusion` prefix. Regional hosts, discovered from `/whoami/v1`.
+- **Sophos Fusion GraphQL APIs** (new, 18/09/2026). The `sophos_fusion_*` tools. One endpoint, `https://api.taegis.sophos.com/graphql`, same token, same `X-Tenant-ID` header. Filters are written in Fusion Query Language (QL). Case types, statuses and verdicts are tenant reference data resolved to IDs at runtime, case severity is an integer (2 to 10), and assignees are Subject IDs, not email addresses. A GraphQL failure arrives as HTTP 200 with an `errors` array; the client treats that as an error, and a partial response (data plus errors) is returned with a `warnings` list rather than as a clean result.
+
+Sophos deprecated the Cases REST API and the Detections REST API (now "Classic XDR APIs") on 18/09/2026, with no removal date published. The Classic tools stay registered: legacy cases (IDs like `1-598868`) are only readable through REST, Fusion holds a separate case set (a UUID plus a `CSE#####` short ID), and neither ID form resolves in the other API. Live Discover and XDR Query are not deprecated. Data Lake search over GraphQL has not shipped (Sophos says October 2026), so `sophos_run_xdr_query` stays on the SQL XDR Query API. Fusion tools for detections, events, threat timeline and live endpoint search are planned; today the Fusion family is cases.
 
 ### Partner & Organisation (18 tools)
 
@@ -369,6 +399,8 @@ TRANSPORT=http
 
 ### Cases (9 tools)
 
+Sophos Central Cases REST API, deprecated by Sophos on 18/09/2026 and still working. This is the only way to read legacy cases (IDs like `1-598868`). For Fusion cases use the `sophos_fusion_*` tools below.
+
 | Tool | Description |
 |------|-------------|
 | `sophos_list_cases` | List investigation cases |
@@ -381,9 +413,28 @@ TRANSPORT=http
 | `sophos_list_case_impacted_entities` | List impacted entities for a case |
 | `sophos_get_case_mitre_summary` | Get MITRE ATT&CK breakdown for a case |
 
+### Fusion Cases (12 tools)
+
+Sophos Fusion Cases GraphQL API v2. Case IDs are UUIDs; short IDs (`CSE00001`) are accepted and resolved. Severity is 2 informational, 4 low, 6 medium, 8 high, 10 critical. Detection severity inside the case summary is a 0 to 1 float, a different scale from both the case severity and the Classic REST 0 to 10 detection severity; none of them convert. There is no delete: close the case (with a verdict when its type needs one), then archive it.
+
+| Tool | Description |
+|------|-------------|
+| `sophos_fusion_list_cases` | List cases with QL filters (type, status, verdict resolved to IDs), offset or cursor pagination |
+| `sophos_fusion_get_case` | Full case detail including key findings, verdict, links and processing status |
+| `sophos_fusion_get_case_evidence` | Detection, event, asset and saved-search IDs attached to a case |
+| `sophos_fusion_get_case_summary` | Case plus its detections resolved in one batched call and a MITRE ATT&CK roll-up |
+| `sophos_fusion_list_case_reference_data` | The tenant's case types, primary statuses and verdicts (15 minute cache) |
+| `sophos_fusion_create_case` | Create a case: type and status by name or ID, integer severity, Markdown key findings, genesis evidence |
+| `sophos_fusion_update_case` | Update fields, close with a verdict, archive or unarchive, reassign |
+| `sophos_fusion_list_case_comments` | List comments |
+| `sophos_fusion_add_case_comment` | Add a comment (supports @mentions) |
+| `sophos_fusion_add_case_evidence` | Attach detections, events, hosts or saved searches (asynchronous) |
+| `sophos_fusion_remove_case_evidence` | Detach evidence (asynchronous) |
+| `sophos_fusion_create_case_link` | Attach an external link (ServiceNow ticket, report) |
+
 ### Detections (6 tools)
 
-Async API — start a query, poll for completion, then fetch results.
+Async API: start a query, poll for completion, then fetch results.
 
 | Tool | Description |
 |------|-------------|
@@ -403,7 +454,7 @@ Async API — start a query, poll for completion, then fetch results.
 
 ### XDR Data Lake (9 tools)
 
-Async API — submit SQL queries against historical telemetry.
+Async API: submit SQL queries against historical telemetry.
 
 | Tool | Description |
 |------|-------------|
@@ -419,7 +470,7 @@ Async API — submit SQL queries against historical telemetry.
 
 ### Live Discover (4 tools)
 
-Async API — run OSquery SQL on live endpoints. Rate limited to 10 runs/minute, 500/day.
+Async API: run OSquery SQL on live endpoints. Rate limited to 10 runs/minute, 500/day.
 
 | Tool | Description |
 |------|-------------|
@@ -652,6 +703,7 @@ Register tools based on identity type
     |
     v
 Per tool call: resolve tenant -> regional API host -> execute request
+Per sophos_fusion_* call: resolve tenant -> POST api.taegis.sophos.com/graphql -> inspect data and errors
 ```
 
 ### Key decisions
@@ -669,10 +721,19 @@ src/
 ├── config/config.ts             # Environment config
 ├── auth/token-manager.ts        # OAuth2 token lifecycle
 ├── client/
-│   ├── sophos-client.ts         # HTTP client with region routing
+│   ├── sophos-client.ts         # REST client with region routing (Sophos Central)
+│   ├── fusion-client.ts         # GraphQL client (Sophos Fusion), 200-with-errors handling
 │   └── tenant-resolver.ts       # Whoami + tenant cache
+├── fusion/
+│   ├── queries/cases.ts         # Cases v2 GraphQL documents
+│   ├── queries/detections.ts    # Detections v2 documents used by the case summary
+│   ├── case-reference-data.ts   # Per-tenant cache of case types, statuses, verdicts
+│   ├── cases-ql.ts              # QL builder for the cases search
+│   ├── format.ts                # Severity scales, timestamps, ID checks
+│   └── types.ts                 # Fusion response types
 ├── tools/
 │   ├── helpers.ts               # Shared response formatting
+│   ├── fusion-cases.ts          # Sophos Fusion cases (GraphQL)
 │   ├── tenants.ts               # Tenant listing (partner/org only)
 │   ├── partner.ts               # Partner admin, roles, billing (partner/org only)
 │   ├── alerts.ts                # Alert list, get, acknowledge, search
@@ -700,7 +761,7 @@ src/
 └── types/sophos.ts              # Sophos API response types
 ```
 
-Packaging files at the repo root: `manifest.json` (MCPB manifest, regenerated by the build), `scripts/build-mcpb.mjs` (bundle builder), and `.mcpbignore` (extra exclusions applied when packing).
+Packaging files at the repo root: `manifest.json` (MCPB manifest, regenerated by the build), `scripts/build-mcpb.mjs` (bundle builder), and `.mcpbignore` (extra exclusions applied when packing). `schemas/fusion/` holds the five Fusion GraphQL schemas as downloaded from `https://developer.sophos.com/assets/graphql/<api>.graphql` on 21/09/2026, unmodified, for reference and for diffing when Sophos changes them. `test/` holds the `node:test` suites and `scripts/fusion-smoke.mjs` the live check.
 
 ## Security
 
