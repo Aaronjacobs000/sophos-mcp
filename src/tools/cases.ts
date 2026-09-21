@@ -146,7 +146,7 @@ Args:
   - severity (string): Case severity: "informational", "low", "medium", "high", "critical".
   - status (string): Initial status: "new" or "investigating".
   - initial_detection_id (string): ID of the detection that triggered this case.
-  - assignee (string, optional): Email address of the assignee.
+  - assignee (string): Email address of a tenant admin. The API rejects a create without one ("Assignee cannot be null or blank").
   - overview (string, optional): Case overview/description.
 
 Returns:
@@ -170,8 +170,7 @@ Returns:
         assignee: z
           .string()
           .email()
-          .optional()
-          .describe("Email address of the assignee"),
+          .describe("Email address of a tenant admin (required by the API)"),
         overview: z
           .string()
           .optional()
@@ -187,14 +186,16 @@ Returns:
     withErrorHandling(
       async ({ tenant_id, name, severity, status, initial_detection_id, assignee, overview }) => {
         const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+        // The Cases API rejects a create without an assignee (400
+        // "Assignee cannot be null or blank", verified live 21/09/2026).
         const body: Record<string, unknown> = {
           type: "investigation",
           name,
           severity,
           status,
           initialDetectionId: initial_detection_id,
+          assignee,
         };
-        if (assignee) body.assignee = assignee;
         if (overview) body.overview = overview;
 
         const data = await client.tenantRequest<SophosCase>(
