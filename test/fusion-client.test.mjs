@@ -137,6 +137,66 @@ test("4xx throws with the Sophos error object and is not retried", async () => {
   assert.equal(calls.length, 1);
 });
 
+test("400 with a GraphQL errors array keeps the validation message", async () => {
+  // Live shape (21/09/2026): a query the schema rejects is HTTP 400 with
+  // errors and no data, not a 200.
+  const calls = stubFetch(() =>
+    json(
+      {
+        errors: [
+          {
+            message: 'Cannot query field "nonexistentField" on type "Case".',
+            locations: [{ line: 1, column: 72 }],
+            extensions: { code: "GRAPHQL_VALIDATION_FAILED" },
+          },
+        ],
+      },
+      { status: 400 }
+    )
+  );
+  await assert.rejects(
+    () => makeClient().query("tenant-1", "query { case { nonexistentField } }"),
+    /Sophos Fusion API error 400: Cannot query field "nonexistentField" on type "Case"\. \[GRAPHQL_VALIDATION_FAILED\]/
+  );
+  assert.equal(calls.length, 1);
+});
+
+test("401 with only a message field reports the message without UnknownError", async () => {
+  // Live shape (21/09/2026): {"message":"unauthorized token"}
+  stubFetch(() => json({ message: "unauthorized token" }, { status: 401 }));
+  await assert.rejects(
+    () => makeClient().query("tenant-1", "query { x }"),
+    (error) => {
+      assert.equal(error.message, "Sophos Fusion API error 401: unauthorized token");
+      return true;
+    }
+  );
+});
+
+test("notFound is true only when every error says record not found", async () => {
+  // Live shape (21/09/2026): an unknown case ID is HTTP 200 with
+  // errors: [record not found] beside data: { case: null }.
+  stubFetch(() =>
+    json({
+      errors: [
+        { message: "record not found", path: ["case"], extensions: { code: "DOWNSTREAM_SERVICE_ERROR" } },
+      ],
+      data: { case: null },
+    })
+  );
+  await assert.rejects(
+    () => makeClient().query("tenant-1", "query { case }"),
+    (error) => {
+      assert.ok(error instanceof FusionGraphQLError);
+      assert.equal(error.notFound, true);
+      return true;
+    }
+  );
+  const mixed = new FusionGraphQLError("m", [{ message: "record not found" }, { message: "conn busy" }]);
+  assert.equal(mixed.notFound, false);
+  assert.equal(new FusionGraphQLError("m", []).notFound, false);
+});
+
 test("429 waits for Retry-After and then succeeds", async () => {
   const calls = stubFetch((attempt) =>
     attempt === 1

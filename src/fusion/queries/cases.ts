@@ -95,13 +95,12 @@ export const GET_CASE_EVIDENCE = `query FusionGetCaseEvidence($arguments: CaseEv
   }
 }`;
 
-/** One round trip for the summary tool: the case and its evidence linkage. */
-export const GET_CASE_WITH_EVIDENCE = `query FusionGetCaseWithEvidence($caseArguments: CaseArguments!, $evidenceArguments: CaseEvidenceArguments!) {
-  case(arguments: $caseArguments) {${CASE_DETAIL_FIELDS}
-  }
-  caseEvidence(arguments: $evidenceArguments) {${CASE_EVIDENCE_FIELDS}
-  }
-}`;
+// There is no combined case-plus-evidence document on purpose. Two
+// case-scoped root fields in one document (case + caseEvidence, or two aliased
+// case fields) fail every time with "conn busy" from investigations-v2
+// (verified against a live tenant on 21/09/2026). The summary tool runs
+// GET_CASE and GET_CASE_EVIDENCE as two calls. CASE_REFERENCE_DATA below is
+// unaffected: its three root fields are not case-scoped.
 
 export const LIST_CASE_COMMENTS = `query FusionListCaseComments($arguments: CaseCommentsArguments!) {
   caseComments(arguments: $arguments) {

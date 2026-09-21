@@ -14,7 +14,7 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { FusionClient } from "../client/fusion-client.js";
+import { FusionGraphQLError, type FusionClient } from "../client/fusion-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { CaseReferenceDataCache } from "../fusion/case-reference-data.js";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "../config/config.js";
@@ -38,7 +38,6 @@ import {
   CREATE_CASE_LINK,
   GET_CASE,
   GET_CASE_EVIDENCE,
-  GET_CASE_WITH_EVIDENCE,
   LIST_CASES,
   LIST_CASE_COMMENTS,
   REMOVE_EVIDENCE_FROM_CASE,
@@ -55,7 +54,6 @@ import type {
   FusionCasePrimaryVerdictsResponse,
   FusionCaseResponse,
   FusionCaseSummary,
-  FusionCaseWithEvidenceResponse,
   FusionCasesResponse,
   FusionCreateCaseLinkResponse,
   FusionCreateCaseResponse,
@@ -102,7 +100,7 @@ export function registerFusionCaseTools(
 
 Type, status and verdict are resolved to the tenant's own IDs at runtime (they depend on licensed services), so pass the name shown by sophos_fusion_list_case_reference_data or a UUID. Case severity is an integer: 2 informational, 4 low, 6 medium, 8 high, 10 critical. Legacy Sophos Central cases (IDs like '1-598868') are a separate case set and are not listed here; use sophos_list_cases for those.
 
-Raw QL example for the query parameter: "severity >= 8 and closedAt is null | sort updatedAt desc". Searchable fields: id, shortId, title, severity, riskScore, tags, assigneeId, createdAt, updatedAt, closedAt, closeReason, archivedAt, managedBy, typeId, primaryStatusId. Names are not searchable, only IDs.
+Raw QL example for the query parameter: "severity >= 8 and closedAt is null | sort updatedAt desc". Searchable fields: id, shortId, title, severity, riskScore, tags, assigneeId, createdAt, updatedAt, closedAt, closeReason, archivedAt, managedBy, typeId, primaryStatusId, primaryVerdictId. Names are not searchable, only IDs. Unassigned cases carry assigneeId '' rather than null, so unassigned compiles to (assigneeId is null or assigneeId = '').
 
 Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
@@ -228,9 +226,9 @@ Returns:
     withErrorHandling(async ({ case_id, tenant_id }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
       const resolved = await resolveCaseUuid(client, tenantId, case_id);
-      const { data, warnings } = await client.query<FusionCaseResponse>(tenantId, GET_CASE, {
-        arguments: { id: resolved.id },
-      });
+      const { data, warnings } = await client
+        .query<FusionCaseResponse>(tenantId, GET_CASE, { arguments: { id: resolved.id } })
+        .catch((error: unknown) => rethrowNotFound(error, case_id, tenantId));
       if (!data.case) {
         throw new Error(`Fusion case ${case_id} not found in tenant ${tenantId}.`);
       }
@@ -262,11 +260,11 @@ Returns:
     withErrorHandling(async ({ case_id, tenant_id }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
       const resolved = await resolveCaseUuid(client, tenantId, case_id);
-      const { data, warnings } = await client.query<FusionCaseEvidenceResponse>(
-        tenantId,
-        GET_CASE_EVIDENCE,
-        { arguments: { id: resolved.id } }
-      );
+      const { data, warnings } = await client
+        .query<FusionCaseEvidenceResponse>(tenantId, GET_CASE_EVIDENCE, {
+          arguments: { id: resolved.id },
+        })
+        .catch((error: unknown) => rethrowNotFound(error, case_id, tenantId));
       if (!data.caseEvidence) {
         throw new Error(`Fusion case ${case_id} not found in tenant ${tenantId}.`);
       }
@@ -292,7 +290,7 @@ Args:
   - max_detections (number, optional, 1-100, default 50): Cap on detections resolved (one API call regardless).
 
 Returns:
-  case, evidence counts, detections (id, title, severity_0_to_1, status, detector, entities, timestamps), detections_resolved vs detections_total, and mitre_summary.`,
+  case (key findings capped at 4000 characters here; sophos_fusion_get_case returns the full text), evidence counts, detections_resolved vs detections_total, mitre_summary, then detections (id, title, severity_0_to_1, status, detector, entities, timestamps).`,
       inputSchema: {
         case_id: z.string().describe(ID_NOTE),
         tenant_id: tenantIdField,
@@ -317,17 +315,24 @@ Returns:
       const resolved = await resolveCaseUuid(client, tenantId, case_id);
       const warnings = [...resolved.warnings];
 
-      const caseResult = await client.query<FusionCaseWithEvidenceResponse>(
-        tenantId,
-        GET_CASE_WITH_EVIDENCE,
-        { caseArguments: { id: resolved.id }, evidenceArguments: { id: resolved.id } }
-      );
+      // Two calls on purpose: case and caseEvidence in one document fail with
+      // "conn busy" from investigations-v2 (see queries/cases.ts).
+      const caseResult = await client
+        .query<FusionCaseResponse>(tenantId, GET_CASE, { arguments: { id: resolved.id } })
+        .catch((error: unknown) => rethrowNotFound(error, case_id, tenantId));
       warnings.push(...caseResult.warnings);
       if (!caseResult.data.case) {
         throw new Error(`Fusion case ${case_id} not found in tenant ${tenantId}.`);
       }
 
-      const evidence = caseResult.data.caseEvidence;
+      const evidenceResult = await client.query<FusionCaseEvidenceResponse>(
+        tenantId,
+        GET_CASE_EVIDENCE,
+        { arguments: { id: resolved.id } }
+      );
+      warnings.push(...evidenceResult.warnings);
+
+      const evidence = evidenceResult.data.caseEvidence;
       const attached = evidence?.detectionsEvidence ?? [];
       const detectionIds = attached.map((e) => e.detectionId);
       const toResolve = detectionIds.slice(0, max_detections);
@@ -348,10 +353,14 @@ Returns:
         mitreSummary = buildMitreSummary(records);
       }
 
+      // Order and size matter here: the response is capped at CHARACTER_LIMIT
+      // and a real case's key findings alone ran to 20 KB, which pushed the
+      // MITRE roll-up (last key) past the cap. Key findings are capped with a
+      // pointer to sophos_fusion_get_case, and the roll-up precedes the list.
       return jsonResult(
         withWarnings(
           {
-            case: formatCaseDetail(caseResult.data.case),
+            case: capKeyFindings(formatCaseDetail(caseResult.data.case)),
             evidence: evidence
               ? {
                   detections: evidence.detectionsEvidenceCount,
@@ -364,8 +373,8 @@ Returns:
               : null,
             detections_total: detectionIds.length,
             detections_resolved: detections.length,
-            detections,
             mitre_summary: mitreSummary,
+            detections,
           },
           warnings
         )
@@ -967,6 +976,19 @@ async function resolveCaseUuid(
   );
 }
 
+/**
+ * Fusion reports an unknown case as a GraphQL error ("record not found")
+ * beside a null root field, so the client throws before the tool's own null
+ * check runs. Translate it into the message the tool promises; rethrow
+ * anything else untouched.
+ */
+function rethrowNotFound(error: unknown, caseRef: string, tenantId: string): never {
+  if (error instanceof FusionGraphQLError && error.notFound) {
+    throw new Error(`Fusion case ${caseRef} not found in tenant ${tenantId}.`);
+  }
+  throw error;
+}
+
 function assertAssignee(assigneeId: string | undefined): void {
   if (assigneeId && looksLikeEmail(assigneeId)) {
     throw new Error(
@@ -995,6 +1017,24 @@ async function defaultOpenStatusId(
 
 function keyFindingsInput(content: string) {
   return { documentType: "MARKDOWN", documentVersion: "1.0", content };
+}
+
+const SUMMARY_KEY_FINDINGS_CHARS = 4000;
+
+/** Caps key findings in the summary; sophos_fusion_get_case returns the full text. */
+function capKeyFindings<T extends { key_findings: { document_type: string; content: string } | null }>(
+  detail: T
+): T & { key_findings_truncated?: boolean } {
+  const content = detail.key_findings?.content;
+  if (!content || content.length <= SUMMARY_KEY_FINDINGS_CHARS) return detail;
+  return {
+    ...detail,
+    key_findings: {
+      ...detail.key_findings!,
+      content: `${content.slice(0, SUMMARY_KEY_FINDINGS_CHARS)}\n\n[truncated at ${SUMMARY_KEY_FINDINGS_CHARS} of ${content.length} characters; sophos_fusion_get_case returns the full key findings]`,
+    },
+    key_findings_truncated: true,
+  };
 }
 
 function formatCaseSummary(c: FusionCaseSummary) {
@@ -1135,7 +1175,6 @@ function formatDetection(
   return {
     id: r.id,
     title: m?.title ?? null,
-    description: m?.description ?? null,
     severity_0_to_1: m?.severity ?? null,
     confidence: m?.confidence ?? null,
     status: r.status ?? null,

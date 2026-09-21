@@ -53,7 +53,9 @@ export function buildCasesQl(filters: CasesQlFilters): string | undefined {
   if (filters.severityMin !== undefined) predicates.push(`severity >= ${filters.severityMin}`);
   if (filters.openOnly) predicates.push("closedAt is null");
   if (filters.assigneeId) predicates.push(`assigneeId = ${qlString(filters.assigneeId)}`);
-  if (filters.unassigned) predicates.push("assigneeId is null");
+  // Unassigned cases carry assigneeId '' rather than null (live tenant,
+  // 21/09/2026: "assigneeId is null" matched 0 of 8 unassigned cases).
+  if (filters.unassigned) predicates.push("(assigneeId is null or assigneeId = '')");
   if (filters.titleContains) predicates.push(`title contains ${qlString(filters.titleContains)}`);
   if (filters.tag) predicates.push(`tags contains ${qlString(filters.tag)}`);
   if (filters.createdAfter) predicates.push(`createdAt >= ${qlString(filters.createdAfter)}`);

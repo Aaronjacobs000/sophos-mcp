@@ -63,6 +63,18 @@ export class FusionGraphQLError extends Error {
     super(message);
     this.name = "FusionGraphQLError";
   }
+
+  /**
+   * True when every error says the record does not exist. Fusion reports an
+   * unknown case ID this way, as HTTP 200 with "record not found" beside a
+   * null root field, rather than as a bare null (live tenant, 21/09/2026).
+   */
+  get notFound(): boolean {
+    return (
+      this.errors.length > 0 &&
+      this.errors.every((error) => /record not found/i.test(error.message ?? ""))
+    );
+  }
 }
 
 export class FusionClient {
@@ -143,18 +155,25 @@ export class FusionClient {
 
         if (!response.ok) {
           const errorBody = await response.text();
-          let parsed: SophosApiError | null = null;
+          let parsed: (SophosApiError & { errors?: GraphQLErrorEntry[] }) | null = null;
           try {
-            parsed = JSON.parse(errorBody) as SophosApiError;
+            parsed = JSON.parse(errorBody) as SophosApiError & { errors?: GraphQLErrorEntry[] };
           } catch {
             // Not JSON
           }
 
-          const msg = parsed
-            ? `Sophos Fusion API error ${response.status}: ${parsed.error ?? "UnknownError"}${parsed.message ? ` - ${parsed.message}` : ""}${parsed.correlationId ? ` (correlationId: ${parsed.correlationId})` : ""}`
-            : `Sophos Fusion API error ${response.status}: ${errorBody.slice(0, 500)}`;
+          // A query the schema rejects comes back as HTTP 400 with a GraphQL
+          // errors array and no data (live tenant, 21/09/2026); keep its message.
+          const graphqlErrors = Array.isArray(parsed?.errors) ? parsed.errors : [];
+          const detail =
+            graphqlErrors.length > 0
+              ? graphqlErrors.map(formatGraphQLError).join("; ")
+              : parsed
+                ? [parsed.error, parsed.message].filter(Boolean).join(" - ") || errorBody.slice(0, 500)
+                : errorBody.slice(0, 500);
+          const correlation = parsed?.correlationId ? ` (correlationId: ${parsed.correlationId})` : "";
 
-          throw new Error(msg);
+          throw new Error(`Sophos Fusion API error ${response.status}: ${detail}${correlation}`);
         }
 
         const text = await response.text();

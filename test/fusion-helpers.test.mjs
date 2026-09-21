@@ -105,7 +105,12 @@ test("buildCasesQl uses = for a single status and handles the rest of the fields
     ql,
     `primaryStatusId = '${NEW_ID}' and primaryVerdictId = '${VERDICT_ID}' and severity = 10 and assigneeId = 'subject-1' and createdAt >= '2026-09-01T00:00:00Z' and createdAt <= '2026-09-30T23:59:59Z' and updatedAt >= '2026-09-15T00:00:00Z'`
   );
-  assert.equal(buildCasesQl({ unassigned: true }), "assigneeId is null");
+  // Unassigned cases carry assigneeId '' on a live tenant; null alone matches none.
+  assert.equal(buildCasesQl({ unassigned: true }), "(assigneeId is null or assigneeId = '')");
+  assert.equal(
+    buildCasesQl({ openOnly: true, unassigned: true }),
+    "closedAt is null and (assigneeId is null or assigneeId = '')"
+  );
 });
 
 test("buildCasesQl keeps a raw query's pipe after the added predicates", () => {

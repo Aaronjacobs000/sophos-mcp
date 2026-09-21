@@ -148,11 +148,6 @@ export interface FusionCaseEvidenceResponse {
   caseEvidence: FusionCaseEvidence | null;
 }
 
-export interface FusionCaseWithEvidenceResponse {
-  case: FusionCaseDetail | null;
-  caseEvidence: FusionCaseEvidence | null;
-}
-
 export interface FusionCaseComment {
   id: string;
   authorId: string;
