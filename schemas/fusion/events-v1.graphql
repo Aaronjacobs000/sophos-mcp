@@ -1,0 +1,119 @@
+directive @key(fields: String!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE
+directive @entityResolver(multi: Boolean) on OBJECT
+
+"""
+ResourceName is an identifier (ID) that uses a Fusion-wide format for core
+resources.
+"""
+scalar ResourceName
+
+"Map holds a string-keyed JSON object."
+scalar Map
+
+scalar Time
+
+directive @allowInt(reason: String) on FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION
+
+"""
+Event represents an atomic piece of recorded telemetry from a sensor. It is a
+core type of the Fusion ecosystem, and all Observations and Detections are
+generated with reference to Events.
+"""
+type Event @key(fields: "rn") @key(fields: "id") @entityResolver(multi: true) {
+  "Is the unique resource name for the Event."
+  rn: ResourceName!
+  """
+  Is an alias for the unique resource name for the Event. Made available
+  for backwards compatibility.
+  """
+  id: ID! @deprecated(reason: "use rn instead")
+  "Defines the schema for the Event."
+  eventType: EventType!
+  "Is the standardized, human-readable description of the Event."
+  summary: String!
+  """
+  Is the registered timestamp (with microsecond precision) for the
+  Event.
+  """
+  eventTime: Time!
+  """
+  Is the time (with microsecond precision) when the Event was
+  received by the platform.
+  """
+  ingestTime: Time!
+  "Contains the data associated with the Event."
+  values: Map!
+  """
+  Includes additional data for the Event beyond the default,
+  normalized values.
+  """
+  additionalData: EventAdditionalData
+}
+
+enum EventType {
+  AGENT_DETECTION
+  ANTIVIRUS
+  API_CALL
+  AUTH
+  CLOUD_AUDIT
+  DHCP
+  DNS_QUERY
+  EMAIL
+  ENCRYPT
+  FILE_MOD
+  FORENSIC_INFO
+  GENERIC
+  HTTP
+  INVENTORY_INFO
+  MANAGEMENT_EVENT
+  NETFLOW
+  NIDS
+  PATCH_STATE
+  PERSISTENCE
+  PROCESS
+  PROCESS_MODULE
+  REGISTRY
+  SCRIPT_BLOCK
+  THIRD_PARTY
+  THREAD_INJECTION
+  DETECTION_FINDING
+  TECHNIQUE_FINDING
+  IDENTITY_FINDING
+  SOFTWARE_INFO
+}
+
+"""
+EventAdditionalData holds any additional data for the Event beyond the default,
+normalized values. This data is only loaded if requested and may affect the time
+to retrieve the Event.
+"""
+type EventAdditionalData {
+  "Contains the original, pre-normalized data packet that instigated the Event."
+  originalData: String
+  "The MITRE ATT&CK techniques (by id) associated with the Event, if any."
+  mitreAttackTechniques: [MitreAttackInformation!]
+  "The Detections associated with the Event, if any"
+  detections: [Alert2!]
+}
+
+type MitreAttackInformation @key(fields: "id", resolvable: false) {
+  id: ID!
+}
+
+type Alert2 @key(fields: "id", resolvable: false) {
+  id: ID!
+}
+
+"""
+EventsInput identifies the event resources to retrieve by resource name, also
+known as "event id."
+"""
+input EventsInput {
+  "Lists rns for Events to retrieve."
+  rns: [ResourceName!]!
+}
+
+type Query {
+  "Retrieves Events by some value other than using a QL search query."
+  events(input: EventsInput!): [Event]!
+}

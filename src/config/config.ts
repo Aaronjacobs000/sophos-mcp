@@ -41,6 +41,12 @@ export function loadConfig(): SophosConfig {
 export const SOPHOS_AUTH_URL = "https://id.sophos.com/api/v2/oauth2/token";
 export const SOPHOS_GLOBAL_API = "https://api.central.sophos.com";
 
+// Sophos Fusion GraphQL endpoint. One host for every tenant, no regional
+// lookup. The env override exists so the Fusion branded hostnames expected in
+// November 2026 need no code change.
+export const SOPHOS_FUSION_GRAPHQL_URL =
+  process.env.SOPHOS_FUSION_GRAPHQL_URL || "https://api.taegis.sophos.com/graphql";
+
 // Response size limits (CHARACTER_LIMIT configurable via env var)
 export const CHARACTER_LIMIT = Math.max(
   10000,
