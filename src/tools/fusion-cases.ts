@@ -497,11 +497,19 @@ Returns:
       if (args.event_ids?.length) input.eventIds = args.event_ids;
       if (args.host_ids?.length) input.hostIds = args.host_ids;
 
-      const { data, warnings } = await client.query<FusionCreateCaseResponse>(
-        tenantId,
-        CREATE_CASE,
-        { input }
-      );
+      const { data, warnings } = await client
+        .query<FusionCreateCaseResponse>(tenantId, CREATE_CASE, { input })
+        .catch((error: unknown) => {
+          // Seen on a tenant-scoped credential (21/09/2026): the create
+          // resolver looks up partner preferences and that lookup is refused
+          // for customer-class API subjects, whatever the input.
+          if (error instanceof FusionGraphQLError && /partnerPreferences/.test(error.message)) {
+            throw new Error(
+              `Fusion refused createCase for this credential: ${error.message}. The create resolver reads partner preferences, which a tenant-scoped API credential is not allowed to do. Use a partner credential that manages this tenant, or raise it with Sophos.`
+            );
+          }
+          throw error;
+        });
       if (!data.createCase) {
         throw new Error("createCase returned no case.");
       }

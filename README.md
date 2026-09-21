@@ -142,11 +142,14 @@ Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fu
 To exercise the Fusion tools against a live tenant, put credentials in `.env` (or export them) and run:
 
 ```bash
-node scripts/fusion-smoke.mjs              # tenant credential
-node scripts/fusion-smoke.mjs <tenant-id>  # partner or organisation credential
+node scripts/fusion-smoke.mjs                  # read-only, tenant credential
+node scripts/fusion-smoke.mjs <tenant-id>      # read-only, partner or organisation credential
+node scripts/fusion-smoke.mjs --write          # plus the Fusion write tools on one new case
+node scripts/fusion-smoke.mjs --write-classic  # plus the Classic case tools on one new case
+node scripts/fusion-smoke.mjs --all            # everything
 ```
 
-It spawns the built server over stdio and calls `sophos_fusion_list_case_reference_data`, `sophos_fusion_list_cases`, then `sophos_fusion_get_case` and `sophos_fusion_get_case_summary` on the newest case it finds. Read-only.
+It spawns the built server over stdio and calls the tools through an MCP client, so what runs is what a host runs. Read-only mode covers the reference data, the case list with filter and cursor variants, the newest case by short ID, its evidence, summary and comments, the not-found and legacy-ID refusals, and the six Classic read tools. `--write` creates one case titled `MCP smoke test <timestamp>`, exercises comment, link, update, evidence add and remove on it, then closes it with a verdict and archives it (Fusion has no delete). `--write-classic` creates, updates and deletes one Classic case; the Cases API requires an assignee and a detection that still exists, so set `SMOKE_CLASSIC_ASSIGNEE` (a tenant admin email) and, if needed, `SMOKE_CLASSIC_DETECTION_ID` (a recent detection ID). Every write is listed at the end. Existing cases are never modified.
 
 **Cutting a release:** bump `version` in `package.json`, run `npm run build:mcpb`, commit `package.json`, `package-lock.json`, and `manifest.json`, tag, and attach the `.mcpb` from `release/` to the GitHub release. Publish to npm as before so the Claude Code and self-hosted options pick up the same version.
 
@@ -405,7 +408,7 @@ Sophos Central Cases REST API, deprecated by Sophos on 18/09/2026 and still work
 |------|-------------|
 | `sophos_list_cases` | List investigation cases |
 | `sophos_get_case` | Get full case details |
-| `sophos_create_case` | Create a new investigation case |
+| `sophos_create_case` | Create a new investigation case (the API requires an assignee and a detection that still exists) |
 | `sophos_update_case` | Update case status, severity, assignee |
 | `sophos_delete_case` | Delete a case |
 | `sophos_list_case_detections` | List detections linked to a case |

@@ -10,7 +10,7 @@ npm start           # Run the compiled server
 npm run dev         # Watch mode (tsc --watch)
 npm test            # Build, then run the node:test suites in test/ (no network)
 npm run build:mcpb  # Build the Claude Desktop extension bundle into release/
-node scripts/fusion-smoke.mjs [tenant-id]   # Live, read-only check of the Fusion tools (needs credentials)
+node scripts/fusion-smoke.mjs [tenant-id]   # Live check of the Fusion and Classic case tools (needs credentials); read-only unless --write, --write-classic or --all
 ```
 
 `npm test` and TypeScript compilation (`npm run build`) are the verification steps. Fix all type errors and keep the tests green before considering a change complete. The tests stub `fetch`; nothing in them reaches Sophos.
@@ -58,13 +58,14 @@ A GraphQL-layer failure comes back as **HTTP 200 with an `errors` array** beside
 
 - `errors` present and no usable data (data null, or every root field null): throws `FusionGraphQLError` with every message joined. Never retried.
 - `errors` present beside usable data (a partial response, typically a federated field): returns the data with the messages in `warnings`. Tools attach `warnings` to their result; they are never dropped.
-- A null root field with no errors (for example `case` for an unknown ID) passes through for the tool to report as not found.
+- A null root field with no errors passes through for the tool to report as not found. In practice an unknown case ID arrives as errors (`record not found`) beside `data: { case: null }`, which the first rule throws; `FusionGraphQLError.notFound` recognises it and the case tools translate it into their not-found message.
+- The `extensions.code` cannot tell a transient failure from a rejected query: `conn busy`, `record not found` and `query not valid for any known schema type(s)` all carry `DOWNSTREAM_SERVICE_ERROR`. So nothing at the GraphQL layer is retried.
 
-Transport failures (expired token, 429, 5xx) use the usual non-2xx status and the standard Sophos error object.
+Transport failures (expired token, 429, 5xx) use the usual non-2xx status and the standard Sophos error object. A query the schema rejects is HTTP 400 with a GraphQL `errors` array and no data; the client keeps that message. A missing required variable is HTTP 200 with `errors` (`BAD_USER_INPUT`) and no `data` key at all.
 
 ### Fusion layout (`src/fusion/`)
 
-- `queries/<api>.ts`: hand-written GraphQL documents as string constants, one file per API, minimal selection sets, no codegen. Operation names use the `detection*` form, never the `alertsService*` aliases. Federated `*Subject` fields are not selected.
+- `queries/<api>.ts`: hand-written GraphQL documents as string constants, one file per API, minimal selection sets, no codegen. Operation names use the `detection*` form, never the `alertsService*` aliases. Federated `*Subject` fields are not selected. Never put two case-scoped root fields in one document (`case` plus `caseEvidence`, or two aliased `case` fields): investigations-v2 answers `conn busy` every time. The three reference-data root fields are fine together.
 - `case-reference-data.ts`: `CaseReferenceDataCache`, per tenant, 15 minute TTL, one round trip for case types, primary statuses and primary verdicts. Fusion filters and writes these by UUID and the set depends on the tenant's licensed services, so names resolve at runtime and are never hard-coded.
 - `cases-ql.ts`: builds the QL string for `cases(arguments: { query })` from the list tool's filters. Names never reach QL; only `*Id` columns are searchable.
 - `format.ts`: severity scales (case 2 to 10 integer; detection 0 to 1 float; Classic REST detection 0 to 10; never converted), `{ seconds, nanos }` to ISO 8601, ID shape checks (UUID, `CSE#####` short ID, legacy `1-598868`), QL quoting.
