@@ -1,5 +1,10 @@
 # Sophos Fusion MCP Server (formerly Sophos Central)
 
+> **Unofficial project, not from Sophos.** This is a personal project by an individual. It is
+> not an official Sophos product and it is not built, endorsed, supported, or warranted by
+> Sophos. It calls the public Sophos APIs using credentials you supply. Use it at your own
+> risk, and raise problems as issues on this repository rather than with Sophos support.
+
 MCP (Model Context Protocol) server for the Sophos Fusion and Sophos Central APIs. Supports partner, organisation, and single-tenant credential types with automatic region routing. **310 tools** covering 22 Sophos API namespaces: the Sophos Central REST APIs plus the Sophos Fusion GraphQL APIs (`sophos_fusion_*`). Install it as a Claude Desktop extension (`.mcpb`), run it with npx, or host it yourself over streamable HTTP.
 
 The npm package, the `.mcpb` bundle and the binaries keep the `sophos-central-mcp-server` name so existing installs update in place.
