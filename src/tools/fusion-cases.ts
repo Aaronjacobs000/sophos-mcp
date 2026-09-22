@@ -510,7 +510,7 @@ Returns:
 
 Case types health_check and threat_hunt always use PROVIDER; investigation and other leave the choice free. A managed_by that contradicts the type is refused before any call is made. Type and status are resolved from the tenant's reference data (name or UUID). When status is omitted a CUSTOMER case starts in new (or the first open status) and a PROVIDER case starts in awaiting_sophos_assignment when the tenant exposes it. Severity is 2, 4, 6, 8 or 10 (or its label). assignee_id is a Subject ID or an @mention (for example @customer or @sophos), never an email address. key_findings is Markdown and becomes the case's typed key findings document (the REST "overview"). Evidence attached at creation is recorded as genesis evidence; detection_ids and event_ids are six section resource names (sophos_fusion_search_detections returns them), and attaching a detection also attaches its linked asset and events.
 
-The API has an intermittent fault on this call (roughly one in two attempts, "not allowed" on partnerPreferences). The client retries it up to 8 times before giving up; a failure that names createCase in its path is a genuine input error and is not retried.
+The API has an intermittent fault on this call (74% of attempts, measured over 150 calls, "not allowed" on partnerPreferences). The client retries it up to 20 times before giving up; a failure that names createCase in its path is a genuine input error and is not retried.
 
 Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
@@ -1162,7 +1162,7 @@ Returns:
       title: "Add Fusion Case Evidence",
       description: `Attach detections, events, hosts (assets) or saved searches to an existing Sophos Fusion case. Evidence added this way is not genesis evidence.
 
-Detection and event IDs are six section resource names, for example ${RESOURCE_NAME_EXAMPLE}; bare UUIDs are refused here before any call. sophos_fusion_search_detections returns detection IDs in this form. Attaching one detection also attaches its linked asset and events (one detection added 1 asset and 2 events in testing), and removing the detection later does not retract them. ${LAG_NOTE} The case must be open: a closed case refuses evidence writes. The API has an intermittent fault on this call (roughly one in two attempts); the client retries it up to 8 times.
+Detection and event IDs are six section resource names, for example ${RESOURCE_NAME_EXAMPLE}; bare UUIDs are refused here before any call. sophos_fusion_search_detections returns detection IDs in this form. Attaching one detection also attaches its linked asset and events (one detection added 1 asset and 2 events in testing), and removing the detection later does not retract them. ${LAG_NOTE} The case must be open: a closed case refuses evidence writes. The API has an intermittent fault on this call (74% of attempts, measured over 150 calls); the client retries it up to 20 times.
 
 Args:
   - case_id (string): ${ID_NOTE}

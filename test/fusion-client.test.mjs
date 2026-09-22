@@ -282,19 +282,19 @@ test("the transient partnerPreferences fault is retried and a later success is r
   assert.equal(calls.length, 4);
 });
 
-test("the transient fault is bounded at 8 attempts and the exhaustion names the count", async () => {
+test("the transient fault is bounded at 20 attempts and the exhaustion names the count", async () => {
   const calls = stubFetch(() => json(transientBody));
   await assert.rejects(
     () => makeClient({ transientBackoffMs: 1 }).query("tenant-1", "mutation { createCase }"),
     (error) => {
       assert.ok(error instanceof FusionGraphQLError);
       assert.match(error.message, /not allowed \(path: partnerPreferences\) \[DOWNSTREAM_SERVICE_ERROR\]/);
-      assert.match(error.message, /persisted across 8 attempts/);
+      assert.match(error.message, /persisted across 20 attempts/);
       assert.equal(error.isTransientPartnerPreferences, true);
       return true;
     }
   );
-  assert.equal(calls.length, 8);
+  assert.equal(calls.length, 20);
 });
 
 test("an error carrying the operation name in path is not retried", async () => {

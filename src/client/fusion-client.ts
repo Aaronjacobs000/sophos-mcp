@@ -56,9 +56,13 @@ export interface FusionClientOptions {
   backoffBaseMs?: number;
   /**
    * Total attempts for a call that hits the transient partnerPreferences
-   * fault (roughly one call in two on createCase and addEvidenceToCase,
-   * measured on a live tenant 22/09/2026). Default 8: at that rate a call
-   * fails fewer than one time in 250.
+   * fault, which affects createCase and addEvidenceToCase. Measured on a live
+   * tenant 22/09/2026: 111 faults in 150 calls, so 74%, and it drifts, with
+   * four samples over six minutes running 60%, 85%, 72.5% and 80%. Default 20:
+   * about 1 call in 410 fails at the measured 74%, and about 1 in 26 at the
+   * worst rate observed. updateCase does not carry the fault at all, 0 in 30
+   * in the same minute addEvidenceToCase was 24 in 30, so the defect is in the
+   * two resolvers that read partner preferences.
    */
   transientAttempts?: number;
   /** Base for the short full-jitter backoff between those attempts. Default 300 ms, capped at 2 s. */
@@ -120,7 +124,7 @@ export class FusionClient {
     this.timeoutMs = options.timeoutMs ?? 30_000;
     this.retries = options.retries ?? 2;
     this.backoffBaseMs = options.backoffBaseMs ?? 1000;
-    this.transientAttempts = Math.max(1, options.transientAttempts ?? 8);
+    this.transientAttempts = Math.max(1, options.transientAttempts ?? 20);
     this.transientBackoffMs = options.transientBackoffMs ?? 300;
   }
 
