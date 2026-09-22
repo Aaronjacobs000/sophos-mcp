@@ -12,7 +12,9 @@
  * body has been read. Transport failures (expired token, 429, 5xx) use the
  * usual non-2xx status and the standard Sophos error object, and those are
  * retried the same way SophosClient retries them. GraphQL-layer errors are
- * never retried: a query the schema rejects will be rejected again.
+ * not retried, with one measured exception: the intermittent
+ * partnerPreferences fault on the case write path, which is keyed on the
+ * error path and bounded (see FusionGraphQLError.isTransientPartnerPreferences).
  */
 
 import { SOPHOS_FUSION_GRAPHQL_URL } from "../config/config.js";
@@ -52,7 +54,18 @@ export interface FusionClientOptions {
   retries?: number;
   /** Base for the full-jitter exponential backoff. Default 1000 ms. */
   backoffBaseMs?: number;
+  /**
+   * Total attempts for a call that hits the transient partnerPreferences
+   * fault (roughly one call in two on createCase and addEvidenceToCase,
+   * measured on a live tenant 22/09/2026). Default 8: at that rate a call
+   * fails fewer than one time in 250.
+   */
+  transientAttempts?: number;
+  /** Base for the short full-jitter backoff between those attempts. Default 300 ms, capped at 2 s. */
+  transientBackoffMs?: number;
 }
+
+const TRANSIENT_BACKOFF_CAP_MS = 2000;
 
 /** Thrown when the GraphQL layer returns errors and no usable data. */
 export class FusionGraphQLError extends Error {
@@ -75,6 +88,20 @@ export class FusionGraphQLError extends Error {
       this.errors.every((error) => /record not found/i.test(error.message ?? ""))
     );
   }
+
+  /**
+   * True for the intermittent investigations-v2 fault on the case write
+   * path: `errors[0].path[0]` is "partnerPreferences" ("not allowed",
+   * DOWNSTREAM_SERVICE_ERROR). It is not an authorisation failure: the
+   * identical call with identical input succeeds on retry. Keyed on the path
+   * and nothing else, because `extensions.code` is DOWNSTREAM_SERVICE_ERROR
+   * for transient faults, not found and malformed queries alike, while a
+   * genuine input or permission error carries the operation name in the path
+   * (createCase, addEvidenceToCase, tdrusers) with a specific message.
+   */
+  get isTransientPartnerPreferences(): boolean {
+    return this.errors[0]?.path?.[0] === "partnerPreferences";
+  }
 }
 
 export class FusionClient {
@@ -82,6 +109,8 @@ export class FusionClient {
   private readonly timeoutMs: number;
   private readonly retries: number;
   private readonly backoffBaseMs: number;
+  private readonly transientAttempts: number;
+  private readonly transientBackoffMs: number;
 
   constructor(
     private tokenManager: TokenManager,
@@ -91,6 +120,8 @@ export class FusionClient {
     this.timeoutMs = options.timeoutMs ?? 30_000;
     this.retries = options.retries ?? 2;
     this.backoffBaseMs = options.backoffBaseMs ?? 1000;
+    this.transientAttempts = Math.max(1, options.transientAttempts ?? 8);
+    this.transientBackoffMs = options.transientBackoffMs ?? 300;
   }
 
   /** The endpoint this client posts to. */
@@ -103,7 +134,9 @@ export class FusionClient {
    *
    * Returns the `data` object plus any partial-response warnings. Throws
    * FusionGraphQLError when the response carries errors and no usable data,
-   * and a plain Error for transport failures.
+   * and a plain Error for transport failures. The transient partnerPreferences
+   * fault is retried up to transientAttempts times; every other GraphQL-layer
+   * error surfaces at once.
    */
   async query<T extends object>(
     tenantId: string,
@@ -123,8 +156,60 @@ export class FusionClient {
       body: JSON.stringify({ query: document, variables }),
     };
 
-    const body = await this.executeWithRetry<GraphQLResponseBody<T>>(fetchOptions);
-    return interpretGraphQLBody<T>(body);
+    for (let attempt = 1; ; attempt++) {
+      const body = await this.executeWithRetry<GraphQLResponseBody<T>>(fetchOptions);
+      try {
+        return interpretGraphQLBody<T>(body);
+      } catch (error) {
+        if (!(error instanceof FusionGraphQLError) || !error.isTransientPartnerPreferences) {
+          throw error;
+        }
+        if (attempt >= this.transientAttempts) {
+          throw new FusionGraphQLError(
+            `${error.message} (transient investigations-v2 fault persisted across ${attempt} attempts; the same call normally succeeds on retry, so try again)`,
+            error.errors
+          );
+        }
+        const cap = Math.min(this.transientBackoffMs * Math.pow(2, attempt - 1), TRANSIENT_BACKOFF_CAP_MS);
+        const backoff = Math.round(Math.random() * cap);
+        console.error(
+          `[fusion-client] Transient partnerPreferences fault, retrying in ${backoff}ms (attempt ${attempt} of ${this.transientAttempts})`
+        );
+        await this.sleep(backoff);
+      }
+    }
+  }
+
+  /**
+   * PUT raw bytes to a presigned upload URL (case files). The signature lives
+   * in the URL, so no bearer token is sent, and the Content-Type must match
+   * what startCaseFileUpload was told. One attempt, no retry.
+   */
+  async putPresigned(url: string, body: Uint8Array, contentType: string): Promise<void> {
+    const controller = new AbortController();
+    const timeoutMs = Math.max(this.timeoutMs, 120_000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let response: globalThis.Response;
+    try {
+      response = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": contentType },
+        // A fresh copy sits on a plain ArrayBuffer, which is what fetch's body type accepts.
+        body: new Uint8Array(body),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(`Case file upload timed out after ${timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Case file upload failed with HTTP ${response.status}: ${text.slice(0, 300)}`);
+    }
   }
 
   private async executeWithRetry<T>(options: globalThis.RequestInit): Promise<T> {

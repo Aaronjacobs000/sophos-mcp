@@ -258,3 +258,117 @@ test("the endpoint defaults to the Sophos Fusion URL and honours the option", ()
   assert.equal(new FusionClient(tokenManager).endpoint, "https://api.taegis.sophos.com/graphql");
   assert.equal(makeClient().endpoint, url);
 });
+
+// --- The partnerPreferences retry rule (live tenant, 22/09/2026) ---
+
+const transientBody = {
+  data: { createCase: null },
+  errors: [
+    {
+      message: "not allowed",
+      path: ["partnerPreferences"],
+      extensions: { code: "DOWNSTREAM_SERVICE_ERROR", serviceName: "investigations-v2" },
+    },
+  ],
+};
+
+test("the transient partnerPreferences fault is retried and a later success is returned", async () => {
+  const calls = stubFetch((attempt) =>
+    attempt < 4 ? json(transientBody) : json({ data: { createCase: { id: "c1" } } })
+  );
+  const result = await makeClient({ transientBackoffMs: 1 }).query("tenant-1", "mutation { createCase }");
+  assert.deepEqual(result.data, { createCase: { id: "c1" } });
+  assert.deepEqual(result.warnings, []);
+  assert.equal(calls.length, 4);
+});
+
+test("the transient fault is bounded at 8 attempts and the exhaustion names the count", async () => {
+  const calls = stubFetch(() => json(transientBody));
+  await assert.rejects(
+    () => makeClient({ transientBackoffMs: 1 }).query("tenant-1", "mutation { createCase }"),
+    (error) => {
+      assert.ok(error instanceof FusionGraphQLError);
+      assert.match(error.message, /not allowed \(path: partnerPreferences\) \[DOWNSTREAM_SERVICE_ERROR\]/);
+      assert.match(error.message, /persisted across 8 attempts/);
+      assert.equal(error.isTransientPartnerPreferences, true);
+      return true;
+    }
+  );
+  assert.equal(calls.length, 8);
+});
+
+test("an error carrying the operation name in path is not retried", async () => {
+  for (const path of [["createCase"], ["addEvidenceToCase"], ["tdrusers"]]) {
+    const calls = stubFetch(() =>
+      json({
+        data: null,
+        errors: [{ message: "not allowed", path, extensions: { code: "DOWNSTREAM_SERVICE_ERROR" } }],
+      })
+    );
+    await assert.rejects(
+      () => makeClient({ transientBackoffMs: 1 }).query("tenant-1", "mutation { x }"),
+      (error) => {
+        assert.ok(error instanceof FusionGraphQLError);
+        assert.equal(error.isTransientPartnerPreferences, false);
+        return true;
+      }
+    );
+    assert.equal(calls.length, 1, `path ${path[0]} is not retried`);
+  }
+});
+
+test("DOWNSTREAM_SERVICE_ERROR alone does not trigger the retry; only the partnerPreferences path does", async () => {
+  const calls = stubFetch(() =>
+    json({
+      data: { case: null },
+      errors: [{ message: "record not found", path: ["case"], extensions: { code: "DOWNSTREAM_SERVICE_ERROR" } }],
+    })
+  );
+  await assert.rejects(() => makeClient().query("tenant-1", "query { case }"), FusionGraphQLError);
+  assert.equal(calls.length, 1);
+});
+
+test("isTransientPartnerPreferences reads the first error's first path segment only", () => {
+  const make = (errors) => new FusionGraphQLError("m", errors);
+  assert.equal(make([{ message: "not allowed", path: ["partnerPreferences"] }]).isTransientPartnerPreferences, true);
+  assert.equal(
+    make([{ message: "not allowed", path: ["createCase", "partnerPreferences"] }]).isTransientPartnerPreferences,
+    false
+  );
+  assert.equal(
+    make([{ message: "bad input", path: ["createCase"] }, { message: "not allowed", path: ["partnerPreferences"] }])
+      .isTransientPartnerPreferences,
+    false
+  );
+  assert.equal(make([{ message: "not allowed" }]).isTransientPartnerPreferences, false);
+  assert.equal(make([]).isTransientPartnerPreferences, false);
+});
+
+test("the transient attempt bound is configurable", async () => {
+  const calls = stubFetch(() => json(transientBody));
+  await assert.rejects(
+    () => makeClient({ transientAttempts: 3, transientBackoffMs: 1 }).query("tenant-1", "mutation { createCase }"),
+    /persisted across 3 attempts/
+  );
+  assert.equal(calls.length, 3);
+});
+
+test("putPresigned PUTs the bytes with the content type and no bearer token", async () => {
+  const calls = stubFetch(() => new Response(null, { status: 200 }));
+  await makeClient().putPresigned("https://s3.test/upload?sig=1", new Uint8Array([104, 105]), "text/plain");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://s3.test/upload?sig=1");
+  assert.equal(calls[0].init.method, "PUT");
+  assert.equal(calls[0].init.headers["Content-Type"], "text/plain");
+  assert.equal(calls[0].init.headers.Authorization, undefined);
+  assert.deepEqual([...calls[0].init.body], [104, 105]);
+});
+
+test("putPresigned reports a failed upload with the HTTP status", async () => {
+  const calls = stubFetch(() => new Response("denied", { status: 403 }));
+  await assert.rejects(
+    () => makeClient().putPresigned("https://s3.test/upload", new Uint8Array([1]), "text/plain"),
+    /Case file upload failed with HTTP 403: denied/
+  );
+  assert.equal(calls.length, 1, "no retry on the presigned PUT");
+});
