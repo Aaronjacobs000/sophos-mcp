@@ -1230,24 +1230,64 @@
       "description": "Update a Sophos Fusion case. PATCH style: only the fields supplied change."
     },
     {
+      "name": "sophos_fusion_split_case",
+      "description": "Move some of a Sophos Fusion case's evidence into a new case created by the same call."
+    },
+    {
+      "name": "sophos_fusion_merge_cases",
+      "description": "Merge one or more Sophos Fusion cases into a target case."
+    },
+    {
       "name": "sophos_fusion_list_case_comments",
-      "description": "List the comments on a Sophos Fusion case. Comments had no REST equivalent."
+      "description": "List the comments on a Sophos Fusion case. Comments are the two way channel with the Sophos MDR analyst on a PROVIDER managed case; they had no REST equivalent."
     },
     {
       "name": "sophos_fusion_add_case_comment",
-      "description": "Add a comment to a Sophos Fusion case. The text may contain @mentions to notify users."
+      "description": "Add a comment to a Sophos Fusion case. On a PROVIDER managed case this is how you talk to the Sophos MDR analyst."
+    },
+    {
+      "name": "sophos_fusion_update_case_comment",
+      "description": "Edit the text of a Sophos Fusion case comment, mark it read, or both. Marking read is an update, not its own call."
+    },
+    {
+      "name": "sophos_fusion_delete_case_comment",
+      "description": "Delete a comment from a Sophos Fusion case. Cannot be undone."
     },
     {
       "name": "sophos_fusion_add_case_evidence",
-      "description": "Attach detections, events, hosts (assets) or saved searches to an existing Sophos Fusion case."
+      "description": "Attach detections, events, hosts (assets) or saved searches to an existing Sophos Fusion case. Evidence added this way is not genesis evidence."
     },
     {
       "name": "sophos_fusion_remove_case_evidence",
-      "description": "Detach detections, events, assets or saved searches from a Sophos Fusion case."
+      "description": "Detach detections, events, assets or saved searches from a Sophos Fusion case, or everything with remove_all."
+    },
+    {
+      "name": "sophos_fusion_list_case_files",
+      "description": "List the files attached to a Sophos Fusion case, or every file in the tenant when case_id is omitted."
+    },
+    {
+      "name": "sophos_fusion_upload_case_file",
+      "description": "Attach a file to a Sophos Fusion case: registers the upload, PUTs the bytes to the presigned URL the API returns, then polls until the file status leaves SCH..."
+    },
+    {
+      "name": "sophos_fusion_delete_case_file",
+      "description": "Delete a file from a Sophos Fusion case."
     },
     {
       "name": "sophos_fusion_create_case_link",
       "description": "Attach an external link (a ServiceNow ticket, a runbook, a report) to a Sophos Fusion case. Links had no REST equivalent."
+    },
+    {
+      "name": "sophos_fusion_update_case_link",
+      "description": "Change the URL, title, type, reference or internal flag of an existing Sophos Fusion case link. Only the fields supplied change."
+    },
+    {
+      "name": "sophos_fusion_delete_case_link",
+      "description": "Remove a link from a Sophos Fusion case. Cannot be undone."
+    },
+    {
+      "name": "sophos_fusion_search_detections",
+      "description": "Search detections in Sophos Fusion with a Fusion Query Language (QL) query."
     }
   ],
   "keywords": [

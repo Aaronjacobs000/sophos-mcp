@@ -14,20 +14,26 @@
  *   node scripts/fusion-smoke.mjs --all [tenant-id]            everything
  *
  * Read-only:
- *   1. sophos_fusion_list_case_reference_data
+ *   1. sophos_fusion_list_case_reference_data (also decides whether the tenant
+ *      has migrated to Fusion: any case type means yes)
  *   2. sophos_fusion_list_cases (newest 5), plus filter variants
  *   3. sophos_fusion_get_case on the newest case, by short ID
  *   4. sophos_fusion_get_case_evidence and sophos_fusion_get_case_summary
- *   5. sophos_fusion_list_case_comments
- *   6. Classic: sophos_list_cases, sophos_get_case, sophos_list_case_detections,
- *      sophos_get_case_detection, sophos_get_case_mitre_summary,
- *      sophos_list_case_impacted_entities
+ *   5. sophos_fusion_list_case_comments and sophos_fusion_list_case_files
+ *   6. sophos_fusion_search_detections
+ *   7. Classic: on a migrated tenant, the migration refusal on sophos_list_cases
+ *      and sophos_run_detections_query; otherwise sophos_list_cases, sophos_get_case,
+ *      sophos_list_case_detections, sophos_get_case_detection,
+ *      sophos_get_case_mitre_summary, sophos_list_case_impacted_entities
  *
- * --write creates ONE clearly named Fusion case ("MCP smoke test <timestamp>"),
- * exercises comment, link, update, evidence add and remove on that case only,
- * then closes it with a verdict and archives it (Fusion has no delete).
- * Evidence is borrowed from the newest existing case and detached again;
- * that case itself is never modified.
+ * --write creates ONE clearly named Fusion case ("MCP smoke test <timestamp>",
+ * managed_by CUSTOMER), exercises comment add, update and delete (with the
+ * mention read-back), link create, update and delete, tag merge and replace,
+ * evidence add and remove_all, file upload, list and soft delete, the
+ * verdict clear on reopen and the one way door on new, then closes it with a
+ * verdict and archives it (Fusion has no delete). Evidence is borrowed from
+ * the newest existing case or the detection search and detached again; no
+ * existing case is modified.
  *
  * --write-classic creates ONE Classic case, updates it, then deletes it. The
  * Cases API requires an assignee and a detection that still exists, so set
@@ -128,6 +134,10 @@ try {
   const ref = await call("sophos_fusion_list_case_reference_data", scope, { quiet: true });
   check(ref.json?.types?.length > 0, "reference data lists at least one case type");
   check(ref.json?.primary_statuses?.some((s) => s.is_closed), "reference data has a closed status");
+  // Any Fusion case type means the tenant has migrated and the Classic
+  // case and detection tools must refuse it.
+  const migrated = (ref.json?.types?.length ?? 0) > 0;
+  console.log(`\nTenant ${migrated ? "has" : "has not"} migrated to Fusion (by the case type signal).`);
 
   const list = await call("sophos_fusion_list_cases", { ...scope, per_page: 5 }, { quiet: true });
   check(typeof list.json?.total === "number", "list_cases returns a total");
@@ -179,8 +189,26 @@ try {
     borrowedEventId = summary.json?.evidence?.event_ids?.[0] ?? null;
 
     await call("sophos_fusion_list_case_comments", { ...scope, case_id: newest.id, per_page: 5 }, { quiet: true });
+
+    const files = await call("sophos_fusion_list_case_files", { ...scope, case_id: newest.id }, { quiet: true });
+    check(Array.isArray(files.json?.files), "list_case_files returns a file list for the case");
   } else {
     console.log("\nNo Fusion cases in this tenant; per-case reads skipped.");
+  }
+
+  const tenantFiles = await call("sophos_fusion_list_case_files", { ...scope, per_page: 5 }, { quiet: true });
+  check(typeof tenantFiles.json?.tenant_total_files === "number", "list_case_files returns the tenant file count");
+
+  const RN = /^[a-z][a-z0-9+.-]*:\/\/[^:\s]+(?::[^:\s]+){4}$/i;
+  const search = await call("sophos_fusion_search_detections", { ...scope, limit: 5 }, { quiet: true });
+  check(Array.isArray(search.json?.detections), "search_detections returns a detection list");
+  if (search.json?.detections?.length) {
+    check(search.json.detections.every((d) => RN.test(d.id)), "detection IDs are six section resource names");
+    check(
+      search.json.detections.every((d) => d.severity_0_to_1 === null || d.severity_0_to_1 <= 1),
+      "search detection severity is on the 0 to 1 scale"
+    );
+    if (!borrowedDetectionId) borrowedDetectionId = search.json.detections[0].id;
   }
 
   await call(
@@ -191,7 +219,14 @@ try {
   await call("sophos_fusion_get_case", { ...scope, case_id: "1-598868" }, { expectError: true });
 
   // --- Classic REST, read-only ---
-  const classic = await call("sophos_list_cases", { ...scope, limit: 5 }, { quiet: true });
+  if (migrated) {
+    const refusedList = await call("sophos_list_cases", { ...scope, limit: 5 }, { expectError: true });
+    check(/has migrated to Sophos Fusion/.test(refusedList.text), "sophos_list_cases refuses a migrated tenant");
+    check(/sophos_fusion_list_cases/.test(refusedList.text), "the refusal names the Fusion tool");
+    const refusedRun = await call("sophos_run_detections_query", { ...scope }, { expectError: true });
+    check(/sophos_fusion_search_detections/.test(refusedRun.text), "sophos_run_detections_query refuses and points at the Fusion search");
+  }
+  const classic = migrated ? { json: null } : await call("sophos_list_cases", { ...scope, limit: 5 }, { quiet: true });
   const classicNewest = classic.json?.cases?.[0];
   if (classicNewest) {
     await call("sophos_get_case", { ...scope, case_id: classicNewest.id }, { quiet: true });
@@ -220,11 +255,20 @@ try {
   let fusionCreated = null;
   const fusionTitle = `MCP smoke test ${stamp}`;
   if (writeFusion) {
+    // managed_by must contradict the type to be refused before any call is made.
+    const contradiction = await call(
+      "sophos_fusion_create_case",
+      { ...scope, title: "never created", type: "health_check", severity: 2, managed_by: "CUSTOMER" },
+      { expectError: true }
+    );
+    check(/always managed by PROVIDER/.test(contradiction.text), "managed_by that contradicts the type is refused client side");
+
     fusionCreated = await call("sophos_fusion_create_case", {
       ...scope,
       title: fusionTitle,
       type: "investigation",
       severity: "informational",
+      managed_by: "CUSTOMER",
       tags: ["mcp-smoke-test"],
       key_findings: `# MCP smoke test\n\nCreated by scripts/fusion-smoke.mjs at ${stamp}. Safe to ignore.`,
     });
@@ -255,18 +299,40 @@ try {
     const title = fusionTitle;
     record(`Fusion case created: ${created.json.short_id} (${caseId}) "${title}", status ${created.json.status?.name}`);
     check(created.json.status?.is_closed === false, `default status is open (${created.json.status?.name})`);
+    check(created.json.managed_by === "CUSTOMER", "managed_by stored as CUSTOMER");
     check(created.json.severity === 2, "severity label resolved to 2");
     check(created.json.key_findings?.content?.includes("MCP smoke test"), "key findings stored");
 
+    // Mentions: a made-up token is dropped silently by the API and must be
+    // reported back as unresolved; no real group is named, so nobody is notified.
     const comment = await call("sophos_fusion_add_case_comment", {
       ...scope,
       case_id: created.json.short_id,
-      comment: `MCP smoke test comment ${stamp}`,
+      comment: `MCP smoke test comment ${stamp} @zzz_not_a_group`,
     });
     if (comment.ok) record(`Comment ${comment.json?.id} added to ${created.json.short_id}`);
+    check(
+      Array.isArray(comment.json?.mentions_unresolved) && comment.json.mentions_unresolved.includes("@zzz_not_a_group"),
+      "an unrecognised mention is reported as unresolved"
+    );
+    check(comment.json?.mentions_resolved?.length === 0, "no mention resolved");
 
     const comments = await call("sophos_fusion_list_case_comments", { ...scope, case_id: caseId });
     check(comments.json?.total === 1, "one comment listed on the new case");
+
+    const editedComment = await call("sophos_fusion_update_case_comment", {
+      ...scope,
+      comment_id: comment.json?.id,
+      comment: `MCP smoke test comment ${stamp} (edited)`,
+      mark_as_read: true,
+    });
+    if (editedComment.ok) record(`Comment ${comment.json?.id} edited and marked read`);
+    check(/\(edited\)$/.test(editedComment.json?.comment ?? ""), "comment text updated");
+
+    const deletedComment = await call("sophos_fusion_delete_case_comment", { ...scope, comment_id: comment.json?.id });
+    if (deletedComment.ok) record(`Comment ${comment.json?.id} deleted`);
+    const commentsAfter = await call("sophos_fusion_list_case_comments", { ...scope, case_id: caseId }, { quiet: true });
+    check(commentsAfter.json?.total === 0, "no comments left after the delete");
 
     const link = await call("sophos_fusion_create_case_link", {
       ...scope,
@@ -284,37 +350,110 @@ try {
       title: `${title} (updated)`,
       severity: 4,
       status: "in_progress",
-      tags: ["mcp-smoke-test", "updated"],
+      tags: ["updated"],
       key_findings: `# MCP smoke test (updated)\n\nUpdated at ${new Date().toISOString()}.`,
     });
     if (updated.ok) record(`Case ${created.json.short_id} updated: title, severity 4, status in_progress, tags, key findings`);
     check(updated.json?.severity === 4, "severity updated to 4");
     check(updated.json?.status?.name === "in_progress", "status updated to in_progress");
     check(updated.json?.links?.length === 1, "link visible on the updated case");
+    check(
+      JSON.stringify(updated.json?.tags) === JSON.stringify(["mcp-smoke-test", "updated"]),
+      "tags merged with the existing list rather than replacing it"
+    );
+
+    const replacedTags = await call("sophos_fusion_update_case", {
+      ...scope,
+      case_id: caseId,
+      tags: ["mcp-smoke-test"],
+      replace_tags: true,
+    });
+    if (replacedTags.ok) record(`Case ${created.json.short_id} tags replaced`);
+    check(JSON.stringify(replacedTags.json?.tags) === JSON.stringify(["mcp-smoke-test"]), "replace_tags replaces the list");
+
+    const backToNew = await call(
+      "sophos_fusion_update_case",
+      { ...scope, case_id: caseId, status: "new" },
+      { expectError: true }
+    );
+    check(/cannot move a case back to new/.test(backToNew.text), "new is a one way door (refused before any mutation)");
+
+    const editedLink = await call("sophos_fusion_update_case_link", {
+      ...scope,
+      link_id: link.json?.id,
+      title: "MCP smoke test link (updated)",
+      reference: "MCP-2",
+    });
+    if (editedLink.ok) record(`Link ${link.json?.id} updated`);
+    check(editedLink.json?.reference === "MCP-2", "link reference updated");
+
+    const deletedLink = await call("sophos_fusion_delete_case_link", { ...scope, link_id: link.json?.id });
+    if (deletedLink.ok) record(`Link ${link.json?.id} deleted`);
+    const afterLink = await call("sophos_fusion_get_case", { ...scope, case_id: caseId }, { quiet: true });
+    check(afterLink.json?.links?.length === 0, "no links left after the delete");
 
     const evidenceIn = {};
     if (borrowedEventId) evidenceIn.event_ids = [borrowedEventId];
     if (borrowedDetectionId) evidenceIn.detection_ids = [borrowedDetectionId];
     if (Object.keys(evidenceIn).length > 0) {
+      const bareUuid = await call(
+        "sophos_fusion_add_case_evidence",
+        { ...scope, case_id: caseId, detection_ids: ["00000000-0000-4000-8000-000000000000"] },
+        { expectError: true }
+      );
+      check(/six section resource names/.test(bareUuid.text), "a bare UUID detection ID is refused client side");
+
       const added = await call("sophos_fusion_add_case_evidence", { ...scope, case_id: caseId, ...evidenceIn });
       if (added.ok) record(`Evidence attached to ${created.json.short_id}: ${JSON.stringify(evidenceIn)}`);
       const afterAdd = await waitForProcessing(caseId);
       check(afterAdd !== null, "evidence processing finished");
+      await sleep(3000);
       const ev = await call("sophos_fusion_get_case_evidence", { ...scope, case_id: caseId });
-      if (borrowedEventId) check(ev.json?.counts?.events === 1, "one event attached");
+      if (borrowedEventId) check(ev.json?.counts?.events >= 1, "at least one event attached");
       if (borrowedDetectionId) check(ev.json?.counts?.detections === 1, "one detection attached");
+      if (borrowedDetectionId) {
+        console.log(`   detection expansion: ${ev.json?.counts?.assets} asset(s), ${ev.json?.counts?.events} event(s) came with it`);
+      }
 
-      const removeIn = {};
-      if (borrowedEventId) removeIn.event_ids = [borrowedEventId];
-      if (borrowedDetectionId) removeIn.detection_ids = [borrowedDetectionId];
-      const removed = await call("sophos_fusion_remove_case_evidence", { ...scope, case_id: caseId, ...removeIn });
-      if (removed.ok) record(`Evidence detached from ${created.json.short_id}: ${JSON.stringify(removeIn)}`);
+      // remove_all enumerates the evidence and removes every category, which
+      // is the only way to take back what a detection brought with it.
+      const removed = await call("sophos_fusion_remove_case_evidence", { ...scope, case_id: caseId, remove_all: true });
+      if (removed.ok) record(`All evidence detached from ${created.json.short_id}`);
       await waitForProcessing(caseId);
+      await sleep(3000);
       const evAfter = await call("sophos_fusion_get_case_evidence", { ...scope, case_id: caseId });
-      check(evAfter.json?.counts?.events === 0, "events back to 0 after removal");
-      check(evAfter.json?.counts?.detections === 0, "detections back to 0 after removal");
+      check(evAfter.json?.counts?.events === 0, "events back to 0 after remove_all");
+      check(evAfter.json?.counts?.detections === 0, "detections back to 0 after remove_all");
+      check(evAfter.json?.counts?.assets === 0, "assets back to 0 after remove_all");
     } else {
       console.log("\nNo evidence to borrow; add/remove evidence skipped.");
+    }
+
+    const uploaded = await call("sophos_fusion_upload_case_file", {
+      ...scope,
+      case_id: caseId,
+      name: "mcp-smoke-test.txt",
+      content: `MCP smoke test file ${stamp}\n`,
+    });
+    if (uploaded.ok) record(`File ${uploaded.json?.id} uploaded to ${created.json.short_id}`);
+    check(uploaded.json?.upload_status === "UPLOADED", "file status reached UPLOADED");
+    const caseFiles = await call("sophos_fusion_list_case_files", { ...scope, case_id: caseId });
+    check(caseFiles.json?.files?.some((f) => f.id === uploaded.json?.id), "uploaded file listed on the case");
+
+    if (uploaded.json?.id) {
+      const deletedFile = await call("sophos_fusion_delete_case_file", { ...scope, file_id: uploaded.json.id });
+      if (deletedFile.ok) record(`File ${uploaded.json.id} soft deleted`);
+      const filesAfter = await call("sophos_fusion_list_case_files", { ...scope, case_id: caseId }, { quiet: true });
+      check(!filesAfter.json?.files?.some((f) => f.id === uploaded.json.id), "deleted file hidden by default");
+      const filesWithDeleted = await call(
+        "sophos_fusion_list_case_files",
+        { ...scope, case_id: caseId, include_deleted: true },
+        { quiet: true }
+      );
+      check(
+        filesWithDeleted.json?.files?.some((f) => f.id === uploaded.json.id && f.status === "DELETED"),
+        "deleted file visible with include_deleted, status DELETED (soft delete)"
+      );
     }
 
     await call("sophos_fusion_get_case_summary", { ...scope, case_id: caseId }, { quiet: true });
@@ -338,6 +477,23 @@ try {
     check(closed.json?.closed_at !== null, "closed_at set");
     check(closed.json?.verdict?.name === "false_positive", "verdict recorded");
 
+    // Reopening a closed case that holds a verdict needs the verdict cleared
+    // in the same update; the tool does that and says so.
+    const reopened = await call("sophos_fusion_update_case", { ...scope, case_id: caseId, status: "in_progress" });
+    if (reopened.ok) record(`Case ${created.json.short_id} reopened (verdict cleared by the tool)`);
+    check(reopened.json?.status?.name === "in_progress", "reopened to in_progress");
+    check(reopened.json?.verdict === null, "verdict cleared on reopen");
+    check((reopened.json?.notes ?? []).some((n) => /Cleared the verdict/.test(n)), "the tool reports the verdict clear");
+
+    const closedAgain = await call("sophos_fusion_update_case", {
+      ...scope,
+      case_id: caseId,
+      status: "closed",
+      verdict: "false_positive",
+      close_reason: "MCP smoke test complete",
+    });
+    if (closedAgain.ok) record(`Case ${created.json.short_id} closed again with verdict false_positive`);
+
     const byVerdict = await call(
       "sophos_fusion_list_cases",
       { ...scope, verdict: "false_positive", title_contains: "MCP smoke test", per_page: 5 },
@@ -345,9 +501,23 @@ try {
     );
     check(byVerdict.json?.cases?.some((c) => c.id === caseId), "verdict filter finds the closed case");
 
-    const archived = await call("sophos_fusion_update_case", { ...scope, case_id: caseId, archived: true });
-    if (archived.ok) record(`Case ${created.json.short_id} archived`);
+    // Retitle and archive in one call: the tool applies the retitle first,
+    // because an archived case refuses every update.
+    const archived = await call("sophos_fusion_update_case", {
+      ...scope,
+      case_id: caseId,
+      title: `${title} (archived)`,
+      archived: true,
+    });
+    if (archived.ok) record(`Case ${created.json.short_id} retitled and archived`);
     check(archived.json?.archived_at !== null, "archived_at set");
+    check(/\(archived\)$/.test(archived.json?.title ?? ""), "retitle applied before the archive");
+    const frozen = await call(
+      "sophos_fusion_update_case",
+      { ...scope, case_id: caseId, title: "should not apply" },
+      { expectError: true }
+    );
+    check(/archived/.test(frozen.text), "an archived case refuses updates with a hint");
   }
 
   // --- Classic REST, writes on one new case ---

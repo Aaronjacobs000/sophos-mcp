@@ -20,6 +20,8 @@ export interface FusionCaseType extends FusionReferenceItem {
 
 export interface FusionCasePrimaryStatus extends FusionReferenceItem {
   isClosed: boolean;
+  /** Provider-side statuses are never returned by casePrimaryStatuses; a case can still carry one. */
+  isCaseVisibleToCustomers?: boolean;
 }
 
 export interface FusionCaseReferenceDataResponse {
@@ -155,7 +157,9 @@ export interface FusionCaseComment {
   createdAt: string;
   updatedAt: string;
   isInternal: boolean;
+  /** Group mentions the parser resolved, leading @ kept (for example "@authorized_contacts"). */
   mentionsIds: string[];
+  readByIds: string[];
 }
 
 export interface FusionCaseCommentsResponse {
@@ -168,6 +172,14 @@ export interface FusionCaseCommentsResponse {
 
 export interface FusionAddCaseCommentResponse {
   addCaseComment: FusionCaseComment | null;
+}
+
+export interface FusionUpdateCaseCommentResponse {
+  updateCaseComment: FusionCaseComment | null;
+}
+
+export interface FusionDeleteCaseCommentResponse {
+  deleteCaseComment: FusionCaseComment | null;
 }
 
 export interface FusionCreateCaseResponse {
@@ -199,7 +211,70 @@ export interface FusionCreateCaseLinkResponse {
   createCaseLink: FusionCaseLink | null;
 }
 
-// --- Detections v2 (only what the case summary reads) ---
+export interface FusionUpdateCaseLinkResponse {
+  updateCaseLink: FusionCaseLink | null;
+}
+
+export interface FusionDeleteCaseLinkResponse {
+  deleteCaseLink: FusionCaseLink | null;
+}
+
+/** Case files. deleteCaseFile is a soft delete: the row stays with status DELETED and a deletedAt. */
+export interface FusionCaseFile {
+  id: string;
+  caseId: string;
+  name: string;
+  size: number;
+  /** SCHEDULED until the presigned PUT lands, then UPLOADED; DELETED after a soft delete. */
+  status: string;
+  isEmbedded: boolean;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  uploadedById: string;
+  deletedById: string | null;
+  metadata: { contentType: string | null; contentMD5: string | null } | null;
+  /** Presigned S3 GET, valid 15 minutes. Only selected when the caller asks for it. */
+  downloadURL?: string | null;
+}
+
+export interface FusionCaseFilesResponse {
+  caseFiles: { totalCount: number; files: FusionCaseFile[] } | null;
+}
+
+export interface FusionCaseFileResponse {
+  caseFile: FusionCaseFile | null;
+}
+
+export interface FusionStartCaseFileUploadResponse {
+  startCaseFileUpload: { file: FusionCaseFile; presignedUrl: string } | null;
+}
+
+export interface FusionDeleteCaseFileResponse {
+  deleteCaseFile: FusionCaseFile | null;
+}
+
+export interface FusionSplitCaseResponse {
+  splitCase: {
+    caseId: string;
+    destinationCaseId: string;
+    detectionIds: string[];
+    eventIds: string[];
+    searchQueries: string[];
+    fileIds: string[];
+  } | null;
+}
+
+export interface FusionMergeCaseResponse {
+  mergeCase: {
+    targetCaseId: string;
+    sourceCaseIds: string[];
+    /** Job handle: the evidence association is asynchronous (landed within about 4 s in testing). */
+    processingEventId: string;
+  } | null;
+}
+
+// --- Detections v2 (the case summary's batched lookup and the QL search) ---
 
 export interface FusionTimestamp {
   seconds: number;
@@ -248,6 +323,19 @@ export interface FusionDetectionsByIdResponse {
   detectionRetrieveById: {
     alerts: {
       total_results: number | null;
+      list: FusionDetectionRecord[] | null;
+    } | null;
+  } | null;
+}
+
+export interface FusionDetectionSearchResponse {
+  detectionSearch: {
+    status: string | null;
+    reason: string | null;
+    search_id: string | null;
+    alerts: {
+      total_results: number | null;
+      next_offset: number | null;
       list: FusionDetectionRecord[] | null;
     } | null;
   } | null;

@@ -1,22 +1,28 @@
 /**
  * Pure helpers behind the Fusion case tools: severity, timestamps, ID checks,
- * the QL builder, the reference-data cache and the MITRE roll-up.
+ * resource names, mentions, tag merging, the QL builder, the reference-data
+ * cache, the migration guard and the MITRE roll-up.
  */
 
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
   caseSeverityLabel,
+  formatDetection,
   isCaseShortId,
   isLegacyCaseId,
+  isResourceName,
   isUuid,
   looksLikeEmail,
+  mergeTags,
   normaliseCaseSeverity,
+  parseMentionTokens,
   qlString,
   timestampToIso,
 } from "../dist/fusion/format.js";
 import { buildCasesQl } from "../dist/fusion/cases-ql.js";
 import { CaseReferenceDataCache, matchReference } from "../dist/fusion/case-reference-data.js";
+import { FusionMigrationGuard, UPGRADE_CENTRE_URL } from "../dist/fusion/migration.js";
 import { buildMitreSummary } from "../dist/tools/fusion-cases.js";
 
 const TYPE_ID = "11111111-1111-4111-8111-111111111111";
@@ -67,6 +73,56 @@ test("looksLikeEmail guards the assignee field", () => {
   assert.equal(looksLikeEmail("jane.doe@example.com"), true);
   assert.equal(looksLikeEmail("@customer"), false);
   assert.equal(looksLikeEmail(TYPE_ID), false);
+});
+
+test("isResourceName accepts six section RNs and refuses UUIDs, short RNs and long RNs", () => {
+  // Real shapes from the live tenant, 22/09/2026.
+  assert.equal(
+    isResourceName("alert://priv:event-filter:123456:1789526908712:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+    true
+  );
+  assert.equal(
+    isResourceName("event://priv:scwx.process:123456:1789526819919:99999999-8888-7777-6666-555555555555"),
+    true
+  );
+  assert.equal(isResourceName(TYPE_ID), false, "a bare UUID (or an evidence entry id) is not an RN");
+  assert.equal(isResourceName("alert://priv:event-filter:123456"), false);
+  assert.equal(isResourceName("alert://priv:a:b:c:d:e"), false, "seven sections");
+  assert.equal(isResourceName("alert:priv:event-filter:123456:1:2"), false, "no scheme separator");
+});
+
+test("parseMentionTokens keeps word-initial tokens, lower cases them and skips email addresses", () => {
+  assert.deepEqual(
+    parseMentionTokens("Please review @Authorized_Contacts and @customer, cc aj@sophos.com (@sophos)."),
+    ["@authorized_contacts", "@customer", "@sophos"]
+  );
+  assert.deepEqual(parseMentionTokens("no mentions here"), []);
+  assert.deepEqual(parseMentionTokens("@customer twice @customer"), ["@customer"]);
+  assert.deepEqual(parseMentionTokens("@zzz_not_a_group"), ["@zzz_not_a_group"]);
+});
+
+test("mergeTags unions without duplicates and keeps order", () => {
+  assert.deepEqual(mergeTags(["a", "b"], ["b", "c"]), ["a", "b", "c"]);
+  assert.deepEqual(mergeTags(null, ["x"]), ["x"]);
+  assert.deepEqual(mergeTags(["a"], []), ["a"]);
+});
+
+test("formatDetection reads the 0 to 1 severity from metadata and converts the timestamps", () => {
+  const row = formatDetection(
+    {
+      id: "alert://priv:event-filter:1:2:3",
+      status: "OPEN",
+      metadata: { title: "T", severity: 0.4, created_at: { seconds: 1700000000, nanos: 0 } },
+      source_entities: [{ display_name: "host-1", subtype: "host", identifiers: ["h1"] }],
+      event_ids: [{ id: "e1" }, { id: "e2" }],
+    },
+    { createdAt: "2026-09-22T00:00:00Z", isGenesis: true }
+  );
+  assert.equal(row.severity_0_to_1, 0.4);
+  assert.equal(row.created_at, "2023-11-14T22:13:20.000Z");
+  assert.equal(row.event_count, 2);
+  assert.equal(row.is_genesis, true);
+  assert.deepEqual(row.source_entities, [{ name: "host-1", subtype: "host", identifiers: ["h1"] }]);
 });
 
 // --- cases-ql.ts ---
@@ -225,6 +281,66 @@ test("matchReference prefers name over title", () => {
     { id: "2", name: "closed", title: "Open" },
   ];
   assert.equal(matchReference("x", items, "closed").id, "2");
+});
+
+// --- migration.ts ---
+
+function fakeReferenceData(types, { throws } = {}) {
+  let calls = 0;
+  return {
+    get calls() {
+      return calls;
+    },
+    get: async () => {
+      calls += 1;
+      if (throws) throw new Error(throws);
+      return { types, primaryStatuses: [], primaryVerdicts: [], fetchedAt: "" };
+    },
+  };
+}
+
+test("migration guard refuses a migrated tenant and names the Fusion tool", async () => {
+  const guard = new FusionMigrationGuard(fakeReferenceData([{ id: TYPE_ID, name: "investigation" }]), true);
+  const status = await guard.status("t1");
+  assert.equal(status.migrated, true);
+  assert.deepEqual(status.caseTypes, ["investigation"]);
+  await assert.rejects(
+    () => guard.assertClassic("t1", "sophos_list_cases", "sophos_fusion_list_cases"),
+    (error) => {
+      assert.match(error.message, /Tenant t1 has migrated to Sophos Fusion/);
+      assert.match(error.message, /sophos_list_cases calls the Classic Sophos Central API/);
+      assert.match(error.message, /Use sophos_fusion_list_cases/);
+      assert.ok(error.message.includes(UPGRADE_CENTRE_URL));
+      return true;
+    }
+  );
+});
+
+test("migration guard lets an unmigrated tenant through with no warning", async () => {
+  const guard = new FusionMigrationGuard(fakeReferenceData([]), true);
+  assert.equal((await guard.status("t1")).migrated, false);
+  assert.deepEqual(await guard.assertClassic("t1", "sophos_list_cases", "sophos_fusion_list_cases"), []);
+});
+
+test("migration guard warns instead of blocking when Fusion cannot be reached", async () => {
+  const guard = new FusionMigrationGuard(
+    fakeReferenceData([], { throws: "Sophos Fusion API error 503: down" }),
+    true
+  );
+  assert.equal((await guard.status("t1")).migrated, null);
+  const warnings = await guard.assertClassic("t1", "sophos_get_case", "sophos_fusion_get_case");
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /Could not confirm whether tenant t1 has migrated/);
+  assert.match(warnings[0], /503: down/);
+  assert.match(warnings[0], /use sophos_fusion_get_case/);
+});
+
+test("migration guard is inert when disabled and never calls Fusion", async () => {
+  const referenceData = fakeReferenceData([{ id: TYPE_ID, name: "investigation" }]);
+  const guard = new FusionMigrationGuard(referenceData, false);
+  assert.deepEqual(await guard.assertClassic("t1", "sophos_list_cases", "sophos_fusion_list_cases"), []);
+  assert.equal((await guard.status("t1")).migrated, null);
+  assert.equal(referenceData.calls, 0);
 });
 
 // --- MITRE roll-up ---

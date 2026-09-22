@@ -56,6 +56,7 @@ import { registerSwitchTools } from "./tools/switch.js";
 import { registerAccountsTools } from "./tools/accounts.js";
 import { registerBusinessAutomationTools } from "./tools/business-automation.js";
 import { registerFusionCaseTools } from "./tools/fusion-cases.js";
+import { registerFusionDetectionTools } from "./tools/fusion-detections.js";
 
 async function main(): Promise<void> {
   // Load and validate config
@@ -149,6 +150,7 @@ async function main(): Promise<void> {
 
   // Fusion: GraphQL APIs on api.taegis.sophos.com, beside the Classic REST tools
   registerFusionCaseTools(server, fusionClient, tenantResolver, caseReferenceData);
+  registerFusionDetectionTools(server, fusionClient, tenantResolver);
 
   console.error("[sophos-mcp] All tools registered.");
 

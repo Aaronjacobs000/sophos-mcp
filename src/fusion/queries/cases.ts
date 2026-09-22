@@ -65,7 +65,8 @@ const CASE_COMMENT_FIELDS = `
   createdAt
   updatedAt
   isInternal
-  mentionsIds`;
+  mentionsIds
+  readByIds`;
 
 const CASE_LINK_FIELDS = `
   id
@@ -75,6 +76,22 @@ const CASE_LINK_FIELDS = `
   reference
   isInternal
   createdAt`;
+
+// downloadURL is not in the base selection: requesting it on a non-embedded
+// file writes an audit log entry, so the list tool selects it only on request.
+const CASE_FILE_FIELDS = `
+  id
+  caseId
+  name
+  size
+  status
+  isEmbedded
+  createdAt
+  updatedAt
+  deletedAt
+  uploadedById
+  deletedById
+  metadata { contentType contentMD5 }`;
 
 export const LIST_CASES = `query FusionListCases($arguments: CasesArguments!) {
   cases(arguments: $arguments) {
@@ -116,6 +133,16 @@ export const ADD_CASE_COMMENT = `mutation FusionAddCaseComment($input: AddCaseCo
   }
 }`;
 
+export const UPDATE_CASE_COMMENT = `mutation FusionUpdateCaseComment($input: UpdateCaseCommentInput!) {
+  updateCaseComment(input: $input) {${CASE_COMMENT_FIELDS}
+  }
+}`;
+
+export const DELETE_CASE_COMMENT = `mutation FusionDeleteCaseComment($input: DeleteCaseCommentInput!) {
+  deleteCaseComment(input: $input) {${CASE_COMMENT_FIELDS}
+  }
+}`;
+
 export const CREATE_CASE = `mutation FusionCreateCase($input: CreateCaseInput!) {
   createCase(input: $input) {${CASE_DETAIL_FIELDS}
   }
@@ -151,6 +178,76 @@ export const CREATE_CASE_LINK = `mutation FusionCreateCaseLink($input: CreateCas
   }
 }`;
 
+export const UPDATE_CASE_LINK = `mutation FusionUpdateCaseLink($input: UpdateCaseLinkInput!) {
+  updateCaseLink(input: $input) {${CASE_LINK_FIELDS}
+  }
+}`;
+
+export const DELETE_CASE_LINK = `mutation FusionDeleteCaseLink($input: DeleteCaseLinkInput!) {
+  deleteCaseLink(input: $input) {${CASE_LINK_FIELDS}
+  }
+}`;
+
+// caseFiles has no case argument: it lists the tenant's files and each row
+// carries caseId, so the tool filters client side. The `query` argument is
+// omitted on purpose ("FROM case_file" is rejected as not valid for any known
+// schema type; live tenant, 22/09/2026).
+export const LIST_CASE_FILES = `query FusionListCaseFiles($arguments: CaseFilesArguments!) {
+  caseFiles(arguments: $arguments) {
+    totalCount
+    files {${CASE_FILE_FIELDS}
+    }
+  }
+}`;
+
+export const LIST_CASE_FILES_WITH_URLS = `query FusionListCaseFilesWithUrls($arguments: CaseFilesArguments!) {
+  caseFiles(arguments: $arguments) {
+    totalCount
+    files {${CASE_FILE_FIELDS}
+      downloadURL
+    }
+  }
+}`;
+
+export const GET_CASE_FILE = `query FusionGetCaseFile($arguments: CaseFileArguments!) {
+  caseFile(arguments: $arguments) {${CASE_FILE_FIELDS}
+  }
+}`;
+
+export const START_CASE_FILE_UPLOAD = `mutation FusionStartCaseFileUpload($input: StartCaseFileUploadInput!) {
+  startCaseFileUpload(input: $input) {
+    file {${CASE_FILE_FIELDS}
+    }
+    presignedUrl
+  }
+}`;
+
+export const DELETE_CASE_FILE = `mutation FusionDeleteCaseFile($input: DeleteCaseFileInput!) {
+  deleteCaseFile(input: $input) {${CASE_FILE_FIELDS}
+  }
+}`;
+
+/** Moves the named evidence to a case created by the same call. Irreversible. */
+export const SPLIT_CASE = `mutation FusionSplitCase($input: SplitCaseInput!) {
+  splitCase(input: $input) {
+    caseId
+    destinationCaseId
+    detectionIds
+    eventIds
+    searchQueries
+    fileIds
+  }
+}`;
+
+/** Asynchronous: processingEventId is the job handle. Closes the sources. Irreversible. */
+export const MERGE_CASES = `mutation FusionMergeCases($input: MergeCaseInput!) {
+  mergeCase(input: $input) {
+    targetCaseId
+    sourceCaseIds
+    processingEventId
+  }
+}`;
+
 /**
  * Reference data the tenant's licensed services expose. One round trip for
  * all three lists; the cache in case-reference-data.ts owns the refresh.
@@ -160,7 +257,7 @@ export const CASE_REFERENCE_DATA = `query FusionCaseReferenceData {
     types { id name title managedBy supportedPrimaryStatusIds supportedPrimaryVerdictIds }
   }
   casePrimaryStatuses(arguments: {}) {
-    primaryStatuses { id name title isClosed }
+    primaryStatuses { id name title isClosed isCaseVisibleToCustomers }
   }
   casePrimaryVerdicts(arguments: {}) {
     primaryVerdicts { id name title }
