@@ -88,7 +88,7 @@ npm install -g sophos-central-mcp-server
 
 ```bash
 git clone https://github.com/Aaronjacobs000/sophos-mcp.git
-cd sophos-central-mcp
+cd sophos-mcp
 npm install
 npm run build
 ```
@@ -109,7 +109,7 @@ sophos-central-mcp      # global npm install
 npm start               # from a source checkout
 ```
 
-With `TRANSPORT=http` (the default) the server listens on `http://127.0.0.1:3100/mcp` and answers `GET /health` with `{"status":"ok"}`. The MCP endpoint is stateless: every request gets a fresh transport. Point any streamable HTTP client at it, for example Claude Code:
+With `TRANSPORT=http` (the default) the server listens on `http://127.0.0.1:3100/mcp` and answers `GET /health` with `{"status":"ok","server":"sophos-central-mcp-server"}`. The MCP endpoint is stateless: every request gets a fresh transport. Point any streamable HTTP client at it, for example Claude Code:
 
 ```bash
 claude mcp add --transport http sophos-central http://127.0.0.1:3100/mcp
