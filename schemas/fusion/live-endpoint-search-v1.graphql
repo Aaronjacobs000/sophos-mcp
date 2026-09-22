@@ -1,0 +1,1252 @@
+"""Reference to a principal (user or service)"""
+type PrincipalReference {
+  """Unique principal identifier"""
+  id: ID!
+  """Type of principal"""
+  type: String!
+  """Optional principal name"""
+  name: String
+  """Optional account type"""
+  accountType: String
+}
+
+"""Response for deletion operations"""
+type DeletionResponse {
+  """Deletion result"""
+  result: DeletionResult
+}
+
+"""Result of a deletion operation"""
+type DeletionResult {
+  """Whether the deletion was successful"""
+  deleted: Boolean!
+}
+
+"""Query pivot type enumeration (private)"""
+enum QueryPivotType {
+  """Device ID"""
+  deviceId
+  """Device name"""
+  deviceName
+  """Sophos PID"""
+  sophosPid
+  """IP address"""
+  ipAddress
+  """Username"""
+  username
+  """SHA256 hash"""
+  sha256
+  """File path"""
+  filePath
+  """Registry key"""
+  registryKey
+  """URL"""
+  url
+}
+
+"""Query data source enumeration (private)"""
+enum QueryDataSource {
+  """Endpoints data source"""
+  endpoints
+  """Data lake data source"""
+  dataLake
+}
+
+"""Enumeration for query types"""
+enum QueryType {
+  """Canned/built-in query"""
+  canned
+  """Custom user-defined query"""
+  custom
+}
+
+"""Query variable definition"""
+type QueryVariable {
+  """Variable name"""
+  name: String!
+  """Data type of the variable (required)"""
+  dataType: QueryDataType!
+  """String value of the variable (used during execution)"""
+  value: String
+  """Variable description (private)"""
+  description: String
+  """Meaning of an input parameter (private)"""
+  pivotType: QueryPivotType
+}
+
+"""Supported platform and type enumeration"""
+enum SupportedPlatformAndType {
+  """Linux server"""
+  linuxServer
+  """macOS computer"""
+  macOSComputer
+  """Windows computer"""
+  windowsComputer
+  """Windows server"""
+  windowsServer
+}
+
+"""Object reference"""
+type ObjectReference {
+  """Object ID"""
+  id: ID!
+}
+
+"""Performance score enumeration"""
+enum PerformanceScore {
+  """Excellent performance"""
+  excellent
+  """Good performance"""
+  good
+  """Fair performance"""
+  fair
+  """Poor performance"""
+  poor
+  """Not evaluated"""
+  notEvaluated
+}
+
+"""Query performance metrics"""
+type QueryPerformance {
+  """Performance score"""
+  score: PerformanceScore
+  """Average execution time in milliseconds"""
+  averageExecutionTimeInMillis: Int
+  """Average data transferred in bytes"""
+  averageDataTransferredInBytes: Int
+}
+
+"""Live Discover query"""
+type LiveDiscoverQuery {
+  """Query ID"""
+  id: ID!
+  """Query name"""
+  name: String!
+  """Query code"""
+  code: String
+  """Query description"""
+  description: String
+  """Query template"""
+  template: String!
+  """Query variables"""
+  variables: [QueryVariable!]!
+  """Supported operating systems"""
+  supportedOSes: [SupportedPlatformAndType!]!
+  """Query categories"""
+  categories: [ObjectReference!]!
+  """Query performance metrics"""
+  performance: QueryPerformance
+  """Query type"""
+  type: QueryType!
+  """Associated tenant"""
+  tenant: ObjectReference
+  """Creation timestamp"""
+  createdAt: String
+  """Principal who created this query"""
+  createdBy: PrincipalReference
+  """Last update timestamp"""
+  updatedAt: String
+  """Principal who last updated this query"""
+  updatedBy: PrincipalReference
+  """Query data source (private)"""
+  dataSource: QueryDataSource
+}
+
+"""Live Discover query input for creating a new query"""
+input LiveDiscoverQueryInput {
+  """Query name"""
+  name: String!
+  """Query description"""
+  description: String
+  """Query template"""
+  template: String!
+  """Query variables"""
+  variables: [QueryVariableInput!]
+  """Supported operating systems (required, minItems: 1)"""
+  supportedOSes: [SupportedPlatformAndType!]!
+  """Categories this query belongs to (required, minItems: 1)"""
+  categories: [ObjectReferenceInput!]!
+}
+
+"""Query variable input"""
+input QueryVariableInput {
+  """Variable name"""
+  name: String!
+  """Data type of the variable (required)"""
+  dataType: QueryDataType!
+  """String value of the variable (used during execution)"""
+  value: String
+  """Variable description (private)"""
+  description: String
+  """Meaning of an input parameter (private)"""
+  pivotType: QueryPivotType
+}
+
+"""Object reference input"""
+input ObjectReferenceInput {
+  """Object ID"""
+  id: ID!
+}
+
+"""Live Discover update query input"""
+input LiveDiscoverUpdateQueryInput {
+  """Query name"""
+  name: String
+  """Query description"""
+  description: String
+  """Query template"""
+  template: String
+  """Query variables"""
+  variables: [QueryVariableInput!]
+  """Supported operating systems (minItems: 1 if provided)"""
+  supportedOSes: [SupportedPlatformAndType!]
+  """Categories this query belongs to (minItems: 1 if provided)"""
+  categories: [ObjectReferenceInput!]
+}
+
+"""Live Discover query response"""
+type LiveDiscoverQueryResponse {
+  """The query"""
+  query: LiveDiscoverQuery
+}
+
+"""Live Discover query page response"""
+type LiveDiscoverQueryPage {
+  """List of queries"""
+  items: [LiveDiscoverQuery!]!
+  """Pagination information"""
+  pages: PagesByOffset!
+}
+
+"""Pagination information for offset-based pagination"""
+type PagesByOffset {
+  """The 1-based page number being returned"""
+  current: Int!
+  """The size of the page being returned"""
+  size: Int!
+  """The maximum page size that can be requested"""
+  maxSize: Int!
+  """
+  The total number of pages that exist (only returned if pageTotal=true in request)
+  """
+  total: Int
+  """
+  The total number of items across all pages (only returned if pageTotal=true in request)
+  """
+  items: Int
+}
+
+"""Live Discover query parameters"""
+input LiveDiscoverQueryParams {
+  """Category ID filter"""
+  categoryId: ID
+  """Search term"""
+  search: String
+  """Search fields (array of field names to search within)"""
+  searchFields: [String!]
+  """Page size"""
+  pageSize: Int
+  """Page number"""
+  page: Int
+  """Include page total"""
+  pageTotal: Boolean
+  """Fields to include (array of field names)"""
+  fields: [String!]
+  """Data source for the query (array: endpoints, dataLake)"""
+  dataSource: [QueryDataSource!]
+}
+
+"""Category type enumeration"""
+enum CategoryType {
+  """Canned/built-in category"""
+  canned
+  """Custom user-defined category"""
+  custom
+}
+
+"""Live Discover query category"""
+type LiveDiscoverCategory {
+  """Category ID"""
+  id: ID!
+  """Category name"""
+  name: String!
+  """Category code"""
+  code: String
+  """Category description"""
+  description: String
+  """Category icon"""
+  icon: String
+  """Associated tenant"""
+  tenant: ObjectReference
+  """Category type"""
+  type: CategoryType!
+  """Number of queries in this category"""
+  queryCount: Int!
+  """Creation timestamp"""
+  createdAt: String
+  """Principal who created this category"""
+  createdBy: ObjectReference
+  """Last update timestamp"""
+  updatedAt: String
+  """Principal who last updated this category"""
+  updatedBy: ObjectReference
+}
+
+"""Live Discover category input"""
+input LiveDiscoverCategoryInput {
+  """Category name"""
+  name: String!
+  """Category description"""
+  description: String
+  """Category icon"""
+  icon: String
+}
+
+"""Live Discover category response"""
+type LiveDiscoverCategoryResponse {
+  """The category"""
+  category: LiveDiscoverCategory
+}
+
+"""Live Discover categories response"""
+type LiveDiscoverCategories {
+  """List of categories"""
+  items: [LiveDiscoverCategory!]!
+}
+
+"""Execution status enumeration"""
+enum ExecutionStatus {
+  """Pending execution"""
+  pending
+  """Started execution"""
+  started
+  """Finished execution"""
+  finished
+}
+
+"""Execution result enumeration"""
+enum ExecutionResult {
+  """Not available"""
+  notAvailable
+  """Successful execution"""
+  succeeded
+  """Failed execution"""
+  failed
+  """Timed out execution"""
+  timedOut
+}
+
+"""Live Discover endpoint lockdown status"""
+enum LiveDiscoverLockdownStatus {
+  """Creating whitelist"""
+  creatingWhitelist
+  """Installing"""
+  installing
+  """Locked"""
+  locked
+  """Not installed"""
+  notInstalled
+  """Registering"""
+  registering
+  """Starting"""
+  starting
+  """Stopping"""
+  stopping
+  """Unavailable"""
+  unavailable
+  """Uninstalled"""
+  uninstalled
+  """Unlocked"""
+  unlocked
+  """Locking"""
+  locking
+}
+
+"""Field that supports searching"""
+enum SearchField {
+  """Hostname"""
+  hostname
+  """Group name"""
+  groupName
+  """Associated person name"""
+  associatedPersonName
+  """IP addresses"""
+  ipAddresses
+  """OS name"""
+  osName
+}
+
+"""Live Discover health status of the endpoint"""
+enum LiveDiscoverHealthStatus {
+  """Good health status"""
+  good
+  """Suspicious health status"""
+  suspicious
+  """Bad health status"""
+  bad
+  """Unknown health status"""
+  unknown
+}
+
+"""Principal type enumeration"""
+enum PrincipalType {
+  """User principal"""
+  user
+  """Service principal"""
+  service
+}
+
+"""Live Discover endpoint type enumeration"""
+enum LiveDiscoverEndpointType {
+  """Computer endpoint"""
+  computer
+  """Server endpoint"""
+  server
+  """Security VM endpoint (deprecated)"""
+  securityVm
+}
+
+"""OS platform enumeration"""
+enum OsPlatform {
+  """Windows platform"""
+  windows
+  """Linux platform"""
+  linux
+  """macOS platform"""
+  macOS
+}
+
+"""OS information"""
+type OS {
+  """Whether the OS is a server OS"""
+  isServer: Boolean
+  """OS platform (required)"""
+  platform: OsPlatform!
+  """OS name as reported by the endpoint (required)"""
+  name: String!
+  """OS major version"""
+  majorVersion: Int
+  """OS minor version"""
+  minorVersion: Int
+  """OS build"""
+  build: Int
+}
+
+"""Endpoint performance metrics"""
+type EndpointPerformance {
+  """Performance score"""
+  score: PerformanceScore
+  """Total size of query results returned"""
+  dataTransferredInBytes: Int64
+  """Time the query took to execute"""
+  executionTimeInMillis: Int64
+}
+
+"""Endpoint execution summary"""
+type EndpointExecutionSummary {
+  """Endpoint ID (required)"""
+  id: ID!
+  """Endpoint type (required)"""
+  type: LiveDiscoverEndpointType!
+  """Endpoint hostname (required)"""
+  hostname: String!
+  """OS information"""
+  os: OS
+  """List of IPv4 addresses"""
+  ipv4Addresses: [String!]
+  """List of IPv6 addresses"""
+  ipv6Addresses: [String!]
+  """Execution status (required)"""
+  status: ExecutionStatus!
+  """Execution result (required)"""
+  result: ExecutionResult!
+  """Status code returned by the query"""
+  statusCode: String
+  """Message returned by the query"""
+  statusMessage: String
+  """Query run metrics"""
+  performance: EndpointPerformance
+  """Number of rows of results returned"""
+  resultCount: Int64
+  """When the endpoint sent the first status"""
+  createdAt: String
+  """When the endpoint finished running the query"""
+  finishedAt: String
+}
+
+"""Version match criteria"""
+type VersionMatch {
+  """Exact version match (takes precedence over from/to range options)"""
+  match: String
+  """Match versions greater than or equal to this value"""
+  from: String
+  """Match versions less than or equal to this value"""
+  to: String
+}
+
+"""Operating system match criteria"""
+type OperatingSystemMatch {
+  """OS platform"""
+  platform: OsPlatform
+  """Endpoint type"""
+  type: LiveDiscoverEndpointType
+  """Version match criteria"""
+  version: VersionMatch
+}
+
+"""Endpoint filter criteria"""
+type EndpointFilter {
+  """Find endpoints by health status"""
+  healthStatus: [LiveDiscoverHealthStatus!]
+  """Find endpoints by type"""
+  type: [LiveDiscoverEndpointType!]
+  """Find endpoints by whether Tamper Protection is turned on"""
+  tamperProtectionEnabled: Boolean
+  """Find endpoints by lockdown status"""
+  lockdownStatus: [LiveDiscoverLockdownStatus!]
+  """Find endpoints with the specified IDs"""
+  ids: [ID!]
+  """Find endpoints that were last seen before the given date/time"""
+  lastSeenBefore: String
+  """Find endpoints that were last seen after the given date/time"""
+  lastSeenAfter: String
+  """Find endpoints where the hostname contains the given string"""
+  hostnameContains: String
+  """
+  Find endpoints where the associated person name contains the given string
+  """
+  associatedPersonContains: String
+  """Find endpoints where the group name contains the given string"""
+  groupNameContains: String
+  """Matches endpoints with any of the supplied operating system versions"""
+  os: [OperatingSystemMatch!]
+  """Find endpoints by IP addresses"""
+  ipAddresses: [String!]
+  """Term to search for in the specified search fields"""
+  search: String
+  """List of search fields for finding the given search term"""
+  searchFields: [SearchField!]
+}
+
+"""Match endpoints criteria"""
+type MatchEndpoints {
+  """Whether to include all endpoints (default: false)"""
+  all: Boolean
+  """Filters to select specific endpoints (1-5 items)"""
+  filters: [EndpointFilter!]
+}
+
+"""Count of endpoints in pending status"""
+type EndpointCountInPendingStatus {
+  """Total number of endpoints"""
+  total: Int!
+  """Number of endpoints that are offline"""
+  offline: Int!
+  """Number of endpoints that are online"""
+  online: Int!
+}
+
+"""Count of endpoints by data status"""
+type EndpointCountByData {
+  """Total number of endpoints"""
+  total: Int!
+  """Number of endpoints that have returned some data"""
+  withData: Int!
+  """Number of endpoints that have returned no data"""
+  withoutData: Int!
+}
+
+"""Count of endpoints in finished status"""
+type EndpointCountInFinishedStatus {
+  """Counts for succeeded endpoints"""
+  succeeded: EndpointCountByData
+  """Counts for failed endpoints"""
+  failed: EndpointCountByData
+  """Counts for timed out endpoints"""
+  timedOut: EndpointCountByData
+}
+
+"""Counts grouped by status"""
+type EndpointCountByStatuses {
+  """Counts for pending endpoints"""
+  pending: EndpointCountInPendingStatus
+  """Counts for started endpoints"""
+  started: EndpointCountByData
+  """Counts for finished endpoints"""
+  finished: EndpointCountInFinishedStatus
+}
+
+"""Endpoint counts grouped by various attributes"""
+type EndpointCounts {
+  """Total number of endpoints"""
+  total: Int!
+  """Number of endpoints of each type (map: endpoint type -> count)"""
+  types: JSON
+  """Number of endpoints by platform (map: platform -> count)"""
+  platforms: JSON
+  """Counts grouped by status"""
+  statuses: EndpointCountByStatuses
+}
+
+"""Statistics with min, max, total, median, and average values"""
+type MinMax {
+  """Total value"""
+  total: Int64
+  """Minimum value"""
+  min: Int64
+  """Maximum value"""
+  max: Int64
+  """Median value"""
+  median: Int64
+  """Average value"""
+  average: Int64
+}
+
+"""Execution performance metrics"""
+type ExecutionPerformance {
+  """Overall query performance score"""
+  score: PerformanceScore
+  """Statistics for data transferred in bytes"""
+  dataTransferredInBytes: MinMax
+  """Statistics for execution time in milliseconds"""
+  executionTimeInMillis: MinMax
+}
+
+"""Category object reference for execution"""
+type CategoryObjectReference {
+  """Category ID"""
+  id: ID!
+  """Category name"""
+  name: String
+  """
+  Identifier for category name (available only for pre-defined categories)
+  """
+  code: String
+}
+
+"""Query object reference for execution"""
+type QueryObjectReference {
+  """Query ID"""
+  id: ID!
+  """Query name"""
+  name: String
+  """Localization code of the query"""
+  code: String
+}
+
+"""Execution summary"""
+type ExecutionSummary {
+  """Execution ID"""
+  id: ID!
+  """Category reference"""
+  category: CategoryObjectReference
+  """Query reference"""
+  query: QueryObjectReference
+  """Execution name (optional)"""
+  name: String
+  """Query template (optional)"""
+  template: String
+  """Query variables"""
+  variables: [QueryVariable!]!
+  """Execution status"""
+  status: ExecutionStatus!
+  """Execution result"""
+  result: ExecutionResult!
+  """Creation timestamp"""
+  createdAt: String
+  """Principal who created this execution"""
+  createdBy: PrincipalReference
+  """Finish timestamp"""
+  finishedAt: String
+  """Maximum duration in seconds"""
+  maxDurationInSeconds: Int!
+  """Time remaining in seconds"""
+  timeRemainingInSeconds: Int!
+  """Execution performance metrics"""
+  performance: ExecutionPerformance
+  """Number of results"""
+  resultCount: Int64
+  """Session ID (API-only, not exposed in the Central Admin UI)"""
+  sessionId: ID
+  """Endpoint IDs (API-only, not exposed in the Central Admin UI)"""
+  endpointIds: [ID!]
+  """Match endpoints criteria (required)"""
+  matchEndpoints: MatchEndpoints!
+  """Endpoint counts (required)"""
+  endpointCounts: EndpointCounts!
+}
+
+"""Live Discover execution request input"""
+input LiveDiscoverExecutionRequest {
+  """Saved query to run (required if adHocQuery not supplied)"""
+  savedQuery: SavedQueryInput
+  """Ad hoc query to run (required if savedQuery not supplied)"""
+  adHocQuery: AdHocQueryInput
+  """Query variables"""
+  variables: [QueryVariableInput!]
+  """Match endpoints criteria (required)"""
+  matchEndpoints: MatchEndpointsInput!
+  """Session ID (API-only, not exposed in the Central Admin UI)"""
+  sessionId: ID
+  """Endpoint IDs (API-only, not exposed in the Central Admin UI)"""
+  endpointIds: [ID!]
+}
+
+"""Saved query input for execution"""
+input SavedQueryInput {
+  """Query ID"""
+  queryId: ID!
+  """Category ID (optional)"""
+  categoryId: ID
+}
+
+"""Ad hoc query input for execution"""
+input AdHocQueryInput {
+  """Query template"""
+  template: String!
+  """Query name (optional)"""
+  name: String
+}
+
+"""Version match input criteria"""
+input VersionMatchInput {
+  """Exact version match (takes precedence over from/to range options)"""
+  match: String
+  """Match versions greater than or equal to this value"""
+  from: String
+  """Match versions less than or equal to this value"""
+  to: String
+}
+
+"""Operating system match input criteria"""
+input OperatingSystemMatchInput {
+  """OS platform"""
+  platform: OsPlatform
+  """Endpoint type"""
+  type: LiveDiscoverEndpointType
+  """Version match criteria"""
+  version: VersionMatchInput
+}
+
+"""Endpoint filter input criteria"""
+input EndpointFilterInput {
+  """Find endpoints by health status"""
+  healthStatus: [LiveDiscoverHealthStatus!]
+  """Find endpoints by type"""
+  type: [LiveDiscoverEndpointType!]
+  """Find endpoints by whether Tamper Protection is turned on"""
+  tamperProtectionEnabled: Boolean
+  """Find endpoints by lockdown status"""
+  lockdownStatus: [LiveDiscoverLockdownStatus!]
+  """Find endpoints with the specified IDs"""
+  ids: [ID!]
+  """Find endpoints that were last seen before the given date/time"""
+  lastSeenBefore: String
+  """Find endpoints that were last seen after the given date/time"""
+  lastSeenAfter: String
+  """Find endpoints where the hostname contains the given string"""
+  hostnameContains: String
+  """
+  Find endpoints where the associated person name contains the given string
+  """
+  associatedPersonContains: String
+  """Find endpoints where the group name contains the given string"""
+  groupNameContains: String
+  """Matches endpoints with any of the supplied operating system versions"""
+  os: [OperatingSystemMatchInput!]
+  """Find endpoints by IP addresses"""
+  ipAddresses: [String!]
+  """Term to search for in the specified search fields"""
+  search: String
+  """List of search fields for finding the given search term"""
+  searchFields: [SearchField!]
+}
+
+"""Match endpoints input criteria"""
+input MatchEndpointsInput {
+  """Whether to include all endpoints (default: false)"""
+  all: Boolean
+  """Filters to select specific endpoints (1-5 items)"""
+  filters: [EndpointFilterInput!]
+}
+
+"""Live Discover execution summary response"""
+type LiveDiscoverExecutionSummaryResponse {
+  """The execution summary"""
+  executionSummary: ExecutionSummary
+}
+
+"""Live Discover execution page response"""
+type LiveDiscoverExecutionPage {
+  """List of executions"""
+  items: [ExecutionSummary!]!
+  """Pagination information"""
+  pages: PagesByOffset!
+}
+
+"""Live Discover query run by ID parameters"""
+input LiveDiscoverQueryRunByIdParams {
+  """Fields to include (array of field names)"""
+  fields: [String!]
+}
+
+"""Live Discover query run parameters"""
+input LiveDiscoverQueryRunParams {
+  """Page size"""
+  pageSize: Int
+  """Page number"""
+  page: Int
+  """Include page total"""
+  pageTotal: Boolean
+  """Sort order (array of sort fields, e.g., ["field1:asc", "field2:desc"])"""
+  sort: [String!]
+  """Fields to include (array of field names)"""
+  fields: [String!]
+  """Query ID filter"""
+  queryId: ID
+  """Category ID filter"""
+  categoryId: ID
+  """Execution status filter (array: pending, started, finished)"""
+  executionStatus: [ExecutionStatus!]
+  """
+  Execution result filter (array: notAvailable, succeeded, failed, timedOut)
+  """
+  executionResult: [ExecutionResult!]
+  """Created by principal type filter (array: service, user)"""
+  createdByPrincipalType: [PrincipalType!]
+}
+
+"""Live Discover endpoint parameters"""
+input LiveDiscoverEndpointParams {
+  """Page size"""
+  pageSize: Int
+  """Page number"""
+  page: Int
+  """Include page total"""
+  pageTotal: Boolean
+  """Sort order (array of sort fields, e.g., ["field1:asc", "field2:desc"])"""
+  sort: [String!]
+  """Fields to include (array of field names)"""
+  fields: [String!]
+  """
+  Match criteria (array of combinations: status:result:withData, e.g., ["finished:succeeded:withData"])
+  """
+  match: [String!]
+}
+
+"""Live Discover endpoint execution page response"""
+type LiveDiscoverEndpointExecutionPage {
+  """List of endpoint executions"""
+  items: [EndpointExecutionSummary!]!
+  """Pagination information"""
+  pages: PagesByOffset!
+}
+
+"""Live Discover query run results parameters"""
+input LiveDiscoverQueryRunResultsParams {
+  """Page size"""
+  pageSize: Int
+  """Include page total"""
+  pageTotal: Boolean
+  """Page from key"""
+  pageFromKey: String
+  """Sort order (array of sort fields, e.g., ["field1:asc", "field2:desc"])"""
+  sort: [String!]
+}
+
+"""
+Execution result item
+Represents a single row in the query run results.
+Has endpointId and hostname as required fields, plus any additional columns from the SQL query.
+"""
+type ExecutionResultItem {
+  """Endpoint ID (required)"""
+  endpointId: ID!
+  """Endpoint hostname (required)"""
+  hostname: String!
+  """
+  Additional columns from the SQL query as a JSON object.
+  The keys are column names and values are the column values.
+  Use the metadata.columns to understand the structure and types.
+  """
+  additionalColumns: JSON
+}
+
+"""Live Discover execution results paged response"""
+type LiveDiscoverExecutionResultsPaged {
+  """List of execution results"""
+  items: [ExecutionResultItem!]!
+  """Pagination information (key-based pagination)"""
+  pages: PagesByKey!
+  """Metadata for tabular data"""
+  metadata: ExecutionResultsMetadata
+}
+
+"""Pagination information for key-based pagination"""
+type PagesByKey {
+  """The key of the first item in the returned page"""
+  fromKey: String
+  """The key to use when fetching the next page"""
+  nextKey: String
+  """The size of the page being returned"""
+  size: Int!
+  """The maximum page size that can be requested"""
+  maxSize: Int!
+  """
+  The total number of pages that exist (only returned if pageTotal=true in request)
+  """
+  total: Int
+  """
+  The total number of items on all the pages (only returned if pageTotal=true in request)
+  """
+  items: Int
+}
+
+"""Metadata for execution results"""
+type ExecutionResultsMetadata {
+  """Column metadata"""
+  columns: [ExecutionResultsColumnMetadata!]!
+}
+
+"""Column metadata for execution results"""
+type ExecutionResultsColumnMetadata {
+  """Column name"""
+  name: String!
+  """Column data type"""
+  type: ResultDataType!
+}
+
+"""Query data type enumeration"""
+enum QueryDataType {
+  """Boolean value"""
+  boolean
+  """Date and time value"""
+  dateTime
+  """Double precision floating point number"""
+  double
+  """Integer number"""
+  integer
+  """Text/string value"""
+  text
+}
+
+"""Result data type enumeration"""
+enum ResultDataType {
+  """Boolean value"""
+  boolean
+  """Date and time value"""
+  dateTime
+  """Double precision floating point number"""
+  double
+  """Integer number"""
+  integer
+  """Text/string value"""
+  text
+}
+
+"""Live Discover query run result CSV request parameters"""
+input liveDiscoverQueryRunResultsCsvRequestParams {
+  """Value of the request's sort query param"""
+  sort: [String!]
+}
+
+"""Live Discover query result CSV by ID response"""
+type liveDiscoverQueryRunResultsCsvResponse {
+  """CSV string of the query results"""
+  csvData: String!
+}
+
+"""Live Discover session"""
+type LiveDiscoverSession {
+  """Session tag name"""
+  name: String!
+}
+
+"""Live Discover session response"""
+type LiveDiscoverSessionResponse {
+  """The session"""
+  session: LiveDiscoverSession
+}
+
+"""Action for endpoint sessions request"""
+enum EndpointSessionsAction {
+  """Add sessions to endpoints"""
+  add
+  """Remove sessions from endpoints"""
+  remove
+}
+
+"""Sort specification for endpoint query"""
+input EndpointSessionsSort {
+  """Field to sort by"""
+  field: String
+  """Sort direction (asc/desc)"""
+  direction: String
+}
+
+"""
+Endpoint query filter for sessions request
+Full specification matching api-store/apis/endpoint/v1/types/endpointsQueryRequest.yaml
+"""
+input EndpointSessionsFilter {
+  """Page from key for pagination"""
+  pageFromKey: String
+  """Page size for pagination"""
+  pageSize: Int
+  """Whether to calculate total pages"""
+  pageTotal: Boolean
+  """Sort criteria (array of sort specifications)"""
+  sort: [EndpointSessionsSort!]
+  """List of Health status to include"""
+  healthStatus: [String!]
+  """List of updating health statuses (internal)"""
+  updatingHealthStatus: [String!]
+  """List of running health statuses (internal)"""
+  runningHealthStatus: [String!]
+  """List of threat health statuses (internal)"""
+  threatHealthStatus: [String!]
+  """List of communication health statuses (internal)"""
+  communicationHealthStatus: [String!]
+  """List of operation health statuses (internal)"""
+  operationHealthStatus: [String!]
+  """List of system health statuses (internal)"""
+  systemHealthStatus: [String!]
+  """List of syncsec health statuses (internal)"""
+  syncsecHealthStatus: [String!]
+  """List of Endpoint types to include"""
+  type: [String!]
+  """List of Tamper Protection statuses"""
+  tamperProtection: [Boolean!]
+  """List of Tamper Protection supported statuses (preview)"""
+  tamperProtectionSupported: [Boolean!]
+  """List of Capabilities to include (preview)"""
+  capabilities: [String!]
+  """List of Server Lockdown statuses"""
+  lockdownStatus: [String!]
+  """List of encryption statuses (preview)"""
+  overallEncryptionStatus: [String!]
+  """List of Endpoint IDs to include"""
+  ids: [ID!]
+  """List of Isolation statuses"""
+  isolationStatus: [String!]
+  """Last seen before date and time (UTC) exclusive"""
+  lastSeenBefore: String
+  """Last seen after date and time (UTC) inclusive"""
+  lastSeenAfter: String
+  """Last operating system update before date and time (UTC) exclusive"""
+  lastOsUpdateBefore: String
+  """Last operating system update after date and time (UTC) inclusive"""
+  lastOsUpdateAfter: String
+  """Endpoints registered before date and time (UTC) exclusive"""
+  registeredBefore: String
+  """Endpoints registered after date and time (UTC) inclusive"""
+  registeredAfter: String
+  """Last agent update before date and time (UTC) exclusive"""
+  lastAgentUpdateBefore: String
+  """Last agent update after date and time (UTC) inclusive"""
+  lastAgentUpdateAfter: String
+  """Match endpoints where the hostname contains the given string"""
+  hostnameContains: String
+  """Match endpoints where the serial number contains the given string"""
+  serialNumberContains: String
+  """
+  Match endpoints where the person associated with the endpoint contains the given string
+  """
+  associatedPersonContains: String
+  """
+  Match endpoints where the name of the group the endpoint is in contains the given string
+  """
+  groupNameContains: String
+  """List of tags (preview)"""
+  tags: [String!]
+  """List of sessions (internal)"""
+  sessions: [String!]
+  """
+  Finds endpoints with the specified tags (complex type - passed as JSON)
+  """
+  includeTags: JSON
+  """
+  Finds endpoints without the specified tags (complex type - passed as JSON)
+  """
+  excludeTags: JSON
+  """Finds endpoints that either have no tags or any tags assigned"""
+  hasTags: Boolean
+  """Fields to return in a partial response"""
+  fields: [String!]
+  """Type of view to be returned in response (basic, summary, full)"""
+  view: String
+  """
+  Matches endpoints with any of the supplied operating system versions (complex type - passed as JSON)
+  """
+  os: JSON
+  """Match endpoints by IP addresses"""
+  ipAddresses: [String!]
+  """Find endpoints by MAC Addresses"""
+  macAddresses: [String!]
+  """Term to search for in the specified search fields"""
+  search: String
+  """List of search fields for matching given search term"""
+  searchFields: [String!]
+  """Whether endpoint is currently online"""
+  online: Boolean
+  """Whether endpoint is assigned to a group"""
+  assignedToGroup: Boolean
+  """Whether the endpoint is managed by MDR (preview)"""
+  mdrManaged: Boolean
+  """Match endpoints by cloud providers (complex type - passed as JSON)"""
+  cloud: JSON
+  """Match endpoints by assigned group"""
+  groupIds: [ID!]
+  """Find endpoints by protection package status (internal)"""
+  protectionStatus: [String!]
+  """Find endpoints by encryption package status (internal)"""
+  encryptionStatus: [String!]
+  """Find endpoints by ZTNA package status (internal)"""
+  ztnaStatus: [String!]
+  """Find endpoints by protection package (internal)"""
+  protectionPackage: [String!]
+  """Find endpoints by Core Agent module version (internal, max 50 items)"""
+  coreAgent: [String!]
+  """
+  Find endpoints by Device Encryption module version (internal, max 50 items)
+  """
+  deviceEncryption: [String!]
+  """Find endpoints by Intercept X module version (internal, max 50 items)"""
+  interceptX: [String!]
+}
+
+"""Input for endpoint sessions mutation"""
+input EndpointSessionsInput {
+  """Case insensitive list of session names"""
+  sessions: [String!]!
+  """Action to perform (add or remove)"""
+  action: EndpointSessionsAction!
+  """Optional filter criteria for endpoints"""
+  filter: EndpointSessionsFilter
+}
+
+"""Response for endpoint sessions mutation"""
+type EndpointSessionsResponse {
+  """Time when the session change was requested"""
+  requestedAt: String!
+  """Time when the session change was completed"""
+  completedAt: String!
+}
+
+"""Paged response containing endpoints"""
+type LiveDiscoverEndpointsPaged {
+  """List of endpoints"""
+  items: [LiveDiscoverEndpoint!]!
+  """Pagination information (key-based)"""
+  pages: PagesByKey!
+}
+
+"""Endpoint"""
+type LiveDiscoverEndpoint {
+  """Endpoint ID"""
+  id: ID!
+  """Endpoint type"""
+  type: LiveDiscoverEndpointType!
+  """Associated tenant"""
+  tenant: ObjectReference
+  """Endpoint hostname"""
+  hostname: String!
+  """Endpoint health status"""
+  health: JSON
+  """Operating system information"""
+  os: OS!
+  """Associated person information"""
+  liveDiscoverAssociatedPerson: LiveDiscoverAssociatedPerson
+  """Endpoint group information"""
+  liveDiscoverGroup: EndpointGroupReference
+  """List of IPv4 addresses"""
+  ipv4Addresses: [String!]
+  """List of IPv6 addresses"""
+  ipv6Addresses: [String!]
+  """Last time the endpoint was seen (UTC)"""
+  lastSeenAt: String!
+  """Last OS update timestamp (UTC)"""
+  lastOsUpdateAt: String!
+  """Endpoint serial number"""
+  serialNumber: String
+  """Whether the endpoint is currently online"""
+  online: Boolean
+  """Endpoint registration timestamp (UTC)"""
+  registeredAt: String!
+}
+
+"""Person associated with the endpoint"""
+type LiveDiscoverAssociatedPerson {
+  """Person's name"""
+  name: String
+  """Person's login on the endpoint"""
+  viaLogin: String
+  """Unique ID for the person"""
+  id: ID
+  """Internal ID for the person used by the Sophos UI"""
+  internalId: String
+}
+
+"""Endpoint group reference"""
+type EndpointGroupReference {
+  """Endpoint group name"""
+  name: String
+  """Unique ID for endpoint group"""
+  id: ID
+}
+
+"""
+The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf).
+"""
+scalar JSON
+
+"""The `Int64` scalar type represents a signed 64-bit integer."""
+scalar Int64
+
+"""Root query type"""
+type Query {
+  """Get all Live Discover queries for the current tenant"""
+  liveDiscoverQueries(params: LiveDiscoverQueryParams): LiveDiscoverQueryPage!
+  """Get a specific Live Discover query by ID"""
+  liveDiscoverQuery(id: ID!): LiveDiscoverQueryResponse!
+  """Get all Live Discover categories for the current tenant"""
+  liveDiscoverCategories: LiveDiscoverCategories!
+  """Get all Live Discover query runs for the current tenant"""
+  liveDiscoverQueryRuns(params: LiveDiscoverQueryRunParams): LiveDiscoverExecutionPage!
+  """Get a specific Live Discover query run by ID"""
+  liveDiscoverQueryRun(runId: ID!, params: LiveDiscoverQueryRunByIdParams): LiveDiscoverExecutionSummaryResponse!
+  """Get endpoints for a specific Live Discover query run"""
+  liveDiscoverQueryRunEndpoints(runId: ID!, params: LiveDiscoverEndpointParams): LiveDiscoverEndpointExecutionPage!
+  """Get results for a specific Live Discover query run"""
+  liveDiscoverQueryRunResults(runId: ID!, params: LiveDiscoverQueryRunResultsParams): LiveDiscoverExecutionResultsPaged!
+  """Get results csv for a specific Live Discover query run"""
+  liveDiscoverQueryRunResultsCsv(runId: ID!, params: liveDiscoverQueryRunResultsCsvRequestParams): liveDiscoverQueryRunResultsCsvResponse!
+  """Endpoint Search to list all endpoints based on given filter criteria"""
+  liveDiscoverEndpointSearch(input: EndpointSessionsFilter!): LiveDiscoverEndpointsPaged!
+}
+
+"""Root mutation type"""
+type Mutation {
+  """Create a new Live Discover query"""
+  createLiveDiscoverQuery(input: LiveDiscoverQueryInput!): LiveDiscoverQueryResponse!
+  """Update an existing Live Discover query"""
+  updateLiveDiscoverQuery(id: ID!, input: LiveDiscoverUpdateQueryInput!): LiveDiscoverQueryResponse!
+  """Delete a Live Discover query"""
+  deleteLiveDiscoverQuery(id: ID!): DeletionResponse!
+  """Run a Live Discover query execution"""
+  runLiveDiscoverQuery(input: LiveDiscoverExecutionRequest!): LiveDiscoverExecutionSummaryResponse!
+  """Cancel a Live Discover query run"""
+  cancelLiveDiscoverQueryRun(runId: ID!): LiveDiscoverExecutionSummaryResponse!
+  """Create a new Live Discover session"""
+  createLiveDiscoverSession: LiveDiscoverSessionResponse!
+  """
+  Assign or remove sessions to/from endpoints matching given filter criteria
+  """
+  endpointSessions(input: EndpointSessionsInput!): EndpointSessionsResponse!
+  """Create a new category in the catalog"""
+  createLiveDiscoverCatalogCategory(input: LiveDiscoverCategoryInput!): LiveDiscoverCategoryResponse!
+  """Update an existing category in the catalog"""
+  updateLiveDiscoverCatalogCategory(id: ID!, input: LiveDiscoverCategoryInput!): LiveDiscoverCategoryResponse!
+  """Delete a category from the catalog"""
+  deleteLiveDiscoverCatalogCategory(id: ID!): DeletionResponse!
+}

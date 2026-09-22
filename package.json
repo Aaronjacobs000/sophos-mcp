@@ -5,7 +5,15 @@
     "dist",
     "docs"
   ],
-  "description": "MCP server for Sophos Central API - SOC monitoring, endpoint management, admin automation, and XDR investigation",
+  "description": "MCP server for the Sophos Fusion (formerly Sophos Central) APIs - SOC monitoring, endpoint management, admin automation, XDR investigation, and Fusion GraphQL cases",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aaronjacobs000/sophos-central-mcp.git"
+  },
+  "homepage": "https://github.com/Aaronjacobs000/sophos-central-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/Aaronjacobs000/sophos-central-mcp/issues"
+  },
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -17,16 +25,20 @@
     "build:mcpb": "npm run build && node scripts/build-mcpb.mjs",
     "start": "node dist/index.js",
     "dev": "tsc --watch",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "test": "npm run build && node --test test/*.test.mjs"
   },
   "keywords": [
     "mcp",
     "sophos",
     "sophos-central",
+    "sophos-fusion",
     "model-context-protocol",
     "soc",
     "security",
-    "endpoint-management"
+    "endpoint-management",
+    "xdr",
+    "graphql"
   ],
   "license": "MIT",
   "engines": {

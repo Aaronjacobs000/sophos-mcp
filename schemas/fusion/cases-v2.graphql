@@ -1,0 +1,2098 @@
+directive @key(fields: String!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE
+type Query {
+  "case gets a single case."
+  case(arguments: CaseArguments!): Case
+  "cases returns a list of cases matching the provided arguments."
+  cases(arguments: CasesArguments!): Cases!
+  "caseEvidence returns the attached evidence for a case."
+  caseEvidence(arguments: CaseEvidenceArguments!): CaseEvidence!
+  "caseRule gets an auto-case rule"
+  caseRule(arguments: CaseRuleArguments!): CaseRule
+  "caseRules returns a list of case rules matching the provided arguments."
+  caseRules(arguments: CaseRulesArguments!): CaseRules!
+  "caseTemplate gets an auto-case template"
+  caseTemplate(arguments: CaseTemplateArguments!): CaseTemplate
+  "caseTemplates returns a list of case templates matching the provided arguments."
+  caseTemplates(arguments: CaseTemplatesArguments!): CaseTemplates!
+  "comments returns all the comments for a case"
+  caseComments(arguments: CaseCommentsArguments!): CaseComments!
+  "caseTypes returns the available case types for a given user and the current tenant's service level"
+  caseTypes(arguments: CaseTypesArguments!): CaseTypes!
+  "caseSecondaryStatuses returns the available case statuses for a given user and the current tenant's service level"
+  caseSecondaryStatuses(arguments: CaseSecondaryStatusesArguments!): CaseSecondaryStatuses!
+  "casePrimaryStatuses returns the available case primary statuses for a given user and the current tenant's service level"
+  casePrimaryStatuses(arguments: CasePrimaryStatusesArguments!): CasePrimaryStatuses!
+  "casePrimaryVerdicts returns the available case primary verdicts for a given user and the current tenant's service level"
+  casePrimaryVerdicts(arguments: CasePrimaryVerdictsArguments!): CasePrimaryVerdicts!
+  "caseSecondaryVerdicts returns the available case secondary verdicts for a given user and the current tenant's service level"
+  caseSecondaryVerdicts(arguments: CaseSecondaryVerdictsArguments!): CaseSecondaryVerdicts!
+  "caseSources returns all available case sources, optionally filtered by transition rules."
+  caseSources(arguments: CaseSourcesArguments!): CaseSources!
+  """
+  caseFile returns file details for a single file attached to a case based on the arguments provided.
+  The result will also include a pre-signed download url.
+  """
+  caseFile(arguments: CaseFileArguments!): CaseFile
+  """
+  caseFiles returns file details for all files matching the arguments provided.
+  Download URLs will be generated only if the downloadURL field is requested in the query.
+  Note: Audit logs are created for all file downloads except embedded files (isEmbedded=true).
+  To filter by embedded status, use CQL: query with isEmbedded=true or isEmbedded=false.
+  """
+  caseFiles(arguments: CaseFilesArguments!): CaseFiles!
+}
+
+type Mutation {
+  "createCase creates new case with the provided arguments."
+  createCase(input: CreateCaseInput!): Case
+  """
+  updateCase updates an existing case.
+  This is a PATCH style mutation, only fields that are send in the input will be updated.
+  """
+  updateCase(input: UpdateCaseInput!): Case
+  """
+  addEvidenceToCase will add more evidence to an existing case.
+  Evidence added through this mutation will not be considered genesis evidence.
+  The response will include the evidence that the service will attempt to add to the case.
+  
+  Adding evidence to cases is an asynchronous operation.
+  It will typically finish pretty quickly, but added detections/events will may not show up in the returned case until the async job is fully complete.
+  The processing status, that is found on the case type will reflect the state of the processing job.
+  Once the status is set to 'SUCCESS' the background job is complete and requesting the case will return the related evidence.
+  
+  Adding, removing or updating evidence (closing a case) while other jobs are processing for a given case will cause the jobs to queue.
+  Jobs will be worked through in the order they were received.
+  """
+  addEvidenceToCase(input: AddEvidenceToCaseInput!): AddEvidenceToCaseResult
+  """
+  removeEvidenceFromCase will remove evidence from an existing case.
+  The response will include the evidence that the service will attempt to remove from the case.
+  
+  Removing evidence from cases is an asynchronous operation.
+  It will typically finish pretty quickly, but removed detections/events will can remain attached to the case until the async job is fully complete.
+  The processing status, that is found on the case type will reflect the state of the processing job.
+  Once the status is set to 'SUCCESS' the background job is complete and requesting the case will only return evidence that was not removed.
+  
+  Adding, removing or updating evidence (closing a case) while other jobs are processing for a given case will cause the jobs to queue.
+  Jobs will be worked through in the order they were received.
+  """
+  removeEvidenceFromCase(input: RemoveEvidenceFromCaseInput!): RemoveEvidenceFromCaseResult
+  """
+  splitCase creates one new destination case and moves the selected case evidence to it asynchronously.
+  Only detections, events, saved searches, and files can be moved. Key findings, comments, entities, and agents remain on the source case.
+  Requested evidence not attached to the source case (already removed, or never present) is silently ignored — only what is still attached when the move runs is moved; the rest is recorded in the audit trail as skipped. SCHEDULED attachments (upload link issued but file not yet uploaded) are likewise skipped and left on the source.
+  """
+  splitCase(input: SplitCaseInput!): SplitCaseResult!
+  """
+  mergeCase associates source evidence to a target case.
+  Source cases are transitioned and may be archived.
+  Evidence association is asynchronous.
+  """
+  mergeCase(input: MergeCaseInput!): MergeCaseResult!
+  "createCaseRule accepts input to create a new auto-case rule."
+  createCaseRule(input: CreateCaseRuleInput!): CaseRule
+  "updateCaseRule accepts input to update an existing auto-case rule."
+  updateCaseRule(input: UpdateCaseRuleInput!): CaseRule
+  """
+  deleteCaseRule removes an existing case rule.
+  This is a hard delete. Data will not be recoverable.
+  """
+  deleteCaseRule(input: DeleteCaseRuleInput!): CaseRule
+  "createCaseTemplate accepts input to create a new auto-case template."
+  createCaseTemplate(input: CreateCaseTemplateInput!): CaseTemplate
+  "updateCaseTemplate accepts input to update an existing auto-case template."
+  updateCaseTemplate(input: UpdateCaseTemplateInput!): CaseTemplate
+  """
+  deleteCaseTemplate removes an existing case template.
+  This is a hard delete. Data will not be recoverable.
+  """
+  deleteCaseTemplate(input: DeleteCaseTemplateInput!): CaseTemplate
+  "addCaseComment adds a comment to an existing case."
+  addCaseComment(input: AddCaseComment!): CaseComment
+  """
+  updateCaseComment updates an existing comment on a case.
+  This is a PATCH style mutation, only fields that are send in the input will be updated.
+  Only the user who created the comment can update it.
+  Updating a comment and adding new @mentions will trigger new notifications but will not send notifications to @mentions that are already present in the comment.
+  """
+  updateCaseComment(input: UpdateCaseCommentInput!): CaseComment
+  """
+  deleteCaseComment removes an existing comment from a case.
+  This is a hard delete. Data will not be recoverable.
+  """
+  deleteCaseComment(input: DeleteCaseCommentInput!): CaseComment
+  """
+  startCaseFileUpload initializes a file upload for a case.
+  The response will include a pre-signed URL that can be used to upload a file to the case.
+  """
+  startCaseFileUpload(input: StartCaseFileUploadInput!): CaseFileUpload
+  """
+  deleteCaseFile removes an existing file from a case.
+  This is a hard delete. Data will not be recoverable.
+  """
+  deleteCaseFile(input: DeleteCaseFileInput!): CaseFile
+  """createCaseLink creates a new link on an existing case."""
+  createCaseLink(input: CreateCaseLinkInput!): CaseLink
+  """updateCaseLink updates an existing link on a case."""
+  updateCaseLink(input: UpdateCaseLinkInput!): CaseLink
+  """deleteCaseLink deletes an existing link from a case."""
+  deleteCaseLink(input: DeleteCaseLinkInput!): CaseLink
+}
+
+"DocumentType describes the format of the key findings content."
+enum DocumentType {
+  MARKDOWN
+  RICH_TEXT
+}
+
+"KeyFindingsDocument is a typed document envelope for key findings."
+type KeyFindingsDocument {
+  "The format of the content"
+  documentType: DocumentType!
+  "The version of the document format"
+  documentVersion: String!
+  """
+  The content of the key findings.
+  This is always a string. If the content is structured (e.g. a rich-text editor's JSON document),
+  it must be serialized to a string first (e.g. JSON.stringify()).
+  """
+  content: String!
+}
+
+"KeyFindingsTemplate is a typed document envelope for key findings templates."
+type KeyFindingsTemplate {
+  "The format of the content"
+  documentType: DocumentType!
+  "The version of the document format"
+  documentVersion: String!
+  "The CEL template expression for the content"
+  contentTemplate: String!
+}
+
+"CreateKeyFindingsDocumentInput describes the fields for creating key findings on a case."
+input CreateKeyFindingsDocumentInput {
+  "The format of the content"
+  documentType: DocumentType!
+  "The version of the document format"
+  documentVersion: String!
+  """
+  The content of the key findings.
+  This is always a string. If the content is structured (e.g. a rich-text editor's JSON document),
+  it must be serialized to a string first (e.g. JSON.stringify()).
+  """
+  content: String!
+}
+
+"UpdateKeyFindingsDocumentInput describes the fields for updating key findings on a case."
+input UpdateKeyFindingsDocumentInput {
+  "The format of the content"
+  documentType: DocumentType!
+  "The version of the document format"
+  documentVersion: String!
+  """
+  The content of the key findings.
+  This is always a string. If the content is structured (e.g. a rich-text editor's JSON document),
+  it must be serialized to a string first (e.g. JSON.stringify()).
+  """
+  content: String!
+}
+
+"CreateKeyFindingsTemplateInput describes the fields for creating key findings on a case template."
+input CreateKeyFindingsTemplateInput {
+  "The format of the content"
+  documentType: DocumentType!
+  "The version of the document format"
+  documentVersion: String!
+  "The CEL template expression for the content"
+  contentTemplate: String!
+}
+
+"UpdateKeyFindingsTemplateInput describes the fields for updating key findings on a case template."
+input UpdateKeyFindingsTemplateInput {
+  "The format of the content"
+  documentType: DocumentType!
+  "The version of the document format"
+  documentVersion: String!
+  "The CEL template expression for the content"
+  contentTemplate: String!
+}
+
+"CreateCaseInput Describes the fields available for creating a new case."
+input CreateCaseInput {
+  """
+  ID of the Type the case should be opened as
+  Types are restricted to the available types for the current user and tenant service level.
+  """
+  typeId: ID!
+  """
+  Severity of the case.
+  2 - Informational
+  4 - Low
+  6 - Medium
+  8 - High
+  10 - Critical
+  """
+  severity: Int!
+  """
+  Title of the case.
+  Max 256 characters anything over that will be trimmed.
+  """
+  title: String!
+  "Tags used to help label the case"
+  tags: [String!]
+  "KeyFindings are used to explain the details of the case as a typed document envelope"
+  keyFindings: CreateKeyFindingsDocumentInput
+  """
+  primaryStatusId is used to describe the state of the case
+  Statuses are restricted to the available statuses for the current user and tenant.
+  """
+  primaryStatusId: ID!
+  """
+  secondaryStatusId is used to describe the state of the case
+  Statuses are restricted to the available statuses for the current user and tenant.
+  """
+  secondaryStatusId: ID
+  """
+  secondaryStatusReason is a list of reasons associated with the secondary status.
+  Each reason must be valid for the selected secondary status (see allowedSubstatusReasons on CaseSecondaryStatus).
+  Not required even if the secondary status defines allowed reasons.
+  """
+  secondaryStatusReason: [String!]
+  """
+  primaryVerdictId is used to describe the state of the case when closed
+  This can only be set when the case is being created in a closed state.
+  """
+  primaryVerdictId: ID
+  """
+  secondaryVerdictId is used to describe the state of the case
+  This can only be set when the case is being created in a closed state and the primary verdict supports the provided verdict.
+  """
+  secondaryVerdictId: ID
+  """
+  assigneeId is used to set the user assigned to the case.
+  The assignee must be a valid user, client, or @mention in the system.
+  Optional. If null or empty, the case is created with no assignee.
+  """
+  assigneeId: String
+  """
+  Detections is a list of detection IDs that should be attached to the case.
+  Detections added during the creation of a case are considered genesis evidence.
+  """
+  detectionIds: [String!]
+  """
+  DetectionsSearchQuery is a QUERY query that can be used to attach detections to the case.
+  Only the first 50k detections will be attached to the case.
+  Detections added via a search query during the case create will be considered genesis evidence.
+  """
+  detectionsSearchQuery: String
+  """
+  Events is a list of event IDs that should be attached to the case.
+  Events added during the creation of a case are considered genesis evidence.
+  """
+  eventIds: [String!]
+  """
+  SearchQueries are saved searches that should be used to open the case.
+  Search queries added during the creation of a case are considered genesis evidence.
+  Searches added here are not executed to attach evidence, this field is only used to attached saved searches to the case.
+  """
+  searchQueries: [String!]
+  """
+  HostIds is a list of host IDs whose assets should be attached to the case on creation.
+  Assets added during the creation of a case are considered genesis evidence.
+  """
+  hostIds: [String!]
+  """
+  managedBy indicates who manages the case - either the provider or the customer.
+  This field is optional. If not provided, the case will be considered unclaimed unless the selected case type defines a managed by value.
+  Once this field is set, it cannot be changed.
+  In situations where the case type defines a managedBy, providing a value here that does not match the allowed value will return an error.
+  In those situations, providing a null value here is allowed.
+  """
+  managedBy: CaseManagedBy
+  """
+  incidentAdvisorId is used to assign an Incident Advisor to cases managed by a provider.
+  """
+  incidentAdvisorId: ID
+  """sourceId is the ID of the case source. Optional."""
+  sourceId: ID
+  """
+  queue is the routing queue the case is being created in. Only partner / MDR provider
+  users may set this field. Both subfields are independently optional.
+  """
+  queue: CreateCaseQueueInput
+}
+
+"""
+UpdateCaseInput describes the fields available for updating a case.
+Optional fields that are not provided will not be updated.
+"""
+input UpdateCaseInput {
+  "Id of the case to update"
+  id: ID!
+  """
+  Id of the Type the case should be updated to.
+  Types are restricted to the available types for the current user and tenant service level.
+  """
+  typeId: ID
+  """
+  Severity of the case.
+  2 - Informational
+  4 - Low
+  6 - Medium
+  8 - High
+  10 - Critical
+  """
+  severity: Int
+  "Title to update the case with"
+  title: String
+  """
+  Tags used to help label the case
+  Tags are not additive, the tags provided will replace the existing tags on the case.
+  If you want to keep the existing tags, you must include them in the tags field.
+  Not sending the tags field at all (null) will not update the tags.
+  """
+  tags: [String!]
+  "KeyFindings are used to explain the details of the case as a typed document envelope. Null clears, omitted means no change."
+  keyFindings: UpdateKeyFindingsDocumentInput
+  """
+  primaryStatusId is used to describe the state of the case
+  Statuses are restricted to the available statuses for the current user and tenant.
+  """
+  primaryStatusId: ID
+  """
+  secondaryStatusId is used to describe the state of the case
+  Statuses are restricted to the available statuses for the current user and tenant.
+  """
+  secondaryStatusId: ID
+  """
+  secondaryStatusReason is a list of reasons associated with the secondary status.
+  Each reason must be valid for the selected secondary status (see allowedSubstatusReasons on CaseSecondaryStatus).
+  If the primary or secondary status changes, this field will be automatically cleared.
+  """
+  secondaryStatusReason: [String!]
+  """
+  primaryVerdictId is used to describe the state of the case when closed
+  This can only be set when the case is being created in a closed state.
+  """
+  primaryVerdictId: ID
+  """
+  secondaryVerdictId is used to describe the state of the case
+  This can only be set when the case is being created in a closed state and the primary verdict supports the provided verdict.
+  """
+  secondaryVerdictId: ID
+  """
+  assigneeId is used to update the user assigned to the case.
+  The assignee must be a valid user, client, or @mention in the system.
+  Optional. Null or omitted means no change. An empty string clears the
+  current assignee. A non-empty value sets the assignee.
+  Updating the assignee id and setting the status to AWAITING_ACTION will trigger a handoff if the assignee id changes, an email will be sent to the new assignee.
+  """
+  assigneeId: String
+  """
+  managedBy indicates who manages the case - either the provider or the customer.
+  This field is optional. If not provided, the case will be considered unclaimed.
+  Once this field is set, it cannot be changed. If the case is already managed, then providing this field will return an error.
+  """
+  managedBy: CaseManagedBy
+  """
+  incidentAdvisorId is used to assign an Incident Advisor to cases managed by a provider.
+  Can be cleared by sending an empty string.
+  """
+  incidentAdvisorId: ID
+  """
+  closeReason is an optional field that can be used to provide a reason for closing the case.
+  This field only has meaning when the case is being moved to a closed status and is set in the same call but it can be set at any time with any status.
+  """
+  closeReason: String
+  """
+  isArchived controls the archive status of the case.
+  - Set to true to archive the case (only allowed for closed cases)
+  - Set to false to unarchive the case
+  - Null or omitted: no change to archive status
+  """
+  isArchived: Boolean
+  """
+  sourceId is the ID of the case source.
+  If current source has empty allowedNextSources, source cannot be changed.
+  Once source is set, it cannot be cleared to null.
+  """
+  sourceId: ID
+  """
+  queue is the routing queue assignment to apply to the case. Only partner / MDR
+  provider users may set this field. Immutable once the case is closed.
+  Omitted = no change. Subfields are independently optional within the input.
+  """
+  queue: UpdateCaseQueueInput
+}
+
+"AddDetectionsToCaseInput describes the fields needed to add evidence to an existing case."
+input AddEvidenceToCaseInput {
+  "case id to add the evidence to"
+  caseId: ID!
+  "Detections is a list of detection IDs that should be attached to the case"
+  detectionIds: [String!]
+  "DetectionsSearchQuery is a QUERY query that should be used to add detections to the case"
+  detectionsSearchQuery: String
+  "Events is a list of event IDs that should be attached to the case"
+  eventIds: [String!]
+  """
+  SearchQueries are saved searches that should be attached to the case.
+  Search queries added during the creation of a case are considered genesis evidence.
+  Searches added here are not executed to attach evidence, this field is only used to attached saved searches to the case.
+  """
+  searchQueries: [String!]
+  """
+  HostIds is a list of host IDs whose assets should be attached to the case.
+  Assets added through this mutation will not be considered genesis evidence.
+  """
+  hostIds: [String!]
+}
+
+"RemoveEvidenceFromCaseResult describes the fields needed to remove evidence from an existing case."
+input RemoveEvidenceFromCaseInput {
+  "case id"
+  caseId: ID!
+  "Detections is a list of detection IDs that should be removed from the case"
+  detectionIds: [String!]
+  "Events is a list of event IDs that should be removed from the case"
+  eventIds: [String!]
+  "Assets is a list of asset IDs that should be removed from the case"
+  assetIds: [String!]
+  "searchQueries is a list of search queries that should be removed from the case"
+  searchQueries: [String!]
+}
+
+"DeleteCaseRuleInput Describes the fields available for deleting an existing case rule."
+input DeleteCaseRuleInput {
+  "ID of the rule to update"
+  id: ID!
+}
+
+type CaseEvidence {
+  "ID of the case (unique)"
+  id: ID!
+  "DetectionsEvidence is a list of detection evidence attached to the case"
+  detectionsEvidence: [CaseDetectionEvidence!]
+  "DetectionsEvidenceCount is the count of detections attached to the case"
+  detectionsEvidenceCount: Int!
+  "AssetsEvidence is a list of asset evidence attached to the case"
+  assetsEvidence: [CaseAssetEvidence!]
+  "AssetsEvidenceCount is the count of assets attached to the case"
+  assetsEvidenceCount: Int!
+  "EventsEvidence is a list of event evidence attached to the case"
+  eventsEvidence: [CaseEventEvidence!]
+  "EventsEvidenceCount is the count of events attached to the case"
+  eventsEvidenceCount: Int!
+  "SearchQueriesEvidence is a list of search query evidence attached to the case"
+  searchQueriesEvidence: [CaseSearchQueryEvidence!]
+  "SearchQueriesEvidenceCount is the count of search queries attached to the case"
+  searchQueriesEvidenceCount: Int!
+}
+
+input CaseEvidenceArguments {
+  "ID of the case to get evidence for"
+  id: ID!
+}
+
+"Case Describes a Taegis XDR case."
+type Case {
+  "ID of the case (unique)"
+  id: ID!
+  """
+  shortId is a identifier for the case that is human readable
+  Short ids are not guaranteed to be created in order though they typically will be.
+  """
+  shortId: String!
+  "Title of the case"
+  title: String!
+  """
+  KeyFindings are used to explain the details of the case as a typed document envelope.
+  NOTE: This field will not be returned in the Cases query. To get this field, you must query for the case by id using the case query.
+  """
+  keyFindings: KeyFindingsDocument
+  """
+  Severity of the case.
+  2 - Informational
+  4 - Low
+  6 - Medium
+  8 - High
+  10 - Critical
+  """
+  severity: Int!
+  "Type of the case"
+  type: CaseType!
+  "primary status is the current primary status of the case"
+  primaryStatus: CasePrimaryStatus!
+  "secondary status is the current secondary status of the case"
+  secondaryStatus: CaseSecondaryStatus
+  "secondaryStatusReason is a list of reasons associated with the current secondary status of the case"
+  secondaryStatusReason: [String!]!
+  "Tags used to help label the case"
+  tags: [String!]
+  "ContributorIds is a list of user ids that have contributed to the case"
+  contributorIds: [String!]!
+  """
+  ContributorSubjects is a federated list of subjects that have contributed to the case.
+  This can be used to get the user information for the contributors.
+  It is not guaranteed that all contributors will be able to be resolved through federation. For example, if the federated service is down or the subject was delete.
+  """
+  contributorSubjects: [Subject]!
+  """
+  assigneeId is the id of the user, client or group assigned to the case
+  It may be null to indicate that there is no assignee.
+  """
+  assigneeId: String
+  """
+  assigneeSubject is a federated field that can be used to get the user/client information for thee assignee.
+  It is a convenience field that will be nil if the api does not think the field can be rendered through federation.
+  It will always be nil if the assignee id is set to be an @partner mention or @customer.
+  It is not guaranteed that the assignee will be able to be resolved through federation. For example, if the federated service is down or the subject was delete.
+  """
+  assigneeSubject: Subject
+  "TenantId is the id of the tenant that the case belongs to"
+  tenantId: String!
+  """
+  Tenant is a federated field that can be used to get the tenant information for the case.
+  It is a convenience field that will be nil if the api does not think the field can be rendered through federation.
+  It is not guaranteed that the tenant will be able to be resolved through federation. For example, if the federated service is down or the tenant was moved to another environment.
+  """
+  tenant: TenantV4
+  "CreatedById is the id of the user that created the case"
+  createdById: String!
+  """
+  CreatedBySubject is a federated field that can be used to get the user information for the creator of the case.
+  It is a convenience field that will be nil if the api does not think the field can be rendered through federation.
+  It is not guaranteed that the createdBy will be able to be resolved through federation. For example, if the federated service is down or the subject was delete.
+  """
+  createdBySubject: Subject
+  """
+  CreatedAt is the time the case was created
+  This field will be updated if the case was originally created in a draft state and then promoted.
+  """
+  createdAt: Time!
+  "UpdatedById is the id of the user that last updated the case"
+  updatedById: String!
+  """
+  UpdatedBySubject is a federated field that can be used to get the user information for the last user that updated the case.
+  It is a convenience field that will be nil if the api does not think the field can be rendered through federation.
+  It is not guaranteed that the updatedBy will be able to be resolved through federation. For example, if the federated service is down or the subject was delete.
+  """
+  updatedBySubject: Subject
+  "UpdatedAt is the time the case was last updated"
+  updatedAt: Time!
+  """
+  ArchivedAt is the time the case was archived
+  This field will only be set if the case is archived.
+  It will be set back to nil if the case was unarchived.
+  """
+  archivedAt: Time
+  """
+  closedAt is the time the case was closed
+  This field will only be set if the case has been closed.
+  It will be set back to nil if the case is reopened.
+  """
+  closedAt: Time
+  """
+  closedById is the user identifier of the user who closed the case.
+  This field will only be set if the case has been closed.
+  It will be cleared if the case is reopened. On reopen-then-reclose,
+  it reflects the most recent closer.
+  """
+  closedById: String
+  """
+  closedBySubject is a federated field that can be used to get the user information for the closer.
+  This field will only be set if the case has been closed.
+  It is not guaranteed that the closedById will be able to be resolved through federation. For example, if the federated service is down or the subject was deleted.
+  """
+  closedBySubject: Subject
+  """
+  The reason provided by the user when closing a case.
+  This field is only populated for cases that have reached a 'Closed' status.
+  """
+  closeReason: String
+  "riskScore is the calculated risk score of the case"
+  riskScore: Float
+  """
+  primary verdict is the current primary verdict of the case
+  Can only be set when the case is in a closed state.
+  """
+  primaryVerdict: CasePrimaryVerdict
+  """
+  secondary verdict is the current secondary verdict of the case
+  Can only be set when the case is in a closed state.
+  Not every primary verdict has a secondary verdict.
+  """
+  secondaryVerdict: CaseSecondaryVerdict
+  "processingStatus contains the current status of each evidence type that could be processed for the case"
+  processingStatus: CaseProcessingStatus!
+  "ruleId is the id of the rule that opened the case - should be only set if the case was opened by a rule"
+  ruleId: ID
+  """
+  source indicates the method used to generate the case.
+  This field is nullable - cases are not required to have a source.
+  """
+  source: CaseSource
+  """
+  links are a list of 3rd party or other links that are related to the case.
+  """
+  links: [CaseLink!]!
+  """
+  managedBy indicates who manages the case - either the provider or the customer.
+  There are times where this value may be unknown - for example if the case was created before this field was introduced.
+  There may also be times where the case doesn't have a managed by yet. IE: It has not been claimed.
+  """
+  managedBy: CaseManagedBy
+  """
+  incidentAdvisorId is the ID of the Incident Advisor assigned to the case.
+  """
+  incidentAdvisorId: ID
+  """
+  incidentAdvisor resolves the incident advisor's user details locally via the users API.
+  Unlike assigneeSubject, this field is not federated through the subjects subgraph.
+  Returns null if the incident advisor is not set or the user lookup fails.
+  """
+  incidentAdvisor: IncidentAdvisor
+  """
+  queue is the routing queue the case is currently assigned to.
+  Both fields within the queue are independently optional.
+  """
+  queue: CaseQueue
+  """
+  isCreatedByPartner is a field that denotes if the case was created by the child tenants parent tenant or not.
+  """
+  isCreatedByPartner: Boolean!
+  """
+  isCreatedByMDRProvider denotes if the case was created by the tenant's MDR provider.
+  """
+  isCreatedByMDRProvider: Boolean!
+  """
+  isCreatedByParent denotes if the case was created by a parent tenant in the org hierarchy.
+  """
+  isCreatedByParent: Boolean!
+  """
+  detectionsCount is the count of detections attached to the case.
+  Requesting this field can slow down the query if there are a large number of cases being requested.
+  Do not request this field in a list query unless you need it.
+  """
+  detectionsCount: Int! @field(sets: [])
+  """
+  eventsCount is the count of events attached to the case.
+  Requesting this field can slow down the query if there are a large number of cases being requested.
+  Do not request this field in a list query unless you need it.
+  """
+  eventsCount: Int! @field(sets: [])
+  """
+  assetsCount is the count of assets attached to the case.
+  Requesting this field can slow down the query if there are a large number of cases being requested.
+  Do not request this field in a list query unless you need it.
+  """
+  assetsCount: Int! @field(sets: [])
+}
+
+"""
+CaseQueue is an opaque reference to a routing queue that the case is assigned to.
+The Cases service does not validate or resolve these values; they originate in
+external systems (e.g., MDR Genesys queue routing). The name is captured at write
+time and may drift from the originating system's current name for the queue.
+"""
+type CaseQueue {
+  "referenceId is an opaque identifier for the queue, provided by the originating system."
+  referenceId: String
+  "name is the display name of the queue at the time it was last written."
+  name: String
+}
+
+"""
+CreateCaseQueueInput sets the routing queue when a case (or case template) is being
+created. Both fields are independently optional; only partner / MDR provider users
+may set queue values.
+"""
+input CreateCaseQueueInput {
+  "referenceId is the opaque queue identifier from the originating system."
+  referenceId: String
+  "name is the display name to capture for the queue at write time."
+  name: String
+}
+
+"""
+UpdateCaseQueueInput sets the routing queue when a case (or case template) is being
+updated. Both fields are independently optional. Only partner / MDR provider users
+may set queue values. Immutable once the case is closed.
+"""
+input UpdateCaseQueueInput {
+  "referenceId is the opaque queue identifier from the originating system."
+  referenceId: String
+  "name is the display name to capture for the queue at write time."
+  name: String
+}
+
+"""
+Case links represent 3rd party or other links that are related to the case.
+"""
+type CaseLink {
+  "ID of the link"
+  id: ID!
+  "caseId is the id of the case the link belongs to"
+  caseId: ID!
+  "ID of the resource being linked to"
+  reference: String
+  "URL of the resource being linked to"
+  url: String!
+  """
+  Optional title of the resource being linked to
+  If this is set, it will be used as the title of the link in the UI rather than the reference.
+  """
+  title: String
+  """
+  Optional type of the resource being linked to. IE: ServiceNow, 4Me, etc..
+  """
+  type: String
+  "Timestamp of when the link was added to the case"
+  createdAt: Time!
+  "createdById is the id of the user that created the link"
+  createdById: String!
+  "updatedAt is the time the link was last updated"
+  updatedAt: Time!
+  "updatedById is the id of the user that last updated the link"
+  updatedById: String!
+  "isInternal indicates if the link should be visible to internal users only"
+  isInternal: Boolean!
+}
+
+"Input for creating a new case link."
+input CreateCaseLinkInput {
+  "caseId is the id of the case to add the link to"
+  caseId: ID!
+  """
+  ID of the resource being linked to either external or internal to Taegis
+  """
+  reference: String
+  "URL of the resource being linked to"
+  url: String!
+  """
+  Optional title of the resource being linked to
+  If this is set, it will be used as the title of the link in the UI rather than the reference.
+  """
+  title: String
+  """
+  Optional type of the resource being linked to. IE: ServiceNow, 4Me, etc..
+  """
+  type: String
+  "isInternal indicates if the link should be visible to internal users only - defaults to false"
+  isInternal: Boolean = false
+}
+
+"Input for updating an existing case link."
+input UpdateCaseLinkInput {
+  "ID of the link to update"
+  id: ID!
+  "ID of the resource being linked to either external or internal to Taegis"
+  reference: String
+  "Optional URL of the resource being linked to"
+  url: String
+  """
+  Optional title of the resource being linked to
+  If this is set, it will be used as the title of the link in the UI rather than the reference.
+  """
+  title: String
+  """
+  Optional type of the resource being linked to. IE: ServiceNow, 4Me, etc..
+  """
+  type: String
+  "isInternal indicates if the link should be visible to internal users only - defaults to false"
+  isInternal: Boolean
+}
+
+"Input for deleting an existing case link."
+input DeleteCaseLinkInput {
+  "ID of the link to delete"
+  id: ID!
+}
+
+"Cases defines the paginated results of a case search."
+type Cases {
+  "List of the cases that match the search criteria for the current page"
+  cases: [Case!]!
+  "The total number of cases matching the search criteria."
+  totalCount: Int!
+  "Cursor/page metadata. Populated in both offset and cursor modes."
+  pageInfo: PageInfo!
+}
+
+"PageInfo carries cursor/page metadata for paginated case results."
+type PageInfo {
+  "Cursor of the first row on this page. Null if the page is empty."
+  startCursor: String
+  "Cursor of the last row on this page. Null if the page is empty."
+  endCursor: String
+  "True if there is at least one more row after this page."
+  hasNextPage: Boolean!
+  "True if there is at least one row before this page."
+  hasPreviousPage: Boolean!
+}
+
+"AddDetectionsToCaseInput describes the fields needed to add detections to an existing case."
+type AddEvidenceToCaseResult {
+  "id of the case to add the evidence to"
+  caseId: ID!
+  "Detections is a list of detection IDs that should be attached to the case"
+  detectionIds: [String!]
+  "detectionsSearchQuery is a QUERY query that should be used to add detections to the case"
+  detectionsSearchQuery: String
+  "Events is a list of event IDs that should be attached to the case"
+  eventIds: [String!]
+  """
+  SearchQueries are saved searches that should be attached to the case.
+  Searches added here are not executed to attach evidence, this field is only used to attached saved searches to the case.
+  """
+  searchQueries: [String!]
+  "HostIds is a list of host IDs that were submitted to have their assets attached to the case"
+  hostIds: [String!]
+}
+
+"RemoveEvidenceFromCaseResult describes the fields needed to remove evidence from an existing case."
+type RemoveEvidenceFromCaseResult {
+  "id of the case to remove the evidence from"
+  caseId: ID!
+  "Detections is a list of detection IDs that should be removed from the case"
+  detectionIds: [String!]
+  "Events is a list of event IDs that should be removed from the case"
+  eventIds: [String!]
+  "Assets is a list of asset IDs that should be removed from the case"
+  assetIds: [String!]
+  "searchQueries is a list of search queries that should be removed from the case"
+  searchQueries: [String!]
+}
+
+"MergeCaseInput selects a target case and the source cases whose in-scope evidence is associated with it."
+input MergeCaseInput {
+  "targetCaseId is the case that receives the merged evidence and is retained."
+  targetCaseId: ID!
+  "sourceCaseIds are the cases whose in-scope evidence is associated with the target; they are then dismissed/closed."
+  sourceCaseIds: [ID!]!
+  "archiveSources, when true, also archives the merged source cases."
+  archiveSources: Boolean
+}
+
+"MergeCaseResult is returned once the source cases are transitioned and the evidence association is queued."
+type MergeCaseResult {
+  "targetCaseId is the case that received the merged evidence."
+  targetCaseId: ID!
+  "sourceCaseIds are the cases that were merged into the target."
+  sourceCaseIds: [ID!]!
+  "processingEventId correlates the queued async evidence association."
+  processingEventId: ID!
+}
+
+"""
+CaseTemplate contains a set of pre-defined set of attributes used to populate a case.
+
+A template can be either be used to open a new case or applied to an existing case.
+"""
+type CaseTemplate {
+  "ID of the case template (unique)"
+  id: ID!
+  "ID of the user that created the case template"
+  createdById: String!
+  """
+  createdBySubject is a federated field that can be used to get the user information for the creator of the case template
+  It is a convenience field that will be nil if the api does not think the field can be rendered through federation.
+  It is not guaranteed that the createdBy will be able to be resolved through federation. For example, if the federated service is down or the subject was delete.
+  """
+  createdBySubject: Subject
+  "createdAt is the time the case template was created"
+  createdAt: Time!
+  "ID of the user that last updated the case template"
+  updatedById: String!
+  """
+  updatedBySubject is a federated field that can be used to get the user information for the last user that updated the case template
+  It is a convenience field that will be nil if the api does not think the field can be rendered through federation.
+  It is not guaranteed that the updatedBy will be able to be resolved through federation. For example, if the federated service is down or the subject was delete.
+  """
+  updatedBySubject: Subject
+  "updatedAt is the time the case template was last updated"
+  updatedAt: Time!
+  "ID of the tenant that the case template belongs to"
+  tenantId: String!
+  "Name of the template"
+  name: String!
+  "Title of the template - when displaying the template visually, if this field is set, it should be used to represent the template and not the name"
+  title: String
+  "Description of the template"
+  description: String
+  "Tags used to help label the template"
+  tags: [String!]
+  "Type of the case should be opened as"
+  caseTypeId: ID!
+  "Severity of the case"
+  caseSeverity: Int!
+  "Title of the case"
+  caseTitle: String!
+  "Tags used to help label the case"
+  caseTags: [String!]
+  "keyFindings is a typed document envelope with a CEL template that can be used to populate and explain the details of the case"
+  caseKeyFindings: KeyFindingsTemplate
+  "keyFindingsPrompts are a set of cel templates that can be used to populate and explain the details of the case based on responses from OpenAI"
+  caseKeyFindingsPrompts: [String!]
+  "External Assignee is used to set the user assigned to the case"
+  caseAssignee: String!
+  """
+  caseAssigneeSubject is a federated field that can be used to get the user information for the assignee of the case template
+  It is a convenience field that will be nil if the api does not think the field can be rendered through federation.
+  It is not guaranteed that the assignee will be able to be resolved through federation. For example, if the federated service is down or the subject was delete.
+  """
+  caseAssigneeSubject: Subject
+  "Initial status of the case"
+  casePrimaryStatusId: ID!
+  "Initial secondary status of the case"
+  caseSecondaryStatusId: ID
+  "caseSecondaryStatusReason is a list of reasons associated with the secondary status"
+  caseSecondaryStatusReason: [String!]
+  """
+  casePrimaryVerdictId is used to describe the state of the case when closed
+  This can only be set when the case template is being created with a closed state.
+  """
+  casePrimaryVerdictId: ID
+  """
+  caseSecondaryVerdictId is used to describe the state of the case
+  This can only be set when the case template is being created with a closed state and the primary verdict supports the provided verdict.
+  """
+  caseSecondaryVerdictId: ID
+  """
+  CaseManagedBy indicates who manages the case - either the provider or the customer.
+  This field is optional.
+  If the case type associated with the template has a managedBy setting, that will take precedence over this field.
+  If not provided and no case type configuration exists, the case will be considered unclaimed.
+  """
+  CaseManagedBy: CaseManagedBy
+  """
+  queue is the routing queue assignment captured on the template. When the template is
+  applied, the queue values will be propagated to the case. Both subfields are
+  independently optional.
+  """
+  queue: CaseQueue
+  "Possible usages of the template"
+  usages: [TemplateUsage!]
+  """
+  Whether this template should be shared with child tenants.
+  If true, child tenants will be able to use this template.
+  """
+  isSharedWithChildTenants: Boolean!
+  "Whether key findings should be automatically generated for cases created from this template"
+  generateKeyFindings: Boolean!
+}
+
+"CaseTemplates defines the paginated results of a case template search."
+type CaseTemplates {
+  "List of the templates that match the search criteria for the current page"
+  templates: [CaseTemplate!]!
+  "The total number of templates that match the search criteria"
+  totalCount: Int!
+}
+
+"""
+CreateCaseTemplateInput Describes the fields used for creating a new case template.
+"""
+input CreateCaseTemplateInput {
+  """
+  Name of the template to create.
+  May only consist of letters, numbers and underscores.
+  Once the name is set, it cannot be changed.
+  """
+  name: String!
+  "Title of the rule - can be changed later."
+  title: String
+  "Description of the template"
+  description: String
+  "Tags used to help label the template"
+  tags: [String!]
+  """The Type id that should be used to set the initial type of case"""
+  caseTypeId: ID!
+  """Severity of the case"""
+  caseSeverity: Int!
+  "Title of the case"
+  caseTitle: String!
+  "Tags used to help label the case"
+  caseTags: [String!]
+  "caseKeyFindings is a typed document envelope with a CEL template that can be used to populate and explain the details of the case"
+  caseKeyFindings: CreateKeyFindingsTemplateInput
+  "caseKeyFindingsPrompts are a set of CEL templates that can be used to populate and explain the details of the case based on responses from OpenAI"
+  caseKeyFindingsPrompts: [String!]
+  "Assignee is used to set the user assigned to the case"
+  caseAssignee: String!
+  """Primary Status Id that the case should be opened with."""
+  casePrimaryStatusId: ID!
+  """Secondary Status Id that the case should be opened with."""
+  caseSecondaryStatusId: ID
+  """
+  caseSecondaryStatusReason is a list of reasons associated with the secondary status.
+  Each reason must be valid for the selected secondary status.
+  """
+  caseSecondaryStatusReason: [String!]
+  """
+  casePrimaryVerdictId is used to describe the state of the case when closed
+  This can only be set when the case template is being created with a closed state.
+  """
+  casePrimaryVerdictId: ID
+  """
+  caseSecondaryVerdictId is used to describe the state of the case
+  This can only be set when the case template is being created with a closed state and the primary verdict supports the provided verdict.
+  """
+  caseSecondaryVerdictId: ID
+  """
+  caseManagedBy indicates who manages the case - either the provider or the customer.
+  This field is optional. If not provided, the case will be created as unclaimed unless the case type defines a managed by value.
+  If the case type associated with the template has a managedBy setting, and this field is provided with a value that does not match, an error will be returned.
+  """
+  caseManagedBy: CaseManagedBy
+  """
+  queue captures the routing queue to record on the template. Only partner / MDR
+  provider users may set this field. Both subfields are independently optional.
+  """
+  queue: CreateCaseQueueInput
+  "Possible usages"
+  usages: [TemplateUsage!] = ["AUTO_INVESTIGATION"]
+  """
+  Whether this template should be shared with child tenants.
+  If true, child tenants will be able to use this template.
+  Defaults to false.
+  """
+  isSharedWithChildTenants: Boolean = false
+  "Whether key findings should be automatically generated for cases created from this template. Defaults to false."
+  generateKeyFindings: Boolean = false
+}
+
+"UpdateCaseTemplateInput Describes the fields used for updating an existing case template."
+input UpdateCaseTemplateInput {
+  "ID of the template to update"
+  id: ID!
+  "Title to update the template with"
+  title: String
+  "Description to update the template with"
+  description: String
+  """
+  Tags that used to help label the template .
+  Tags are not additive, the tags provided will replace the existing tags on the case.
+  If you want to keep the existing tags, you must include them in the tags field.
+  Not sending the tags field at all (null) will not update the tags.
+  """
+  tags: [String!]
+  """The Type id that should be used to set the initial type of case"""
+  caseTypeId: ID
+  """Severity of the case"""
+  caseSeverity: Int
+  "Title of the case"
+  caseTitle: String
+  "Tags used to help label the case"
+  caseTags: [String!]
+  "caseKeyFindings is a typed document envelope with a CEL template. Null clears, omitted means no change."
+  caseKeyFindings: UpdateKeyFindingsTemplateInput
+  "caseKeyFindingsPrompts are a set of CEL templates that can be used to populate and explain the details of the case based on responses from OpenAI"
+  caseKeyFindingsPrompts: [String!]
+  "External Assignee is used to set the user assigned to the case"
+  caseAssignee: String
+  """Primary Status Id that the case should be opened with."""
+  casePrimaryStatusId: ID
+  """Secondary Status Id that the case should be opened with."""
+  caseSecondaryStatusId: ID
+  """
+  caseSecondaryStatusReason is a list of reasons associated with the secondary status.
+  Each reason must be valid for the selected secondary status.
+  """
+  caseSecondaryStatusReason: [String!]
+  """
+  casePrimaryVerdictId is used to describe the state of the case when closed
+  This can only be set when the case template is being created with a closed state.
+  """
+  casePrimaryVerdictId: ID
+  """
+  caseSecondaryVerdictId is used to describe the state of the case
+  This can only be set when the case template is being created with a closed state and the primary verdict supports the provided verdict.
+  """
+  caseSecondaryVerdictId: ID
+  """
+  caseManagedBy indicates who manages the case - either the provider or the customer.
+  This field is optional. If not provided, the case will be created as unclaimed unless the case type defines a managed by value.
+  """
+  caseManagedBy: CaseManagedBy
+  """
+  queue updates the routing queue stored on the template. Only partner / MDR provider
+  users may set this field. Omitted = no change. Subfields are independently optional.
+  """
+  queue: UpdateCaseQueueInput
+  "Whether key findings should be automatically generated for cases created from this template"
+  generateKeyFindings: Boolean
+}
+
+"DeleteCaseTemplateInput defines the fields available for deleting an existing case template."
+input DeleteCaseTemplateInput {
+  "ID of the template to delete"
+  id: ID!
+}
+
+"CaseArguments describes the parameters to search for a case."
+input CaseArguments {
+  id: ID!
+}
+
+"CasesArguments describes the parameters for a search of cases."
+input CasesArguments {
+  "query string to search for cases"
+  query: String
+  "tenant service labels to search for"
+  tenantServiceFilters: [String!]
+  """
+  Pagination. Exactly one of `offset` or `cursor` MUST be set when provided.
+  If omitted, defaults to offset { page: 1, perPage: 20 }.
+  """
+  pagination: CasesPagination
+}
+
+"""
+CasesPagination selects between offset and cursor pagination.
+Setting both or neither produces a BAD_REQUEST error at the resolver.
+"""
+input CasesPagination {
+  offset: OffsetPagination
+  cursor: CursorPagination
+}
+
+"OffsetPagination uses 1-indexed page numbers with a fixed page size."
+input OffsetPagination {
+  "1-indexed page number"
+  page: Int = 1
+  "results per page — max 100"
+  perPage: Int = 20
+}
+
+"""
+CursorPagination uses opaque cursors for stable traversal.
+Valid combinations: { first } | { first, after } | { last } | { last, before }.
+Any other combination returns BAD_REQUEST.
+"""
+input CursorPagination {
+  "forward page size — max 100, default 20"
+  first: Int
+  "cursor marking where to resume forward traversal"
+  after: String
+  "backward page size — max 100, default 20"
+  last: Int
+  "cursor marking where to resume backward traversal"
+  before: String
+}
+
+"""
+CaseTemplateArguments describes the parameters to find a case template.
+Both id and name are unique identifiers for a template.
+At least one of the fields must be set, if both are set, both must match a template.
+"""
+input CaseTemplateArguments {
+  id: ID
+  name: String
+}
+
+"CaseTemplatesArguments describes the parameters for a search of case templates."
+input CaseTemplatesArguments {
+  "query string to search for templates"
+  query: String
+  "page of results to return - pages start on 1"
+  page: Int = 1
+  "number of results per page - max 100"
+  perPage: Int = 20
+}
+
+"CaseRule contains the configuration for an auto-case rule."
+type CaseRule {
+  "ID of the rule (unique)"
+  id: ID!
+  "ID of the user that created the rule"
+  createdById: String!
+  """
+  createdBySubject is a federated field that can be used to get the user information for the creator of the case rule
+  It is a convenience field that will be nil if the api does not think the field can be rendered through federation.
+  It is not guaranteed that the createdBy will be able to be resolved through federation. For example, if the federated service is down or the subject was delete.
+  """
+  createdBySubject: Subject
+  "createdAt is the time the case rule was created"
+  createdAt: Time!
+  "ID of the user that last updated the case rule"
+  updatedById: String!
+  """
+  updatedBySubject is a federated field that can be used to get the user information for the last user that updated the case rule
+  It is a convenience field that will be nil if the api does not think the field can be rendered through federation.
+  It is not guaranteed that the updatedBy will be able to be resolved through federation. For example, if the federated service is down or the subject was delete.
+  """
+  updatedBySubject: Subject
+  "updatedAt is the time the case rule was last updated"
+  updatedAt: Time!
+  "ID of the tenant that the case rule belongs to"
+  tenantId: String!
+  "Name of the rule"
+  name: String!
+  "Title of the rule - when displaying the rule visually, if this field is set, it should be used to represent the rule and not the name"
+  title: String
+  "Description of the rule"
+  description: String
+  "Tags used to help label the rule"
+  tags: [String!]
+  """
+  Type denotes the type of the rule and determines what is used to evaluate detections
+  """
+  type: CaseRuleType!
+  """
+  Order defines the order in which rules should be evaluated.
+  The lower the number, the sooner the rule will be evaluated.
+  Once a rule's filter has matched and been applied to an detection, the system stops trying to apply other rules.
+  """
+  order: Int!
+  "Detection severities this rule triggers on. An empty list means the rule is not restricted by severity."
+  detectionSeverities: [DetectionSeverity!]
+  "State defines processing behavior for the rule"
+  state: CaseRuleState!
+  "Detection filter expressed as a QL expression"
+  filter: String!
+  "Optional filter that can define different detection constraints (i.e. broader) for appending vs creating"
+  appendFilter: String
+  "Optional comment that is expanded and a comment generated when an detection is appended to an existing non-draft case"
+  appendComment: String
+  "Optional group by clause that adds additional matching detections to an existing case"
+  groupBy: [String!]!
+  "Count is an optional specification of the number of required matches of the group by clause"
+  groupCount: Int
+  "Duration specifies an optional period (as a string in format <int>[d|h|m|s]) to continue grouping detections after a matching case is closed"
+  groupDuration: String
+  "Optional flag indicating if newly appended detections should expand the set of entities/attributes used to group detections, defaults to false"
+  groupExtendOnAppend: Boolean
+  "Optional search queries used to populate additional detections or events into a newly created case"
+  searchQueries: [String!]!
+  "Optional search window specifies duration from the genesis detections over which the search is evaluated"
+  searchWindow: String
+  "Setting to filter tenants based on attributes such as enabled services and/or same tenant as rule definition"
+  tenantFilter: String
+  "Setting to skip checking if the priority of the detection has been downgraded when evaluating detections"
+  skipDetectionPrioritization: Boolean!
+  """
+  isGlobal indicates if this rule applies to all tenants.
+  Can only be set for rules under tenant 5000.
+  This flag does not apply to Legacy Taegis tenants at this time but it will as they are migrated into Central.
+  This includes MSSPs and their customers. As they are migrated, rules with this flag will also apply to them.
+  """
+  isGlobal: Boolean!
+  "Template defining case content"
+  template: CaseTemplate!
+}
+
+"""
+CreateCaseRuleInput Describes the fields used for creating a new case rule.
+"""
+input CreateCaseRuleInput {
+  """
+  Name of the rule to create.
+  May only consist of letters, numbers and underscores.
+  Once the name is set, it cannot be changed.
+  """
+  name: String!
+  "Title of the rule - can be changed later."
+  title: String
+  "Description of the rule"
+  description: String
+  "Tags used to help label the rule"
+  tags: [String!]
+  """
+  Type denotes the type of the rule and determines how detections are evaluated
+  """
+  type: CaseRuleType!
+  """
+  Order defines the order in which rules should be evaluated.
+  Duplicate order values are not allowed. Adding a rule with a duplicate order will insert the rule at the desired
+  position and bump all rules greater than or equal to the inserted rule order up one.
+  """
+  order: Int!
+  "Detection severities this rule triggers on. Leave empty or unset for no severity restriction."
+  detectionSeverities: [DetectionSeverity!]
+  "State defines processing behavior for the rule"
+  state: CaseRuleState!
+  "filter is a ql/cel expression that is used to match detections to the rule"
+  filter: String!
+  "appendFilter is an optional filter that can define different detection constraints (i.e. broader) for appending vs creating"
+  appendFilter: String
+  "appendComment is an optional comment that is expanded and a comment generated when an detection is appended to an existing non-draft case"
+  appendComment: String
+  "groupBy by clause that adds additional matching detections to an existing open case"
+  groupBy: [String!]
+  "groupCount is an optional specification of the number of required matches of the group by clause"
+  groupCount: Int
+  "groupDuration specifies an optional period (as a string in format <int>[h|m|s]) to continue grouping detections after a matching case is closed"
+  groupDuration: String
+  "groupExtendOnAppend is an optional flag indicating if newly appended detections should extend the set of entities/attributes used to group detections, defaults to false"
+  groupExtendOnAppend: Boolean
+  "searchQueries is an optional list of query expressions used to populate additional detections or events into a newly created case"
+  searchQueries: [String!]
+  "searchWindow is an optional duration from the genesis detections over which the searchQueries are evaluated"
+  searchWindow: String
+  "tenantFilter can be used to filter tenants based on attributes such as enabled services and/or same tenant as rule definition"
+  tenantFilter: String
+  "skipDetectionPrioritization can be used to skip checking if the priority of the detection has been downgraded when evaluating detections"
+  skipDetectionPrioritization: Boolean!
+  "isGlobal indicates if this rule applies to all tenants (only valid for tenant 5000)"
+  isGlobal: Boolean = false
+  "templateId is the id of the template the rule should use when it needs to open a new case"
+  templateId: ID!
+  "ResponseData provides rule-specific context/configuration for playbooks."
+  responseData: JSONObject
+}
+
+"UpdateCaseRuleInput Describes the fields available for updating an existing case rule."
+input UpdateCaseRuleInput {
+  "ID of the rule to update"
+  id: ID!
+  "Title of the rule (changing this only affects the visual representation of the rule)."
+  title: String
+  "Description of the rule"
+  description: String
+  """
+  Tags used to help label the rule.
+  Tags are not additive, the tags provided will replace the existing tags on the case.
+  If you want to keep the existing tags, you must include them in the tags field.
+  Not sending the tags field at all (null) will not update the tags.
+  """
+  tags: [String!]
+  """
+  Order defines the order in which rules should be evaluated.
+  Duplicate order values are not allowed. Adding a rule with a duplicate order will insert the rule at the desired
+  position and bump all rules greater than or equal to the inserted rule order up one.
+  """
+  order: Int
+  """
+  Detection severities this rule triggers on.
+  Severities are not additive, the list provided will replace the existing list.
+  Sending an empty list clears the restriction (the rule becomes unrestricted by severity).
+  Not sending this field at all (null) will not update the existing severities.
+  """
+  detectionSeverities: [DetectionSeverity!]
+  "State defines processing behavior for the rule"
+  state: CaseRuleState
+  "filter is a ql/cel expression that is used to match detections to the rule"
+  filter: String
+  "appendFilter is an optional filter that can define different detection constraints (i.e. broader) for appending vs creating"
+  appendFilter: String
+  "appendComment is an optional comment that is expanded and a comment generated when an detection is appended to an existing non-draft case"
+  appendComment: String
+  "groupBy by clause that adds additional matching detections to an existing open case"
+  groupBy: [String!]
+  "groupCount is an optional specification of the number of required matches of the group by clause"
+  groupCount: Int
+  "groupDuration specifies an optional period (as a string in format <int>[h|m|s]) to continue grouping detections after a matching case is closed"
+  groupDuration: String
+  "groupExtendOnAppend is an optional flag indicating if newly appended detections should extend the set of entities/attributes used to group detections, defaults to false"
+  groupExtendOnAppend: Boolean
+  "searchQueries is an optional list of query expressions used to populate additional detections or events into a newly created case"
+  searchQueries: [String!]
+  "searchWindow is an optional duration from the genesis detections over which the searchQueries are evaluated"
+  searchWindow: String
+  "tenantFilter can be used to filter tenants based on attributes such as enabled services and/or same tenant as rule definition"
+  tenantFilter: String
+  "skipDetectionPrioritization can be used to skip checking if the priority of the detection has been downgraded when evaluating detections"
+  skipDetectionPrioritization: Boolean
+  "isGlobal indicates if this rule applies to all tenants (only valid for tenant 5000)"
+  isGlobal: Boolean
+  "templateId is the id of the template the rule should use when it needs to open a new case"
+  templateId: ID
+  "ResponseData provides rule-specific context/configuration for playbooks."
+  responseData: JSONObject
+}
+
+"CaseRules defines the paginated results of a case rule search."
+type CaseRules {
+  rules: [CaseRule!]!
+  totalCount: Int!
+}
+
+"""
+CaseRuleArguments describes the parameters to find a case rule.
+Both id and name are unique identifiers for a rule.
+At least one of the fields must be set, if both are set, both must match a rule.
+"""
+input CaseRuleArguments {
+  id: ID
+  name: String
+}
+
+"CaseRulesArguments describes the parameters for a search of case rules."
+input CaseRulesArguments {
+  "query string to search for templates"
+  query: String
+  "page of results to return - pages start on 1"
+  page: Int = 1
+  "number of results per page - max 100"
+  perPage: Int = 20
+}
+
+enum CaseRuleState {
+  "Enabled turns the rule on. The rule will evaluate against detections and it will both create new cases off the detections and append detections to existing cases"
+  ENABLED
+  "Append turns the rule on. The rule will evaluate against detections but it will only append detections to existing cases it will not create new cases"
+  APPEND
+  "Disabled turns the rule off and it will not be evaluated against detections"
+  DISABLED
+  """
+  Test turns the rule on and affects evaluation but it will not actually create or append detections.
+  Logs will still be created to help validate your rule will work as expected.
+  """
+  TEST
+}
+
+"""
+Severity a case rule can trigger on. LOW and INFO are not supported yet;
+MEDIUM is the floor for this phase.
+"""
+enum DetectionSeverity {
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+type CaseTypes {
+  types: [CaseType!]!
+}
+
+type CasePrimaryStatuses {
+  primaryStatuses: [CasePrimaryStatus!]!
+}
+
+type CasePrimaryVerdicts {
+  primaryVerdicts: [CasePrimaryVerdict!]!
+}
+
+type CaseSecondaryVerdicts {
+  secondaryVerdicts: [CaseSecondaryVerdict!]!
+}
+
+type CaseSecondaryStatuses {
+  secondaryStatuses: [CaseSecondaryStatus!]!
+}
+
+input CasePrimaryStatusesArguments {
+  """
+  typeId can be used to filter results to only include statuses that are valid for the type.
+  """
+  typeId: ID
+  "transitionFromId can be used to provide a case primary status id to filter the results to only include the types that the provided type can transition to"
+  transitionFromId: ID
+  "caseId can be used to filter results based on caller permissions for a specific case. When the case is provider-managed and the caller is not a partner or MDR provider, only closed statuses are returned."
+  caseId: ID
+}
+
+input CasePrimaryVerdictsArguments {
+  """
+  typeId can be used to filter results to only include verdicts that are valid for the given case type.
+  """
+  typeId: ID
+  """
+  primaryStatusId can be used to filter results to only include verdicts that are valid for the given primary status.
+  """
+  primaryStatusId: ID
+  "caseId can be used to filter results based on the entitlements the case was created with. When the case has a recorded entitlement snapshot, results are restricted to that snapshot rather than the tenant's current licenses."
+  caseId: ID
+  "includeAutomationVerdicts, when true, includes automation-only verdicts (e.g. Automation-Dismissal, Default) that are applied by automation and not normally shown to human users. Defaults to false."
+  includeAutomationVerdicts: Boolean = false
+}
+
+input CaseSecondaryVerdictsArguments {
+  """
+  primaryVerdictId can be used to filter results to only include secondary verdicts that are valid for the given primary verdict.
+  """
+  primaryVerdictId: ID
+  "caseId can be used to filter results based on the entitlements the case was created with. When the case has a recorded entitlement snapshot, results are restricted to that snapshot rather than the tenant's current licenses."
+  caseId: ID
+}
+
+input CaseSecondaryStatusesArguments {
+  """
+  typeId can be used to filter results to only include statuses that are valid for the type.
+  """
+  typeId: ID
+  """
+  primaryStatus can be used to filter results to only include sub-statuses that are grouped by the given primary status.
+  """
+  primaryStatusId: ID
+  "caseId can be used to filter results based on the entitlements the case was created with. When the case has a recorded entitlement snapshot, results are restricted to that snapshot rather than the tenant's current licenses."
+  caseId: ID
+  "includeAutomationStatuses, when true, includes automation-only statuses in the results. Defaults to false so system-applied statuses are not shown to humans."
+  includeAutomationStatuses: Boolean = false
+}
+
+input CaseTypesArguments {
+  "transitionFromId can be used to provide a case type id to filter the results to only include the types that the provided type can transition to"
+  transitionFromId: ID
+  "caseId filters results to the types the referenced case may transition to. In addition to the entitlement scoping (the case's recorded entitlement snapshot, when present, otherwise the tenant's current licenses), results are restricted to the case's current type's allowed next types and to types whose managedBy is compatible with the case's managedBy (types with an unset managedBy are always included; a case with an unset managedBy applies no managedBy restriction). An explicit transitionFromId takes precedence over the case's own type as the transition source."
+  caseId: ID
+}
+
+input CaseSourcesArguments {
+  "transitionFromId can be used to provide a case source id to filter the results to only include the sources that the provided source can transition to"
+  transitionFromId: ID
+}
+
+"CaseProcessingState defines the possible states for processing a case evidence."
+enum CaseProcessingState {
+  SUCCESS
+  FAILED
+  RUNNING
+}
+
+"CaseProcessingStatus defines the possible evidence that can have processing states as well as the current state of the processing."
+type CaseProcessingStatus {
+  assets: CaseProcessingState
+  events: CaseProcessingState
+  detections: CaseProcessingState
+}
+
+"SplitCaseInput describes the destination case and selected evidence to move from the source case."
+input SplitCaseInput {
+  caseId: ID!
+  newCase: CreateCaseInput!
+  detectionIds: [ID!]
+  eventIds: [ID!]
+  searchQueries: [String!]
+  fileIds: [ID!]
+}
+
+"SplitCaseResult is returned once the destination case exists and the move is queued."
+type SplitCaseResult {
+  "caseId is the source case."
+  caseId: ID!
+  "destinationCaseId is the new case created synchronously by this mutation."
+  destinationCaseId: ID!
+  detectionIds: [ID!]!
+  eventIds: [ID!]!
+  searchQueries: [String!]!
+  fileIds: [ID!]!
+}
+
+"PaginationOrder defines the enums that can be used to order the results in ascending or descending order"
+enum PaginationOrder {
+  "Orders the resulting page in ascending order"
+  ASCENDING
+  "Orders the resulting page in descending order"
+  DESCENDING
+}
+
+"""
+CaseRuleType defines the possible types for a case.
+The types are used to determine how detections are evaluated.
+"""
+enum CaseRuleType {
+  """
+  Static rules are used to evaluate detections against a static set of defined criteria.
+  The rule matching and grouping will be defined using TQL and QUERY expressions.
+  """
+  STATIC
+  """
+  Detection Thread rules are used to define rules that should rely on the detection threading system to determine detection matching and grouping into cases.
+  """
+  DETECTION_THREAD
+}
+
+"AddCaseComment describes the fields needed to add a comment to a case."
+input AddCaseComment {
+  "ID of the case to add the comment to"
+  caseId: String!
+  """
+  comment is the text of the comment to add to the case.
+  It can contain @mentions to notify users of the comment.
+  """
+  comment: String!
+  """
+  isInternal marks the comment as internal and only visible to partner users
+  Only partner users can create internal comments.
+  """
+  isInternal: Boolean = false
+}
+
+"UpdateCaseCommentInput describes the fields needed to update a comment in a case."
+input UpdateCaseCommentInput {
+  "ID of the comment to update"
+  commentId: String!
+  "comment is the text of the comment to update"
+  comment: String
+  "mark as read will mark the comment as read for the current user"
+  markAsRead: Boolean
+}
+
+"Comment describes the fields for a comment in a case."
+type CaseComment {
+  "ID of the comment (unique)"
+  id: ID!
+  "ID of the user that created the comment"
+  authorId: String!
+  """
+  authorSubject is a federated field that can be used to get the user information for the author of the comment
+  It is a convenience field that will be nil if the api does not think the field can be rendered through federation.
+  It is not guaranteed that the author will be able to be resolved through federation. For example, if the federated service is down or the subject was delete.
+  """
+  authorSubject: Subject
+  "createdAt is the time the comment was created"
+  createdAt: Time!
+  "updatedAt is the time the comment was last updated"
+  updatedAt: Time!
+  "comment is the text of the comment"
+  comment: String!
+  "caseId is the id of the case the comment is associated with"
+  caseId: ID!
+  "tenantId is the tenant id of the case the comment is related to"
+  tenantId: String!
+  "mentionsIds is a list of user ids and group mentions that are mentioned in the comment"
+  mentionsIds: [String!]!
+  """
+  mentionsSubjects is a list of subjects that are mentioned in the comment
+  It is a convenience field that will be nil if the api does not think the field can be rendered through federation.
+  It is not guaranteed that the mentions will be able to be resolved through federation. For example, if the federated service is down or the subject was delete.
+  """
+  mentionsSubjects: [Subject]!
+  "readByIds is a list of user ids that have marked the comment as read"
+  readByIds: [String!]!
+  """
+  readBySubjects is a list of subjects that have marked the comment as read
+  It is a convenience field that will be nil if the api does not think the field can be rendered through federation.
+  It is not guaranteed that the readBy will be able to be resolved through federation. For example, if the federated service is down or the subject was delete.
+  """
+  readBySubjects: [Subject]!
+  "isInternal denotes if the comment is internal and only visible to partner users"
+  isInternal: Boolean!
+}
+
+"DeleteCaseCommentInput describes the fields needed to delete a comment from a case."
+input DeleteCaseCommentInput {
+  commentId: String!
+}
+
+"CommentVisibilityFilter defines the possible filters for comments."
+enum CaseCommentVisibilityFilter {
+  "Only return internal comments"
+  INTERNAL
+  "Only return non-internal comments"
+  NOT_INTERNAL
+  "Return all comments (default)"
+  ALL
+}
+
+"CaseCommentsArguments describes the parameters to search for comments in a case."
+input CaseCommentsArguments {
+  "ID of the case to get the comments for"
+  caseId: String!
+  "orderBy is the order to sort the comments by their createdAt timestamp"
+  orderBy: PaginationOrder
+  "visibility is used to filter the comments by their visibility (isInternal)"
+  visibility: CaseCommentVisibilityFilter = ALL
+  "page of results to return - pages start on 1"
+  page: Int = 1
+  "number of results per page - max 100"
+  perPage: Int = 25
+}
+
+"Comments defines the paginated results of a comments search."
+type CaseComments {
+  "List of the comments that match the search criteria for the current page"
+  comments: [CaseComment!]!
+  "The total number of comments that match the search criteria"
+  totalCount: Int!
+  "The total number of unread comments for the case (not affected by pagination or filters)"
+  totalUnreadCount: Int!
+}
+
+"CaseDetectionEvidence describes the fields for detection evidence in a case."
+type CaseDetectionEvidence {
+  "ID of the evidence entry (unique)"
+  id: ID!
+  "ID of the case the evidence is related to"
+  caseId: ID!
+  "Tenant id of the case/evidence"
+  tenantId: String!
+  "Timestamp of when the evidence was added to the case"
+  createdAt: Time!
+  """
+  Id of the user or client that added the evidence.
+  If the evidence was added by the sync process where it was derived from other evidence that was added, this field will be set to the service account that added the evidence.
+  """
+  createdBy: String
+  "Detection id"
+  detectionId: String!
+  "IsGenesis is a flag that denotes if the evidence was used to initially open the case"
+  isGenesis: Boolean!
+}
+
+"CaseEventEvidence describes the fields for event evidence in a case."
+type CaseEventEvidence {
+  "ID of the evidence entry (unique)"
+  id: ID!
+  "ID of the case the evidence is related to"
+  caseId: ID!
+  "Tenant id of the case/evidence"
+  tenantId: String!
+  "Timestamp of when the evidence was added to the case"
+  createdAt: Time!
+  """
+  Id of the user or client that added the evidence.
+  If the evidence was added by the sync process where it was derived from other evidence that was added, this field will be set to the service account that added the evidence.
+  """
+  createdBy: String!
+  "Event id"
+  eventId: String!
+  "IsGenesis is a flag that denotes if the evidence was used to initially open the case"
+  isGenesis: Boolean!
+}
+
+"CaseAssetEvidence describes the fields for asset evidence in a case."
+type CaseAssetEvidence {
+  "ID of the evidence entry (unique)"
+  id: ID!
+  "ID of the case the evidence is related to"
+  caseId: ID!
+  "Tenant id of the case/evidence"
+  tenantId: String!
+  "Timestamp of when the evidence was added to the case"
+  createdAt: Time!
+  """
+  Id of the user or client that added the evidence.
+  If the evidence was added by the sync process where it was derived from other evidence that was added, this field will be set to the service account that added the evidence.
+  """
+  createdBy: String
+  "Asset id"
+  assetId: String!
+}
+
+"CaseSearchQueryEvidence describes the fields for search query evidence in a case."
+type CaseSearchQueryEvidence {
+  "ID of the evidence entry (unique)"
+  id: ID!
+  "ID of the case the evidence is related to"
+  caseId: ID!
+  "Tenant id of the case/evidence"
+  tenantId: String!
+  "Timestamp of when the evidence was added to the case"
+  createdAt: Time!
+  """
+  Id of the user or client that added the evidence.
+  If the evidence was added by the sync process where it was derived from other evidence that was added, this field will be set to the service account that added the evidence.
+  """
+  createdBy: String
+  "Search query"
+  searchQueryId: String!
+  "IsGenesis is a flag that denotes if the evidence was used to initially open the case"
+  isGenesis: Boolean!
+}
+
+"CaseType defines a case type"
+type CaseType {
+  "Id of the type"
+  id: ID!
+  "Name of the type"
+  name: String!
+  "Title of the case type"
+  title: String
+  "Description of the case type"
+  description: String
+  "Tenant Id represents the owner of the case type"
+  tenantId: String!
+  "createdById denotes the user that created the type"
+  createdById: String!
+  "Timestamp of when the case type was created"
+  createdAt: Time!
+  "createdById denotes the user that created the type"
+  updatedById: String!
+  "Timestamp of when the case type was last updated"
+  updatedAt: Time!
+  "Ids of the primary statuses that are valid for this type"
+  supportedPrimaryStatusIds: [ID!]!
+  """primary statuses that are valid for this type"""
+  supportedPrimaryStatuses: [CasePrimaryStatus!]!
+  "Ids of the secondary statuses that are valid for this type"
+  supportedSecondaryStatusIds: [ID!]!
+  """secondaryStatuses that are valid for this type"""
+  supportedSecondaryStatuses: [CaseSecondaryStatus!]!
+  "Ids of the primary verdicts that are valid for this type"
+  supportedPrimaryVerdictIds: [ID!]!
+  """primary verdicts that are valid for this type"""
+  supportedPrimaryVerdicts: [CasePrimaryVerdict!]!
+  """allowedNextTypes are the case types that this type can transition to."""
+  allowedNextTypes: [CaseType!]!
+  """
+  managedBy indicates who manages the case - either the provider or the customer.
+  This field is optional. If it is set, any new cases created with this type will have the managedBy field set to the same value.
+  """
+  managedBy: CaseManagedBy
+}
+
+"""
+CasePrimaryStatus defines a primary status that can group secondary statuses.
+"""
+type CasePrimaryStatus {
+  "Id of the case primary status"
+  id: ID!
+  "Name of the case primary status (unique per tenant)"
+  name: String!
+  "Title of the case primary status"
+  title: String
+  "Description of the case primary status"
+  description: String
+  "Tenant Id represents the owner of the primary status"
+  tenantId: String!
+  "Id of the user that created the primary status"
+  createdById: String!
+  "Timestamp of when the primary status was created"
+  createdAt: Time!
+  "Id of the user that last updated the primary status"
+  updatedById: String!
+  "Timestamp of when the primary status was last updated"
+  updatedAt: Time!
+  "Indicates if cases in this primary status are visible to customers"
+  isCaseVisibleToCustomers: Boolean!
+  "Indicates if this primary status represents a closed state"
+  isClosed: Boolean!
+  """
+  secondaryStatuses is the expanded secondary status objects (optional federation)
+  """
+  supportedSecondaryStatuses: [CaseSecondaryStatus!]!
+}
+
+"CaseSecondaryStatus defines a case status"
+type CaseSecondaryStatus {
+  "Id of the case secondary status"
+  id: ID!
+  "Name of the case secondary status"
+  name: String!
+  "Title of the case secondary status"
+  title: String
+  "Description of the case type"
+  description: String
+  "Tenant Id represents the owner of the case type"
+  tenantId: String!
+  "createdById denotes the user that created the type"
+  createdById: String!
+  "Timestamp of when the case type was created"
+  createdAt: Time!
+  "createdById denotes the user that created the type"
+  updatedById: String!
+  "Timestamp of when the case type was last updated"
+  updatedAt: Time!
+  "allowedSubstatusReasons defines the valid substatus reasons that can be set on a case with this secondary status"
+  allowedSubstatusReasons: [String!]!
+  "automationOnly marks a status that is set by automation and hidden from human status pickers by default"
+  automationOnly: Boolean!
+}
+
+"CaseSource defines a source channel for a case"
+type CaseSource {
+  "Id of the case source"
+  id: ID!
+  "Name of the case source"
+  name: String!
+  "Title of the case source"
+  title: String
+  "Description of the case source"
+  description: String
+  "Tenant Id represents the owner of the case source"
+  tenantId: String!
+  "Allowed next sources this source can transition to"
+  allowedNextSources: [CaseSource!]!
+}
+
+type CaseSources {
+  sources: [CaseSource!]!
+}
+
+"""
+CasePrimaryVerdict defines a primary verdict that can group secondary verdicts.
+"""
+type CasePrimaryVerdict {
+  "Id of the case primary verdict"
+  id: ID!
+  "Name of the case primary verdict (unique per tenant)"
+  name: String!
+  "Title of the case primary verdict"
+  title: String
+  "Description of the case primary verdict"
+  description: String
+  "Tenant Id represents the owner of the primary verdict"
+  tenantId: String!
+  "Id of the user that created the primary verdict"
+  createdById: String!
+  "Timestamp of when the primary verdict was created"
+  createdAt: Time!
+  "Id of the user that last updated the primary verdict"
+  updatedById: String!
+  "Timestamp of when the primary verdict was last updated"
+  updatedAt: Time!
+  """
+  secondaryStatuses is the expanded secondary Verdict objects (optional federation)
+  """
+  supportedSecondaryVerdicts: [CaseSecondaryVerdict!]!
+}
+
+"CaseSecondaryVerdict defines a case secondary Verdict"
+type CaseSecondaryVerdict {
+  "Id of the case secondary verdict"
+  id: ID!
+  "Name of the case secondary verdict"
+  name: String!
+  "Title of the case secondary verdict"
+  title: String
+  "Description of the case type"
+  description: String
+  "Tenant Id represents the owner of the case verdict"
+  tenantId: String!
+  "createdById denotes the user that created the verdict"
+  createdById: String!
+  "Timestamp of when the case verdict was created"
+  createdAt: Time!
+  "createdById denotes the user that created the verdict"
+  updatedById: String!
+  "Timestamp of when the case verdict was last updated"
+  updatedAt: Time!
+}
+
+"CaseFile defines the fields for a file in a case."
+type CaseFile {
+  "ID of the file (unique)"
+  id: ID!
+  "ID of the case the file is related to"
+  caseId: ID!
+  "Tenant id of the case/file"
+  tenantId: String!
+  "Timestamp of when the file was added to the case"
+  createdAt: Time!
+  "Timestamp of when the file was last updated"
+  updatedAt: Time!
+  "Timestamp of when the file was deleted"
+  deletedAt: Time
+  "uploadedById is the id of the user that initialized the file upload"
+  uploadedById: String!
+  """
+  uploadedBySubject is a federated field that can be used to get the user information for the user that initialized the file upload
+  It is a convenience field that will be nil if the api does not think the field can be rendered through federation.
+  It is not guaranteed that the uploadedBy will be able to be resolved through federation. For example, if the federated service is down or the subject was delete.
+  """
+  uploadedBySubject: Subject
+  "deletedById is the id of the user that deleted the file"
+  deletedById: String!
+  """
+  deletedBySubject is a federated field that can be used to get the user information for the user that deleted the file
+  It is a convenience field that will be nil if the api does not think the field can be rendered through federation.
+  It is not guaranteed that the deletedBy will be able to be resolved through federation. For example, if the federated service is down or the subject was delete.
+  """
+  deletedBySubject: Subject
+  "Name of the file"
+  name: String!
+  "location of the file"
+  path: String
+  "size of the file"
+  size: Int!
+  "current upload status of the file"
+  status: String!
+  """
+  Indicates if the file is embedded in case content (e.g., images in key findings).
+  Embedded files do not generate audit logs when download URLs are requested.
+  """
+  isEmbedded: Boolean!
+  "additional metadata about the file"
+  metadata: CaseFileMeta!
+  """
+  Signed download url of the file.
+  The signature is only valid for 15 minutes.
+  After that time, a new signed url must be requested to download the file.
+  """
+  downloadURL: String
+}
+
+"CaseFileMeta defines additional metadata for a file in a case."
+type CaseFileMeta {
+  "content type of the file"
+  contentType: String
+  "md5 hash of the file"
+  contentMD5: String
+}
+
+"StartCaseFileUploadInput describes the fields needed to initialize a file upload for a case."
+input StartCaseFileUploadInput {
+  "ID of the case to upload the file to"
+  caseId: ID!
+  "Name of the file"
+  name: String!
+  "Expected size of the file"
+  size: Int!
+  "expected content type of the file"
+  contentType: String!
+  "indicates if the file is meant to be embedded (e.g., in key findings)"
+  isEmbedded: Boolean = false
+}
+
+"CaseFileUpload is the response to initializing a file upload for a case."
+type CaseFileUpload {
+  "file contains metadata about the file we expect to be uploaded to the presignedUrl"
+  file: CaseFile!
+  "presignedUrl is the url to upload the file to"
+  presignedUrl: String!
+}
+
+"CaseFileArguments describes the parameters to get a file attached to a case."
+input CaseFileArguments {
+  fileId: ID!
+}
+
+type CaseFiles {
+  files: [CaseFile!]!
+  totalCount: Int!
+}
+
+input CaseFilesArguments {
+  "query string to search for files"
+  query: String
+  "page of results to return - pages start on 1"
+  page: Int = 1
+  "number of results per page - max 100"
+  perPage: Int = 20
+}
+
+"DeleteCaseFileInput describes the fields needed to delete a file from a case."
+input DeleteCaseFileInput {
+  fileId: ID!
+}
+
+enum CaseManagedBy {
+  PROVIDER
+  CUSTOMER
+}
+
+type TenantV4 @key(fields: "id", resolvable: false) {
+  id: ID!
+}
+
+type Subject @key(fields: "id", resolvable: false) {
+  id: ID!
+}
+
+"""
+IncidentAdvisor represents the resolved user details for a case's incident advisor.
+Resolved locally via the Taegis users API, not via subjects federation.
+"""
+type IncidentAdvisor {
+  id: ID!
+  email: String
+  givenName: String
+  familyName: String
+}
+
+directive @field(sets: [String!]!) on FIELD_DEFINITION
+
+"The default Time implementation for this library."
+scalar Time
+
+"JSON payload"
+scalar JSONObject
+
+"TemplateUsage denotes how the template is used.  A Template can have one or more usages"
+enum TemplateUsage {
+  MANUAL
+  AUTO_INVESTIGATION
+}

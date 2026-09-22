@@ -1,0 +1,1442 @@
+directive @key(fields: String!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE
+scalar Map
+
+scalar Float32
+
+scalar Int64
+
+directive @entityResolver(multi: Boolean) on OBJECT
+
+interface Node {
+  id: ID!
+}
+
+input AggregateAlertsBySeverityInputInput {
+  group_by: AggregateAlertsBySeverityInput_GroupBy
+  limit: Int
+  earliest: TimestampInput
+  latest: TimestampInput
+  excluded_severities: [AlertsSeverity!]
+  filter_custom_alerts: Boolean
+  "Filters alerts so that they only belong to the current tenant or child tenants with particular services associated with them"
+  tenant_service_filters: [String!]
+}
+
+input BulkInvestigationsRequestInput {
+  "Taegis XDR Query Language query"
+  query: String
+  investigation_id: String
+  "DEPRECATED: Used to flag specific alerts as the genesis of the investigation."
+  genesis_alerts: [String!] @deprecated(reason: "used to flag specific alerts as the genesis of the investigation")
+  "List of Alert IDs"
+  alerts: [String!]
+  tenant: String
+}
+
+input EvictRequestInput {
+  search_id: String
+}
+
+input GetByIDRequestInput {
+  iDs: [String!]
+}
+
+input PollRequestInput {
+  search_id: String
+  "DEPRECATED: part id is advanced transparently with each new call. not needed."
+  part_id: Int @deprecated(reason: "part id is advanced transparently with each new call now")
+}
+
+input AlertsCountByTenantInput {
+  "Taegis Query Language (QL) query"
+  ql_query: String!
+  """
+  Filters alerts on tenants that have the specified services.
+  The tenants scope comprises the one specified in the X-Tenant-Context header and its children.
+  """
+  tenant_service_filters: [String!]
+}
+
+input SearchRequestInput {
+  "Taegis XDR Query Language query"
+  cql_query: String
+  "Result set returned from this offset + limit requested. If your query has 500 `total_results` and you want the last 100; use `offset:400 limit:100`"
+  offset: Int
+  "Result set limit. Note: limits larger than 10000 are broken into multiple parts. Additional parts can be fetched by `search_id`."
+  limit: Int
+  "Next page reference returned with the last search response. If this is passed, offset and limit are ignored. Preferred way to paginate over large result sets as it is faster and more consistent."
+  search_id: String
+  "Allows the caller to include metadata that is stored with the received query."
+  metadata: Map
+  """
+  Filters alerts on tenants that have the specified services.
+  The tenants scope comprises the one specified in the X-Tenant-Context header and its children.
+  """
+  tenant_service_filters: [String!]
+  "The locale for what language descriptions and text based fields should be retrieved for"
+  locale: Locale
+}
+
+input TimestampInput {
+  "Epoch Time in seconds"
+  seconds: Int
+  "Epoch Time in nano-seconds"
+  nanos: Int
+}
+
+input UpdateInvestigationRequestInput {
+  investigation_id: String
+  "DEPRECATED: was used to flag specific alerts as the genesis of the investigation."
+  genesis_alerts: [String!] @deprecated(reason: "was used to flag specific alerts as the genesis of the investigation")
+  alerts: [String!]
+  tenant: String
+  operation: InvestigationOperation
+  caller: CallerInformation
+  requested_at: TimestampInput
+  "Legacy user ID"
+  user_id: String
+  "Provider independent user ID"
+  uuid_user_id: String
+}
+
+input UpdateResolutionRequestInput {
+  alert_ids: [String!]
+  resolution_status: ResolutionStatus
+  reason: String
+  caller: CallerInformation
+  requested_at: TimestampInput
+  "Legacy user ID"
+  user_id: String
+  "Provider independent user ID"
+  uuid_user_id: String
+  tenant: String
+}
+
+input UpdateThreatScoreEntry {
+  alert_id: String!
+  "Optional. Overrides the threat score to update for this one alert only. Will automatically adjust threat_score_v2"
+  threat_score: Float32
+}
+
+input UpdateThreatScoreV2Entry {
+  alert_id: String!
+  "Optional. Overrides the adjusted threat score to update for this one alert only. Will automatically adjust threat_score"
+  threat_score_v2: Float32
+}
+
+input UpdateThreatScoreRequestInput {
+  alert_ids: [UpdateThreatScoreEntry!]!
+  "Default threat score to apply to the given alerts. Will automatically adjust threat_score_v2"
+  threat_score: Float32
+}
+
+input UpdateThreatScoreV2RequestInput {
+  alert_ids: [UpdateThreatScoreV2Entry!]!
+  "Default adjusted threat score to apply to the given alerts. Will automatically adjust threat_score"
+  threat_score_v2: Float32
+}
+
+type AggregationKeys {
+  key: String!
+  value: String!
+}
+
+type AggregationResponse {
+  "DEPRECATED. Use keys instead"
+  key: String @deprecated(reason: "use keys instead for the broken out name/value pairs")
+  value: Float
+  keys: [AggregationKeys!]
+}
+
+type AlertsAggregateResponse {
+  aggregation: [AlertsAggregateResponse_AlertsAggregation!]
+}
+
+type AlertsAggregateResponse_AlertsAggregation {
+  key: String
+  count: Int
+  severities: AlertsAggregateResponse_AlertsAggregation_Severity
+}
+
+type AlertsAggregateResponse_AlertsAggregation_Severity {
+  info: Int
+  low: Int
+  medium: Int
+  high: Int
+  critical: Int
+}
+
+type AlertsInvestigationInfo {
+  alert_resource_id: String
+  initial_access_vector_info: [InitialAccessVectorInfo!] @deprecated(reason: "data no longer exists")
+}
+
+"List of alerts and associated request metadata."
+type AlertsList {
+  "List of Alert types"
+  list: [Alert2!]
+  "Total results available for request"
+  total_results: Int
+  next_offset: Int
+  previous_offset: Int
+  last_offset: Int
+  first_offset: Int
+  "Total parts of the result set"
+  total_parts: Int
+  "Part number of returned result set"
+  part: Int
+  "Aggregation response, if the initial request included an aggregation"
+  group_by: [AggregationResponse!]
+}
+
+type AlertsResponse {
+  status: RPCResponseStatus
+  reason: String
+  alerts: AlertsList
+  "Search ID can be used to request additional parts for search results containing more than 10k requested results"
+  search_id: String
+  "Is the unique identifier within the search system for the query that generated this response"
+  queryId: String
+}
+
+type AlertsCountByTenantResponseItem {
+  "Number of alerts for this tenant"
+  count: Int!
+  tenant: TenantV4!
+}
+
+type AlertsCountByTenantResponse {
+  "Every item represents a tenant and the number of alerts it has"
+  items: [AlertsCountByTenantResponseItem!]
+}
+
+type BulkInvestigationsResponse {
+  id: String
+  reason: String
+  status: ResponseStatus
+  events: [String!]
+  assets: [String!]
+  access_vector_info: [AlertsInvestigationInfo!] @deprecated(reason: "data no longer exists")
+}
+
+"Response from an alertsServiceEvict mutation."
+type EvictResponse {
+  status: ResponseStatus
+}
+
+type InitialAccessVectorInfo {
+  created_at: Timestamp
+  updated_at: Timestamp
+  investigation_ids: String
+  tenant_id: String
+  name: String
+}
+
+"Internal Type"
+type UpdateInvestigationResponse {
+  id: String
+  reason: String
+  status: ResponseStatus
+  events: [String!]
+  assets: [String!]
+  access_vector_info: [AlertsInvestigationInfo!] @deprecated(reason: "data no longer exists")
+}
+
+"Response for an alertsServiceUpdateResolutionInfo mutation."
+type UpdateResolutionResponse {
+  reason: String
+  resolution_status: ResponseStatus
+}
+
+type UpdateThreatScoreResponse {
+  status: ResponseStatus
+}
+
+"Fields that can be grouped by in an AggregateAlertsBySeverity query."
+enum AggregateAlertsBySeverityInput_GroupBy {
+  DOMAIN
+  WATCHLIST
+  HOSTNAME
+  DETECTOR
+  USER
+}
+
+"Internal Type"
+enum CallerInformation {
+  UNKNOWN
+  ALERTS_V1
+  ALERTS_V2
+}
+
+"Type of investigation operation; either update or delete."
+enum InvestigationOperation {
+  UPDATE
+  DELETE
+}
+
+"Status of alerts operations."
+enum ResponseStatus {
+  SUCCESS
+  FAILED
+}
+
+"Internal Type"
+enum RPCResponseStatus {
+  OK
+  INVALID_REQUEST
+  TRANSACTION_ERROR
+}
+
+type Mutation {
+  alertsServiceUpdateInvestigationInfo(in: UpdateInvestigationRequestInput): UpdateInvestigationResponse
+  "Add a resolution or modify an existing resolution for a give list of alert IDs."
+  alertsServiceUpdateResolutionInfo(in: UpdateResolutionRequestInput): UpdateResolutionResponse
+  "Bulk add alerts to an existing investigation by providing either a query or list of alert IDs. If a query is provided, then all alerts matching the query will be added to the investigation."
+  alertsServiceBulkInvestigationsProcessor(in: BulkInvestigationsRequestInput): BulkInvestigationsResponse
+  "DEPRECATED: Does not do anything other than to return OK. No replacement necessary."
+  alertsServiceEvict(in: EvictRequestInput): EvictResponse @deprecated(reason: "does not do anything other than to return OK. no replacement necessary")
+  "Update threat score for a given list of alert IDs."
+  alertsServiceUpdateThreatScore(in: UpdateThreatScoreRequestInput!): UpdateThreatScoreResponse
+  "Update threat score v2 for a given list of alert IDs."
+  alertsServiceUpdateThreatScoreV2(in: UpdateThreatScoreV2RequestInput!): UpdateThreatScoreResponse
+  detectionUpdateInvestigationInfo(in: UpdateInvestigationRequestInput): UpdateInvestigationResponse
+  "Add a resolution or modify an existing resolution for a give list of alert IDs."
+  detectionUpdateResolutionInfo(in: UpdateResolutionRequestInput): UpdateResolutionResponse
+  "Bulk add alerts to an existing investigation by providing either a query or list of alert IDs. If a query is provided, then all alerts matching the query will be added to the investigation."
+  detectionBulkInvestigationsProcessor(in: BulkInvestigationsRequestInput): BulkInvestigationsResponse
+  "Update threat score for a given list of alert IDs."
+  detectionUpdateThreatScore(in: UpdateThreatScoreRequestInput!): UpdateThreatScoreResponse
+  "Update threat score v2 for a given list of alert IDs."
+  detectionUpdateThreatScoreV2(in: UpdateThreatScoreV2RequestInput!): UpdateThreatScoreResponse
+}
+
+"The Taegis Alerts API is based on GraphQL, which can either be a read (Query) or a write (Mutation) operation. A GraphQL query is used to read or fetch values. Mutations write or post values. Responses are provided in a JSON format."
+type Query {
+  "Provide a list of Alert IDs to retrieve each alert&#8217;s detail."
+  alertsServiceRetrieveAlertsById(in: GetByIDRequestInput): AlertsResponse
+  "Provide a list of Host IDs to retrieve alert details about each alert that contains those hosts."
+  alertsServiceRetrieveAlertsByHost(in: GetByIDRequestInput): AlertsResponse
+  "Provide a list of entities to retrieve alert details about each alert that contains those entities."
+  alertsServiceRetrieveAlertsByEntity(in: GetByIDRequestInput): AlertsResponse
+  "Provide a list of entities to retrieve alert details about each alert that contains the group_key. This is used by the service to aid in alert deduplication. This would not commonly be used by a tenant of XDR."
+  alertsServiceRetrieveAlertsByGroupKey(in: GetByIDRequestInput): AlertsResponse
+  "Returns the count of alerts per tenant. Allows a CQL query, but any aggregation or pipe will be ignored."
+  alertsCountByTenant(in: AlertsCountByTenantInput!): AlertsCountByTenantResponse
+  "Search alerts using Query Language. This is the same query language provided in Advanced Search page in Taegis XDR."
+  alertsServiceSearch(in: SearchRequestInput): AlertsResponse
+  "Poll for results for a specific `search_id`."
+  alertsServicePoll(in: PollRequestInput): AlertsResponse
+  "Pull alert severity aggregates based on `group_by` parameters: domain, watchlist, hostname, detector, user."
+  alertsServiceAggregateAlertsBySeverity(in: AggregateAlertsBySeverityInputInput): AlertsAggregateResponse
+  "Provide a list of Alert IDs to retrieve each alert's detail."
+  detectionRetrieveById(in: GetByIDRequestInput): AlertsResponse
+  "Provide a list of Host IDs to retrieve alert details about each alert that contains those hosts."
+  detectionRetrieveByHost(in: GetByIDRequestInput): AlertsResponse
+  "Provide a list of entities to retrieve alert details about each alert that contains those entities."
+  detectionRetrieveByEntity(in: GetByIDRequestInput): AlertsResponse
+  "Provide a list of entities to retrieve alert details about each alert that contains the group_key. This is used by the service to aid in alert deduplication. This would not commonly be used by a tenant of XDR."
+  detectionRetrieveByGroupKey(in: GetByIDRequestInput): AlertsResponse
+  "Returns the count of alerts per tenant. Allows a CQL query, but any aggregation or pipe will be ignored."
+  detectionCountByTenant(in: AlertsCountByTenantInput!): AlertsCountByTenantResponse
+  "Search alerts using Query Language. This is the same query language provided in Advanced Search page in Taegis XDR."
+  detectionSearch(in: SearchRequestInput): AlertsResponse
+  "Poll for results for a specific `search_id`."
+  detectionPoll(in: PollRequestInput): AlertsResponse
+  "Pull alert severity aggregates based on `group_by` parameters: domain, watchlist, hostname, detector, user."
+  detectionAggregatesBySeverity(in: AggregateAlertsBySeverityInputInput): AlertsAggregateResponse
+  node(id: ID!): Node
+}
+
+"""Base schema for an alert."""
+type Alert2 implements Node @key(fields: "id") @entityResolver(multi: true) {
+  id: ID!
+  "Alert group key"
+  group_key: [String!]
+  "Alert metadata"
+  metadata: AlertsMetadata
+  visibility: Visibility
+  "List of attack technique IDs"
+  attack_technique_ids: [String!]
+  "Tenant ID associated with alert"
+  tenant_id: String @deprecated(reason: "being replaced with Tenant field")
+  "Tenant associated with alert"
+  tenant: TenantV4
+  "Parent Tenant ID of the tenant associated with this alert"
+  parent_tenant_id: String
+  "MDR Provider for Tenant"
+  mdr_provider: String
+  "Was this rule suppressed. True or false"
+  suppressed: Boolean
+  "Suppression rules associated wiht alert"
+  suppression_rules: [AlertRuleReference!]
+  "Rules associated with alert"
+  alerting_rules: [AlertRuleReference!]
+  "Alert resolution status"
+  status: ResolutionStatus
+  "Alert resolution reason"
+  resolution_reason: String
+  resolution_history: [ResolutionMetadata!]
+  severity_history: [SeverityUpdate!]
+  """
+  Tuning history will contain the rule id of the tuning rule, the field being tuned and the value it was tuned to.
+  Tuning rules include suppression rules and can tune severity, origin, or suppress alerts.
+  """
+  tuning_history: [TuningUpdate!]
+  "List of tags associated to alert"
+  tags: [String!]
+  "Sensor types associated with alert"
+  sensor_types: [String!]
+  "All entities that are associated with an alert"
+  entities: EntityRelationships
+  key_entities: [EntityMetadata!]
+  "All source entities that are associated with an alert"
+  source_entities: [StructuredEntity!]
+  "All target entities that are associated with an alert"
+  target_entities: [StructuredEntity!]
+  "All event IDs that are associated with an alert"
+  event_ids: [AuxiliaryEvent!]
+  "All observation IDs that are associated with an alert"
+  observation_ids: [Observation!]
+  "All investigation IDs that are associated with an alert"
+  investigation_ids: [Investigation!]
+  collection_ids: [Collection!]
+  "Specific detectors may provide additional context to explain why the alert triggered or information to help an analyst review the alert."
+  enrichment_details: [EnrichmentDetail!]
+  "Alert third party details"
+  third_party_details: [ThirdPartyDetail!]
+  "List of detailed alert references provided by detector or watchlist rule"
+  reference_details: [ReferenceDetail!]
+  priority: AlertPriority
+  "Threat score mappings for observations and alerts (OLD)"
+  threat_score: Float32
+  "Threat score mappings for alerts"
+  threat_score_v2: Float32
+  "Vulnerability IDs associated with the alert"
+  vids: [Int]
+  events_metadata: AlertEventMetadata
+  "True when severity is info, low or medium. False when severity is high or critical"
+  observation: Boolean @deprecated(reason: "use threat_score_v2 value instead")
+}
+
+type TenantV4 implements Node @key(fields: "id", resolvable: false) {
+  id: ID!
+}
+
+"Enum of alert severity levels."
+enum AlertsSeverity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+"Enum of alert resolution statuses."
+enum ResolutionStatus {
+  OPEN
+  TRUE_POSITIVE_BENIGN
+  TRUE_POSITIVE_MALICIOUS
+  FALSE_POSITIVE
+  NOT_ACTIONABLE
+  OTHER
+  SUPPRESSED
+  AUTO_CLOSE
+  DISMISSED
+}
+
+"Alert origin"
+enum Origin {
+  INTERNAL
+  CUSTOMER
+  EXTERNAL
+  PARTNER
+}
+
+"Perspective of the entity"
+enum EntityPerspective {
+  UNKNOWN
+  SOURCE
+  TARGET
+  BOUNDARY
+  BOTH
+}
+
+enum Visibility {
+  DEPLOYED
+  RESEARCH
+}
+
+enum ImprobableLogonDetail_FeatureName {
+  UNKNOWN
+  COUNTRY
+  CITY
+  ASN
+}
+
+"Supported locales for translated descriptions"
+enum Locale {
+  en
+  fr
+  de
+  pt
+  ko
+  ja
+  it
+  es
+  zh_CN
+  zh_TW
+}
+
+type Timestamp {
+  seconds: Int!
+  nanos: Int!
+}
+
+type AlertRuleReference {
+  id: String
+  version: String
+}
+
+type ResolutionMetadata {
+  id: String
+  "Legacy user ID"
+  user_id: String
+  timestamp: Timestamp
+  status: ResolutionStatus
+  reason: String
+  num_alerts_affected: Int
+  "Provider independent user ID"
+  uuid_user_id: String
+}
+
+type SeverityUpdate {
+  id: String
+  severity: Float32
+  changed_at: Timestamp
+}
+
+type TuningUpdate {
+  id: String
+  field_name: String
+  severity_value: Float32
+  origin_value: Origin
+  suppressed_value: Boolean
+  changed_at: Timestamp
+}
+
+type AlertPriority {
+  value: Float
+  prioritizer: String
+  version: String
+  model_name: String
+  model_version: String
+  evidence: [String!]
+  applied_time: Timestamp
+}
+
+type EntityMetadata {
+  entity: String
+  label: String
+}
+
+"AlertEventMetadata includes metadata about contributing events"
+type AlertEventMetadata {
+  "The timestamp of this alert events metadata update"
+  updated_at: Timestamp
+  "The timestamp of the first event contributing to an alert; replaces metadata.began_at"
+  began_at: Timestamp
+  "The timestamp of the latest event contributing to an alert; replaces metadata.ended_at"
+  ended_at: Timestamp
+  "The first event_id contributing to an alert"
+  first_event_id: String
+  "The most recent event_id contributing to an alert"
+  last_event_id: String
+  "The total number of events contributing to an alert"
+  total_events: Int
+}
+
+"Alert metadata information"
+type AlertsMetadata {
+  "Alert creator"
+  creator: Creator
+  "Alert engine"
+  engine: Engine
+  "Alert severity - can be from 0 - 1"
+  severity: Float32
+  severity_updated_at: Timestamp
+  "Alert confidence - can be from 0 - 1"
+  confidence: Float32
+  "Alert title - limit of 1024 characters, may be automatically truncated"
+  title: String
+  "If the Alert title is truncated, the complete title. Otherwise empty."
+  full_title: String
+  "Alert description"
+  description: String
+  "Translated descriptions"
+  descriptions: [Description]
+  "When the behavior associated with the alert began at"
+  began_at: Timestamp
+  "When the behavior associated with the alert ended at"
+  ended_at: Timestamp
+  "When the alert was created"
+  created_at: Timestamp
+  "When the alert was inserted into the database; this should be very close in time to `created_at`"
+  inserted_at: Timestamp
+  "Last time alert was updated; feedback, investigations"
+  updated_at: Timestamp
+  "When the events triggering the alert were first seen. This is set by specific ingests based on data provided by the data source."
+  first_seen_at: Timestamp
+  "When the alert first had an investigation associated with it"
+  first_investigated_at: Timestamp
+  "When the alert was first resolved"
+  first_resolved_at: Timestamp
+  "Who created the event which generated this alert"
+  origin: Origin
+  "Whether the alert is read only or not"
+  read_only: Boolean
+}
+
+type Description {
+  "Locale for language description is in"
+  locale: Locale
+  "Translated description"
+  description: String
+}
+
+"The Detector that created the alert."
+type Creator {
+  detector: Detector
+  rule: CreationRule
+}
+
+type CreationRule {
+  rule_id: String
+  version: String
+}
+
+"""Information about the Detector that is associated with alert."""
+type Detector {
+  detector_id: String
+  detector_name: String
+  version: String
+}
+
+"Alert engine"
+type Engine {
+  name: String
+  version: String
+}
+
+union Properties = EntityApplication | EntityAuthDomain | EntityCertificate | EntityCloudObject | EntityCloudResource | EntityCloudUser | EntityDnsServer | EntityDomainName | EntityEmail | EntityEmailAddress | EntityFile | EntityFileHash | EntityFunction | EntityHost | EntityIpAddress | EntityProcess | EntityRegistryKey | EntityScheduledTask | EntityScript | EntityService | EntityTaskAction | EntityUser | EntityUrl
+
+type StructuredEntity {
+  id: String!
+  perspective: EntityPerspective!
+  identifiers: [String!]!
+  properties: Properties!
+  display_name: String!
+  subtype: String!
+}
+
+type EntityApplication {
+  property_type: String
+  app_id: String
+  app_name: String
+  app_type: String
+  app_vendor: String
+  app_version: String
+  file_path: String
+  full_url: String
+}
+
+type EntityAuthDomain {
+  property_type: String
+  auth_domain: String
+}
+
+type EntityCertificate {
+  property_type: String
+  cert_issuer: String
+  cert_serial_number: String
+  cert_issuer_c: String
+  cert_issuer_cn: String
+  cert_issuer_e: String
+  cert_issuer_l: String
+  cert_issuer_o: String
+  cert_issuer_order: String
+  cert_issuer_ou: String
+  cert_issuer_s: String
+  cert_ja3: String
+  cert_ja3s: String
+  cert_subject: String
+  cert_subject_c: String
+  cert_subject_cn: String
+  cert_subject_e: String
+  cert_subject_l: String
+  cert_subject_o: String
+  cert_subject_order: String
+  cert_subject_ou: String
+  cert_subject_s: String
+  cert_valid_from: String
+  cert_valid_through: String
+}
+
+type EntityCloudObject {
+  property_type: String
+  cloud_object_bucket: String
+  cloud_object_key: String
+  cloud_object_prefix: String
+}
+
+type EntityCloudResource {
+  property_type: String
+  cloud_resource_account_id: String
+  cloud_resource_id: String
+  cloud_resource_type: String
+}
+
+type EntityCloudUser {
+  property_type: String
+  cloud_user_id: String
+  cloud_user_name: String
+  cloud_user_type: String
+}
+
+type EntityDnsServer {
+  property_type: String
+  host_id: String
+  ip_address: String
+  ip_address_type: String
+  ip_classification: String
+}
+
+type EntityDomainName {
+  property_type: String
+  domain_name: String
+  threat_intel_hits_csv: String
+  threat_intel_score: Float
+  threat_intel_updated_at_usec: Int64
+}
+
+type EntityEmail {
+  property_type: String
+  email_message_id: String
+  email_message_size: Int
+  email_quarantine_reason: String
+  reply_to_email_address: String
+  vendor_alert_url: String
+  vendor_email_spam_score: Int
+}
+
+type EntityEmailAddress {
+  property_type: String
+  email_address: String
+}
+
+type EntityFile {
+  property_type: String
+  file_name: String
+  file_path: String
+  host_id: String
+  email_attachment_sandbox_status: String
+  file_create_time: Int
+  file_group_owner: String
+  file_modified_time: Int
+  file_owner: String
+  file_size: Int
+  file_type: String
+  file_type_detected: String
+  hash_md5: String
+  hash_sha1: String
+  hash_sha256: String
+  hash_sha512: String
+  email_message_id: String
+}
+
+type EntityFileHash {
+  property_type: String
+  hash_type: String
+  hash_value: String
+  threat_intel_hits_csv: String
+  threat_intel_score: Float
+  threat_intel_updated_at_usec: Int64
+}
+
+type EntityFunction {
+  property_type: String
+  function_name: String
+  host_id: String
+}
+
+type EntityHost {
+  property_type: String
+  computer_name: String
+  host_id: String
+  hostname: String
+  hostname_fqdn: String
+  mac_address: String
+  os: String
+  os_arch: String
+  sensor_id: String
+  sensor_type: String
+  serial_number: String
+  system_type: String
+  vendor_agent_device_id: String
+  vendor_agent_device_score: Int
+}
+
+type EntityIpAddress {
+  property_type: String
+  host_id: String
+  ip_address: String
+  asn: Int
+  hostname: String
+  ip_address_type: String
+  ip_classification: String
+  is_nat_ip: Boolean
+  ip_geo_auto_system_org: String
+  ip_geo_city_name: String
+  ip_geo_continent_code: String
+  ip_geo_country_code: String
+  ip_geo_country_geoname_id: Int
+  ip_geo_hash: String
+  ip_geo_latitude: Float
+  ip_geo_longitude: Float
+  threat_intel_hits_csv: String
+  threat_intel_score: Float
+  threat_intel_updated_at_usec: Int64
+}
+
+type EntityProcess {
+  property_type: String
+  process_correlation_id: String
+  process_id: String
+  process_name: String
+  process_uuid: String
+  host_id: String
+  process_create_time: Int
+  process_image_path: String
+  process_is_admin: Boolean
+  hash_md5: String
+  hash_sha1: String
+  hash_sha256: String
+  hash_sha512: String
+}
+
+type EntityRegistryKey {
+  property_type: String
+  host_id: String
+  registry_path: String
+}
+
+type EntityScheduledTask {
+  property_type: String
+  host_id: String
+  task_name: String
+}
+
+type EntityScript {
+  property_type: String
+  hash_value: String
+  host_id: String
+  script_name: String
+  interpreter: String
+  is_truncated: Boolean
+}
+
+type EntityService {
+  property_type: String
+  host_id: String
+  service_dll: String
+  service_main: String
+  service_name: String
+  service_start_type: Int
+  service_type: Int
+}
+
+type EntityTaskAction {
+  property_type: String
+  host_id: String
+  task_action_id: String
+  task_action_path: String
+  task_action_args: String
+  task_action_class_id: String
+  task_action_type: String
+  task_action_working_directory: String
+}
+
+type EntityUser {
+  property_type: String
+  auth_domain: String
+  computer_name: String
+  domain_name: String
+  group: String
+  host_id: String
+  user_id: String
+  user_name: String
+  cloud_user_type: String
+  original_user_name: String
+  user_is_admin: Boolean
+  identity_types_csv: String
+}
+
+type EntityUrl {
+  property_type: String
+  full_url: String
+  uri_scheme: String
+  uri_host: String
+  uri_path: String
+  uri_query: String
+  uri_fragment: String
+  uri_port: String
+  uri_userinfo: String
+}
+
+"""
+List of Entity Relationships extracted from the alert's associated events.
+"""
+type EntityRelationships {
+  "List of entities. Entities are formatted as `<type>:<value>`."
+  entities: [String!]
+  "How entities are related based on events associated to the alert."
+  relationships: [Relationship!]
+}
+
+"Relationships between entities contained in the alert."
+type Relationship {
+  from_entity: String
+  to_entity: String
+  relationship: String
+  type: String
+}
+
+"Specific detectors can provide additional context to help explain why it generated to alert or information to help an analyst review the alert."
+type EnrichmentDetail {
+  "Geolocation for IP Addresses."
+  geo_ip: GeographicIp
+  "WHOIS info for domain."
+  whois: WhoisSimple
+  "Suspicious DNS Activity Detector"
+  dns_exfil: DnsExfilEnrichment
+  "DDoS Source IP Count Detector"
+  ddos_source_ip: DDosSourceIpCountDetail
+  "Login Failure Detector"
+  login_failure: LoginFailureDetail
+  "Rare Program to Rare IP Detector"
+  rare_program_rare_ip: RareProgramRareIpDetail
+  "Stolen Credentials Detector - Travel features; speed of travel, distance travelled."
+  travel_features: StolenCredsTravelFeatures
+  "Stolen Credentials Detector - Trust features, unknown ASN, IP Address, Country across all tenants or username."
+  trust_features: StolenCredsTrustFeatures
+  "Tactic Graphs Detector"
+  tactic_graph_detail: TacticGraphDetail
+  "MITRE ATT&CK Technique Detail"
+  mitre_attack_info: MitreAttackDetails
+  "IOC Watchlist Detectors - IP/Domain/Filehash"
+  watchlist_matches: WatchlistMatches
+  "Kerberoasting Detector"
+  kerberoasting: Kerberoasting
+  "Brute Force Details Detector "
+  brute_force_detail: BruteForceDetails
+  "Password Spray Detector"
+  password_spray_detail: PasswordSprayDetail
+  "Account Compromise Detector - Improbable Logon based on Baseline"
+  improbable_logon_detail: ImprobableLogonDetail
+  "Auth Scan Detector"
+  auth_scan_detail: AuthScanDetail
+  "Hands On Keyboard Detector"
+  hands_on_keyboard_details: HandsOnKeyboardDetails
+  "Business Email Compromise Detector"
+  business_email_compromise: BusinessEmailCompromiseDetail
+  account_compromise_detector_detail: AccountCompromiseDetectorDetail
+  "File Analysis Pipeline"
+  file_analysis_detail: FileAnalysisDetail
+  "Generic Detail Objects. These can be provided by any detector, but are commonly used for data from external sources of alerts."
+  generic: GenericDetail
+}
+
+type GenericDetail {
+  "External source providing this data."
+  name: String
+  "Key value pairs that were indexed."
+  generic: KeyValuePairsIndexed
+}
+
+type KeyValuePairsIndexed {
+  record: [KeyValueRecordIndexed!]
+}
+
+type KeyValueRecordIndexed {
+  key: String
+  value: String
+}
+
+"Available third party details of alert."
+type ThirdPartyDetail {
+  generic: GenericDetail
+}
+
+type ReferenceDetail {
+  reference: Reference
+}
+
+type Reference {
+  type: String
+  url: String
+  description: String
+}
+
+"IP Address Geolocation data. This is populated at time of alert generation."
+type GeographicIp {
+  ip_address: String
+  "Relative Geographic Latitude of IP Address."
+  latitude: Float
+  "Relative Geographic Longitude of IP Address."
+  longitude: Float
+  "IP Address Geolocation Accurate within this radius of the lat/long."
+  radius: Float
+  "https://en.wikipedia.org/wiki/Geohash."
+  geohash: String
+  "Country ISO code of the Geolocation."
+  country_code_iso: String
+  "Autonomous System Number of IP Address."
+  asn: Int
+}
+
+"Domain WHOIS Information"
+type WhoisSimple {
+  "WHOIS information was fetched for this domain."
+  domainName: String
+  registrarName: String
+  contactEmail: String
+  whoisServer: String
+  nameServers: String
+  createdDate: String
+  updatedDate: String
+  expiresDate: String
+  standardRegCreatedDate: String
+  standardRegUpdatedDate: String
+  standardRegExpiresDate: String
+  status: String
+  Audit_auditUpdatedDate: String
+  registrant_email: String
+  registrant_name: String
+  registrant_organization: String
+  registrant_street1: String
+  registrant_street2: String
+  registrant_street3: String
+  registrant_street4: String
+  registrant_city: String
+  registrant_state: String
+  registrant_postalCode: String
+  registrant_country: String
+  registrant_fax: String
+  registrant_faxExt: String
+  registrant_telephone: String
+  registrant_telephoneExt: String
+  administrativeContact_email: String
+  administrativeContact_name: String
+  administrativeContact_organization: String
+  administrativeContact_street1: String
+  administrativeContact_street2: String
+  administrativeContact_street3: String
+  administrativeContact_street4: String
+  administrativeContact_city: String
+  administrativeContact_state: String
+  administrativeContact_postalCode: String
+  administrativeContact_country: String
+  administrativeContact_fax: String
+  administrativeContact_faxExt: String
+  administrativeContact_telephone: String
+  administrativeContact_telephoneExt: String
+  reg_created_date_usec: Int
+  reg_updated_date_usec: Int
+  reg_expires_date_usec: Int
+}
+
+type DnsExfilEnrichment {
+  "Estimated count of the number of DNS requests made by the host."
+  num_queries: Int
+}
+
+type DDosSourceIpCountDetail {
+  "Detector compares historical netflow data occuring within this hour."
+  hour_partition: String
+  "ID of Sensor providing netflow data."
+  sensor_id: String
+  "Endpoint Host ID"
+  host_id: String
+  "The number of unique source IPs observed in the device's network connections in the current hour."
+  event_observable_count: Int
+  "A comparison of the current count of unique source IPs to the Base Mean."
+  event_observable_count_std_dev: Float
+  "The variability, or spread, of the number of unique source IPs for this reporting device. A low standard deviation means the count of unique sources is consistent over time (a tall bell curve). A high standard deviation means the count varies greatly over time (a short bell curve)."
+  baseline_observable_count_std_dev: Float
+  "The average number of unique source IPs, counted on an hourly basis, observed in the historical data for this reporting device."
+  baseline_observable_count_mean: Float
+  "The midpoint value for the range of unique source IPs counted in the historical data for this reporting device."
+  baseline_observable_count_median: Int
+  "The number of historical days considered in this alert. Days in which the device did not report connections are not included."
+  baseline_num_days: Int
+  "The minimum value for Standard Deviation Above Mean, which must be at least the value of the Standard Deviation Threshold in order to trigger an alert."
+  analytic_observable_std_dev_threshold: Float
+  "The minimum number of unique source IPs that must be observed in the current hour in order to trigger an alert. Source IP Addresses is always at least this number."
+  analytic_observable_min_count: Int
+  "Threshold time limit for detector to observe netflow activity."
+  analytic_time_threshold: Int
+  "Historical count of unique source IPs per hour window."
+  historical_ip_counts: [DDosIpCount!]
+  "Top Destination IPs by occurence."
+  top_destination_ips: [DDosIpAddressOccurrenceCount!]
+}
+
+type DDosIpAddressOccurrenceCount {
+  ip_address: String
+  count: Int
+}
+
+type DDosIpCount {
+  date: Timestamp
+  count: Int
+}
+
+type LoginFailureDetail {
+  "Host causing authentication failures."
+  host: String
+  "User authentication failures are occurring against."
+  user: String
+  "Source IP Address that authentication attempts are originating from."
+  source_address: String
+  "Destination IP Address that authentication attempts are being sent to."
+  target_address: String
+  "Reference ID to sample of successful authentication."
+  successful_auth_event: String
+  "Reference ID to sample of failed authentication."
+  failed_auth_event: String
+}
+
+type RareProgramRareIpDetail {
+  "Host executing observed programs and connections."
+  host: String
+  "List of rare programs."
+  programs: [String!]
+  "List of rare network connections. Note that network connections are not explicitly correlated to the rare program executed."
+  connections: [NetworkConnection!]
+}
+
+type NetworkConnection {
+  source_ip: String
+  destination_ip: String
+}
+
+"""Travel features for Stolen Credentials Detector."""
+type StolenCredsTravelFeatures {
+  "Geolocation data is considered accurate."
+  accurate_geo: Boolean
+  "Did this travel cross international borders?"
+  foreign_travel: Boolean
+  "Did this travel occur over a long distance?"
+  long_distance_travel: Boolean
+  "How many travel hours occurred between the two login locations."
+  travel_hours: Float
+  "Minimum distance travelled between two points, and the radius of accuracy from geolocation data (GeographicIp.radius) is used to calculate this distance."
+  travel_km_min: Float
+  "Travel speed in km/hr. Min here denotes the speed calculated based on minimum distance; based on the radius of accuracy from geolocation data (GeographicIp.radius)."
+  travel_km_h_min: Float
+  "Is the travel speed impossible?"
+  travel_speed_impossible: Boolean
+  "The user who logged in from both locations."
+  username: String
+  "Second location user logged in from. The user travelled _to_ this location."
+  current_location: GeographicIp
+  "First location user logged in from. The user travels _from_ this location."
+  prior_location: GeographicIp
+}
+
+"""
+Trust features for Stolen Credentials Detector. These are used to set priority of the alert.
+"""
+type StolenCredsTrustFeatures {
+  "When `true`, the detector has not seen this ASN before across all tenants."
+  network_unknown_asn: Boolean
+  "When `true`, the detector has not seen this IP before across all tenants."
+  network_unknown_ip: Boolean
+  "When `true`, the detector has not seen this IP before for this username."
+  user_unknown_ip: Boolean
+  "When `true`, the detector has not seen this ASN before for this username."
+  user_unknown_asn: Boolean
+  "Login time in seconds for the first login."
+  prior_event_time_sec: Int
+  "Login time in seconds for the second login."
+  current_event_time_sec: Int
+  "Reference ID of the first login."
+  prior_event_id: String
+  "Reference ID of the second login."
+  current_event_id: String
+  "The user who logged in from both locations."
+  username: String
+  "Geographic location of the second login."
+  location: GeographicIp
+}
+
+"""Details for the Mitre ATT&CK technique associated with the alert."""
+type MitreAttackDetails {
+  technique_id: String
+  technique: String
+  tactics: [String!]
+  type: String
+  description: String
+  platform: [String!]
+  system_requirements: [String!]
+  url: String
+  data_sources: [String!]
+  defence_bypassed: [String!]
+  contributors: [String!]
+  version: String
+}
+
+"Details about the watchlist that produced the alert."
+type WatchlistMatches {
+  "Entity matching the Indicator of Compromise."
+  entity: String
+  "IOC Watchlist details."
+  details: [MatchDetails!]
+}
+
+type MatchDetails {
+  "IOC List Name"
+  list_name: String
+  "Details about the IOC List."
+  reason: String
+  "MITRE ATT&CK Techniques associated with list."
+  attacks: [String!]
+}
+
+type Kerberoasting {
+  "User perpetrating the kerberoasting attack. This is the username performing the requests."
+  user: String
+  "Number of days where the user made weakly encrypted (RC4, etc.) Ticket Granting Service (TGS) requests."
+  user_baseline: Int
+  "The average daily number of weakly encrypted Ticket Granting Service Requests this user generated in their baseline profile."
+  user_avg_requests: Float
+  "The maximum daily number of weakly encrypted Ticket Granting Service Requests this user generated in their baseline profile."
+  user_max_requests: Int
+  "Total number of Service Principal Names found in the tenant's historical data."
+  total_spns: Int
+  "Count of weakly encrypted Ticket Granting Service Requests made by the user."
+  suspicious_num_requests: Int
+  "The percentage of the tenant's total Service Principal Names that were accessed during the suspicious session."
+  percentage_accessed: Float
+  "The list of exact names of the Service Principal Names that were accessed during the suspicious session."
+  spns_accessed: [String!]
+  "TGS service tickets requested by this IP Address."
+  source_address: String
+  "The Kerberos Key Distribution Center (KDC) which validates the user's authentication request (the 4769 call)."
+  hostname: String
+}
+
+type BruteForceDetails {
+  num_auth_failures: Int
+  num_auth_successes: Int
+  last_successful_auth: BruteForceAuth
+  most_recent_auths_failures: [BruteForceAuth!]
+}
+
+type BruteForceAuth {
+  win_event_id: String
+  action: String
+  domain: String
+  target_username: String
+  event_timestamp: Int
+  resource_record_identifier: String
+}
+
+type PasswordSprayDetail {
+  "IP Address performing authentication attempts."
+  source_address: String
+  "Count of authentication failures observed."
+  num_auth_failures: Int
+  "Count of successful authentications observed."
+  num_auth_successes: Int
+  "List of usernames with failed or successful logins."
+  all_affected_users: [PasswordSprayAffectedUser!]
+}
+
+type PasswordSprayAffectedUser {
+  target_user_name: String
+  target_domain_name: String
+  user_had_auth_success: Boolean
+}
+
+type ImprobableLogonDetail {
+  user: String
+  source_address: String
+  feature_name: ImprobableLogonDetail_FeatureName
+  logon_anomaly: LogonAnomaly
+  user_logon_baselines: [UserLogonBaseline!]
+}
+
+type LogonAnomaly {
+  feature_value: String
+  feature_frequency_in_org: Float
+  feature_frequency_in_user: Float
+  approximate_count_in_user: Int
+  min_allowed_user_percentage: Float
+  min_allowed_org_percentage: Float
+}
+
+type UserLogonBaseline {
+  feature_value: String
+  feature_frequency_in_org: Float
+  feature_frequency_in_user: Float
+  approximate_count_in_user: Int
+  "Number of days baseline was established"
+  days_in_baseline: Int
+}
+
+type AuthScanDetail {
+  "Total successful or failed logins"
+  total_attempts: Int
+  successful_logon_attempts: [AuthScanLogonAttempt!]
+  failed_logon_attempts: [AuthScanLogonAttempt!]
+}
+
+type AuthScanLogonAttempt {
+  "User attempting login"
+  target_user_name: String
+  "DEPRECATED. See list in successful_logon_attempts"
+  has_logon_success: Boolean @deprecated(reason: "see list in successful_logon_attempts")
+  "Number of login attempts"
+  num_attempts: Int
+}
+
+type HandsOnKeyboardDetails {
+  matched_process: [HandsOnKeyboardDetails_MatchedProcess!]
+  total_num_events: Int
+  matched_num_events: Int
+  num_admin_events: Int
+  common_parent_image_path: String
+  host_id: String
+  username: String
+}
+
+type HandsOnKeyboardDetails_MatchedProcess {
+  process_resource_id: String
+  image: HandsOnKeyboardDetails_Image
+  commandline: HandsOnKeyboardDetails_Commandline
+  num_matched_features: Int
+  event_time_sec: Int
+  score: Float
+  severity: String
+}
+
+type HandsOnKeyboardDetails_Image {
+  image_path: String
+  matched_features: [String!]
+}
+
+type HandsOnKeyboardDetails_Commandline {
+  commandline: String
+  matched_features: [String!]
+}
+
+type BusinessEmailCompromiseDetail {
+  source_address: String
+  source_address_geo_summary: GeoSummary
+  user_name: String
+}
+
+type GeoSummary {
+  location: GeoSummary_Location
+  city: GeoSummary_City
+  continent: GeoSummary_Continent
+  country: GeoSummary_Country
+  asn: GeoSummary_ASN
+}
+
+type GeoSummary_ASN {
+  autonomous_system_no: Int
+  autonomous_system_org: String
+}
+
+type GeoSummary_City {
+  geoname_id: Int
+  locale_names: KeyValuePairsIndexed
+  name: String
+  confidence: Int
+}
+
+type GeoSummary_Continent {
+  geoname_id: Int
+  code: String
+}
+
+type GeoSummary_Country {
+  geoname_id: Int
+  iso_code: String
+  code: String
+  confidence: Int
+}
+
+type GeoSummary_Location {
+  radius: Int
+  latitude: Float
+  longitude: Float
+  us_metro_code: Int
+  timezone: String
+  gmt_offset: Int
+  metro_code: Int
+}
+
+type AccountCompromiseDetectorDetail {
+  user_name: String
+}
+
+type FileAnalysisDetail {
+  matched_yara_rule: [MatchedYaraRule!]
+}
+
+type MatchedYaraRule {
+  rule_name: String
+  rule_description: String
+  classification: String
+  confidence: Float32
+  severity: Float32
+  rule_created_date: Timestamp
+  attack_technique_ids: [String!]
+  vid: String
+}
+
+"""
+Details from Tactic Graphs Detector. This contains the tactic observed and the related events it was observed in.
+"""
+type TacticGraphDetail {
+  graph_id: String
+  events: [KeyAndValues!]
+}
+
+type KeyAndValues {
+  key: String
+  values: [String!]
+}
+
+"Used by Nautilus to resolve the Red Cloak TDR asset model."
+type AuxiliaryEvent implements Node @key(fields: "id", resolvable: false) {
+  id: ID!
+}
+
+"Used by Nautilus to resolve the Red Cloak TDR asset model."
+type Investigation implements Node @key(fields: "id") {
+  id: ID!
+  GenesisAlertsFlag: String @deprecated(reason: "not in use anymore")
+}
+
+"Used by Nautilus to resolve the Red Cloak TDR asset model."
+type Collection implements Node @key(fields: "id", resolvable: false) {
+  id: ID!
+}
+
+"Used by Nautilus to resolve the Red Cloak TDR asset model."
+type Observation implements Node {
+  id: ID!
+}

@@ -1,0 +1,916 @@
+"""64-bit integer."""
+scalar Int64
+
+"""Universally unique identifier."""
+scalar UUID
+
+"""
+Filter results by one field. Values for one field are combined with OR; filters are combined with AND.
+"""
+input FieldFilter {
+  """Public field name to filter."""
+  field: String!
+  """Values to compare with the field."""
+  values: [String!]!
+  """Comparison to use. Defaults to EQUALS."""
+  operator: FieldFilterOperator
+}
+
+enum FieldFilterOperator {
+  """Include exact matches."""
+  EQUALS
+  """Exclude exact matches."""
+  NOT_EQUALS
+  """Include values that contain the supplied text."""
+  CONTAINS
+  """Include values that start with the supplied text."""
+  STARTS_WITH
+  """Include values greater than the supplied value."""
+  GREATER_THAN
+  """Include values greater than or equal to the supplied value."""
+  GREATER_THAN_OR_EQUAL
+  """Include values less than the supplied value."""
+  LESS_THAN
+  """Include values less than or equal to the supplied value."""
+  LESS_THAN_OR_EQUAL
+  """Include records where the field has a value."""
+  EXISTS
+  """Include records where the field has no value."""
+  NOT_EXISTS
+}
+
+"""Sort results by one public field."""
+input SortCriterion {
+  """Public field name to sort by."""
+  field: String!
+  """Sort direction."""
+  order: SortOrder!
+}
+
+enum SortOrder {
+  """Sort from lowest to highest."""
+  asc
+  """Sort from highest to lowest."""
+  desc
+}
+
+"""Choose whether text search filters records or marks matching records."""
+enum SearchMode {
+  """Return only records that match the search term. This is the default."""
+  filter
+  """Return all records and mark records that match the search term."""
+  highlight
+}
+
+"""Time range covered by returned records, in Unix microseconds."""
+type DataTimeRange {
+  """Start of the returned time range, in Unix microseconds."""
+  startTimeUsec: Int64
+  """End of the returned time range, in Unix microseconds."""
+  endTimeUsec: Int64
+}
+
+"""MITRE ATT&CK information associated with a process."""
+type ProcessInfoMitreAttackInfo {
+  """MITRE ATT&CK tactic."""
+  tactics: String
+  """MITRE ATT&CK technique name."""
+  technique: String
+  """MITRE ATT&CK technique identifier."""
+  techniqueId: String
+  """MITRE ATT&CK entry type."""
+  type: String
+  """Link to the MITRE ATT&CK entry."""
+  url: String
+}
+
+"""Status of one enrichment query in an enrichment job."""
+type EnrichmentQueryEntry {
+  """Type of data requested by the enrichment query."""
+  queryType: String!
+  """Current enrichment status."""
+  status: EnrichmentJobStatus!
+  """Identifier for this enrichment query. Use it with enrichmentQueries."""
+  queryId: UUID!
+  """Reason the query failed. Null when it did not fail."""
+  errorMessage: String
+}
+
+enum EnrichmentJobStatus {
+  """The job is waiting to start."""
+  PENDING
+  """The job is running."""
+  IN_PROGRESS
+  """The job completed successfully."""
+  COMPLETED
+  """The job failed."""
+  FAILED
+  """At least one sub-query succeeded and at least one failed."""
+  PARTIAL_SUCCESS
+}
+
+enum EnrichmentQueryType {
+  """Find child processes."""
+  child_process
+  """Find related events."""
+  related_events
+  """Find detections."""
+  detections
+  """Find key activities."""
+  key_activities
+  """Find process information."""
+  process_info
+}
+
+enum RelatedEventIndexType {
+  """DNS query events."""
+  dnsquery
+  """File modification events."""
+  filemod
+  """HTTP events."""
+  http
+  """Network flow events."""
+  netflow
+  """Registry events."""
+  registry
+  """Script block events."""
+  scriptblock
+  """Other related events."""
+  other
+}
+
+"""Input that identifies a process lineage."""
+input LineageProcessInput {
+  """Host identifier for the process."""
+  hostId: String!
+  """Process correlation ID to search."""
+  processCorrelationId: String!
+  """Optional resource identifier for the process."""
+  resourceId: String
+  """Optional process start time, in Unix microseconds."""
+  processStartedAtUsec: Int64
+  """
+  When true, refresh lineage data before returning it. Defaults to false.
+  """
+  forceRefresh: Boolean
+}
+
+"""
+Process lineage returned as a flat list. Use parentProcessCorrelationId to build a tree.
+"""
+type LineageProcessResult {
+  """Identifier of the process lineage."""
+  lineageId: String
+  """Number of process levels in the lineage."""
+  depth: Int
+  """Processes in the lineage."""
+  lineage: [LineageProcessNode]
+}
+
+"""One process in a lineage or child-process result."""
+type LineageProcessNode {
+  """Correlation ID for this process."""
+  processCorrelationId: String
+  """Deprecated alias for processCorrelationId."""
+  id: String @deprecated(reason: "Use processCorrelationId.")
+  """File name portion of imagePath."""
+  processName: String
+  """Path to the process executable."""
+  imagePath: String
+  """Command used to start the process."""
+  commandLine: String
+  """Time the process started, in Unix microseconds."""
+  processStartedAtUsec: Int64
+  """Time the process event was observed, in Unix microseconds."""
+  eventObservedAtUsec: Int64
+  """Operating system process ID."""
+  processId: String
+  """Whether the user has administrator privileges."""
+  userIsAdmin: Boolean
+  """Whether the process has administrator privileges."""
+  processIsAdmin: Boolean
+  """Whether the process was blocked."""
+  wasBlocked: Boolean
+  """Hash values for the process executable."""
+  programHash: ProcessHashes
+  """User who ran the process."""
+  username: String
+  """Correlation ID for the parent process."""
+  parentProcessCorrelationId: String
+  """Operating system process ID for the parent process."""
+  parentProcessId: String
+  """Resource identifier for the process."""
+  resourceId: String
+  """Tenant identifier for the process."""
+  tenantId: String
+  """Host identifier for the process."""
+  hostId: String
+  """Process time window value."""
+  processTimeWindow: Int64
+  """Operating system process ID reported by the event source."""
+  realPid: String
+  """Event normalizer name."""
+  normalizer: String
+  """Sensor type that reported the process."""
+  sensorType: String
+  """Number of child processes."""
+  childrenCount: Int
+}
+
+"""Hash values for a process executable."""
+type ProcessHashes {
+  """MD5 hash."""
+  md5: String
+  """SHA-1 hash."""
+  sha1: String
+  """SHA-256 hash."""
+  sha256: String
+  """SHA-512 hash."""
+  sha512: String
+}
+
+"""Detection associated with a process."""
+type Detection {
+  """Detection identifier."""
+  id: String!
+  """Detection status."""
+  status: String
+  """Detection title."""
+  title: String
+  """Time the detection was created, in RFC 3339 format."""
+  createdAt: String
+  """Threat score as an integer."""
+  threatScore: Int
+  """Threat score with decimal precision."""
+  threatScoreFloat: Float
+  """Name of the detector that created the detection."""
+  detectorName: String
+  """Usernames associated with the detection."""
+  usernames: [String]
+  """Number of investigations associated with the detection."""
+  numInvestigations: Int
+  """Investigation identifiers associated with the detection."""
+  investigations: [String]
+  """Tenant identifier for the detection."""
+  tenantId: String
+  """Resource identifier for the detection."""
+  resourceId: String
+  """Host identifier for the detection."""
+  hostId: String
+  """Process correlation ID associated with the detection."""
+  processCorrelationId: String
+}
+
+"""Key activity associated with a process."""
+type KeyActivity {
+  """Key activity type."""
+  type: String
+  """Value recorded for the activity."""
+  activityValue: String
+  """Action recorded for the activity."""
+  action: String
+  """Raw event data."""
+  raw: String
+  """Time the activity occurred, in Unix microseconds as a string."""
+  occurredAtUsec: String
+  """Time the record was ingested, in RFC 3339 format."""
+  ingestedAt: String
+  """Identifier of the related detection."""
+  detectionId: String
+  """Tenant identifier for the activity."""
+  tenantId: String
+  """Host identifier for the activity."""
+  hostId: String
+  """Operating system process ID."""
+  processId: String
+  """Resource identifier for the activity."""
+  resourceId: String
+  """Identifier of the process lineage."""
+  lineageId: String
+}
+
+"""Related event. The returned type depends on eventType."""
+union LineageNodeRelatedEvent = DNSRelatedEvent | FilemodRelatedEvent | HTTPRelatedEvent | NetflowRelatedEvent | RegistryRelatedEvent | ScriptblockRelatedEvent | OtherRelatedEvent
+
+"""DNS query event associated with a process."""
+type DNSRelatedEvent {
+  """Event family."""
+  eventType: String!
+  """Time the event was observed, in Unix microseconds."""
+  eventObservedAtUsec: Int64!
+  """Host identifier for the event."""
+  hostId: String!
+  """Resource identifier for the event."""
+  resourceId: String!
+  """Host name for the event."""
+  hostname: String!
+  """Operating system process ID."""
+  processId: String!
+  """Summary of the event."""
+  summary: String
+  """Command used to start the process."""
+  commandLine: String
+  """Source network address."""
+  sourceAddress: String
+  """Sensor type that reported the event."""
+  sensorType: String
+  """DNS query type."""
+  queryType: String
+  """DNS name queried by the process."""
+  queryName: String
+  """DNS responses returned for the query."""
+  responses: String
+}
+
+"""File modification event associated with a process."""
+type FilemodRelatedEvent {
+  """Event family."""
+  eventType: String!
+  """Time the event was observed, in Unix microseconds."""
+  eventObservedAtUsec: Int64!
+  """Host identifier for the event."""
+  hostId: String!
+  """Resource identifier for the event."""
+  resourceId: String!
+  """Host name for the event."""
+  hostname: String!
+  """Operating system process ID."""
+  processId: String!
+  """Summary of the event."""
+  summary: String
+  """Command used to start the process."""
+  commandLine: String
+  """File action recorded by the event."""
+  action: String
+  """Path to the process executable."""
+  processImagePath: String
+  """User who ran the process."""
+  processUsername: String
+  """Name of the modified file."""
+  fileName: String
+}
+
+"""HTTP event associated with a process."""
+type HTTPRelatedEvent {
+  """Event family."""
+  eventType: String!
+  """Time the event was observed, in Unix microseconds."""
+  eventObservedAtUsec: Int64!
+  """Host identifier for the event."""
+  hostId: String!
+  """Resource identifier for the event."""
+  resourceId: String!
+  """Host name for the event."""
+  hostname: String!
+  """Operating system process ID."""
+  processId: String!
+  """Summary of the event."""
+  summary: String
+  """Command used to start the process."""
+  commandLine: String
+  """Source network address."""
+  sourceAddress: String
+  """Destination network address."""
+  destinationAddress: String
+  """Path to the process executable."""
+  processImagePath: String
+  """Whether the HTTP request was blocked."""
+  blocked: Boolean
+  """HTTP request method."""
+  httpMethod: String
+  """Direction of the HTTP request."""
+  requestDirection: String
+  """HTTP response status code."""
+  responseCode: String
+  """HTTP response text."""
+  responseText: String
+  """Original URI requested."""
+  originalUri: String
+  """HTTP user agent."""
+  userAgent: String
+  """HTTP referer."""
+  referer: String
+}
+
+"""Network flow event associated with a process."""
+type NetflowRelatedEvent {
+  """Event family."""
+  eventType: String!
+  """Time the event was observed, in Unix microseconds."""
+  eventObservedAtUsec: Int64!
+  """Host identifier for the event."""
+  hostId: String!
+  """Resource identifier for the event."""
+  resourceId: String!
+  """Host name for the event."""
+  hostname: String!
+  """Operating system process ID."""
+  processId: String!
+  """Summary of the event."""
+  summary: String
+  """Command used to start the process."""
+  commandLine: String
+  """Source network address."""
+  sourceAddress: String
+  """Destination network address."""
+  destinationAddress: String
+  """Path to the process executable."""
+  processImagePath: String
+  """Source network port."""
+  sourcePort: Int
+  """Destination network port."""
+  destinationPort: Int
+  """Network protocol."""
+  protocol: String
+  """Network flow direction."""
+  direction: String
+  """Bytes received."""
+  rxByteCount: Int
+  """Bytes sent."""
+  txByteCount: Int
+  """DNS name associated with the flow."""
+  dnsName: String
+}
+
+"""Registry event associated with a process."""
+type RegistryRelatedEvent {
+  """Event family."""
+  eventType: String!
+  """Time the event was observed, in Unix microseconds."""
+  eventObservedAtUsec: Int64!
+  """Host identifier for the event."""
+  hostId: String!
+  """Resource identifier for the event."""
+  resourceId: String!
+  """Host name for the event."""
+  hostname: String!
+  """Operating system process ID."""
+  processId: String!
+  """Summary of the event."""
+  summary: String
+  """Command used to start the process."""
+  commandLine: String
+  """User who ran the process."""
+  processUsername: String
+  """Registry event type."""
+  registryEventType: String
+  """Registry key name."""
+  registryName: String
+  """Registry key path."""
+  registryPath: String
+  """Registry value name."""
+  registryValueName: String
+}
+
+"""Script block event associated with a process."""
+type ScriptblockRelatedEvent {
+  """Event family."""
+  eventType: String!
+  """Time the event was observed, in Unix microseconds."""
+  eventObservedAtUsec: Int64!
+  """Host identifier for the event."""
+  hostId: String!
+  """Resource identifier for the event."""
+  resourceId: String!
+  """Host name for the event."""
+  hostname: String!
+  """Operating system process ID."""
+  processId: String!
+  """Summary of the event."""
+  summary: String
+  """Time the process started, in Unix microseconds."""
+  processStartedAtUsec: Int64
+  """Name of the script interpreter."""
+  interpreterName: String
+}
+
+"""Related event that does not have a named event type."""
+type OtherRelatedEvent {
+  """Event family."""
+  eventType: String!
+  """Time the event was observed, in Unix microseconds."""
+  eventObservedAtUsec: Int64!
+  """Host identifier for the event."""
+  hostId: String!
+  """Resource identifier for the event."""
+  resourceId: String!
+  """Host name for the event."""
+  hostname: String!
+  """Operating system process ID."""
+  processId: String!
+  """Summary of the event."""
+  summary: String
+  """User associated with the event."""
+  username: String
+  """Total number of related detections."""
+  detectionCountTotal: Int
+}
+
+input LineageNodeTopRelatedEventsInput {
+  """Process correlation ID to search."""
+  processCorrelationId: String!
+  """Identifier of the process lineage to search."""
+  lineageId: String!
+  """Maximum events to return. Defaults to 5 and cannot exceed 100."""
+  limit: Int
+}
+
+"""Most recent related events across all event families."""
+type LineageNodeTopRelatedEventsResult {
+  """Most recent related events."""
+  events: [RelatedEventSummary!]!
+  """Messages for event families that could not be returned."""
+  errors: [String!]
+  """Enrichment job token when enrichment is still running."""
+  asyncToken: String
+}
+
+"""Summary of a related event returned across event families."""
+type RelatedEventSummary {
+  """Event family."""
+  eventType: String!
+  """Time the event was observed, in Unix microseconds."""
+  eventObservedAtUsec: Int64!
+  """Resource identifier for the event."""
+  resourceId: String
+  """Operating system process ID."""
+  processId: String
+  """Host identifier for the event."""
+  hostId: String
+  """Host name for the event."""
+  hostname: String
+  """Endpoint identifier for the event."""
+  endpointId: String
+  """Summary of the event."""
+  summary: String
+}
+
+"""Input for manually enriching data for one process."""
+input EnrichNodeInput {
+  """Data type to enrich."""
+  queryType: EnrichmentQueryType!
+  """Identifier of the process lineage."""
+  lineageId: String!
+  """Process correlation ID to enrich."""
+  processCorrelationId: String!
+  """
+  Optional start of the time range, in Unix microseconds. Required for
+  child_process and related_events. Do not send it for other query types.
+  """
+  startTimeUsec: Int64
+  """
+  Optional end of the time range, in Unix microseconds. Use it with startTimeUsec.
+  """
+  endTimeUsec: Int64
+}
+
+"""Status of one enrichment job."""
+type EnrichmentJob {
+  """Identifier for the enrichment job."""
+  jobId: UUID!
+  """Current enrichment status."""
+  status: EnrichmentJobStatus!
+  """Time the job expires, in RFC 3339 format."""
+  expiryTime: String
+  """Status for each query in the job. Null when details are unavailable."""
+  queryEntries: [EnrichmentQueryEntry!]
+}
+
+"""Input for searching multiple processes in one lineage."""
+input SearchLineageInput {
+  """Process correlation IDs to search. You can send up to 100 IDs."""
+  processCorrelationIds: [String!]!
+  """Identifier of the process lineage to search."""
+  lineageId: String!
+  """Optional text to match in lineage records."""
+  searchTerm: String
+  """Optional start of the time range for counts, in Unix microseconds."""
+  startTimeUsec: Int64
+  """Optional end of the time range for counts, in Unix microseconds."""
+  endTimeUsec: Int64
+}
+
+"""
+One result for each requested process correlation ID, in input order. IDs with no matching data return zero counts. Select only needed detail fields; selecting several detail fields for many processes can increase request cost.
+"""
+type SearchLineageItem {
+  """Correlation ID for this process."""
+  processCorrelationId: String!
+  """Total record counts, without applying searchTerm."""
+  counts: SearchLineageCounts!
+  """Record counts that match searchTerm."""
+  matchingCounts: SearchLineageCounts!
+  """Detailed process information for this process."""
+  lineageNode(
+    """Optional filters that use public field names."""
+    fieldFilters: [FieldFilter!]
+  ): SearchLineageNodeResult
+  """Detailed detections for this process."""
+  lineageNodeDetections(
+    """Optional page number."""
+    page: Int
+    """Optional number of records per page."""
+    pageSize: Int
+    """How searchTerm affects returned records."""
+    searchMode: SearchMode
+    """Optional filters that use public field names."""
+    fieldFilters: [FieldFilter!]
+    """Optional sort order."""
+    sortCriteria: [SortCriterion!]
+    """Optional start of the time range, in Unix microseconds."""
+    startTimeUsec: Int64
+    """Optional end of the time range, in Unix microseconds."""
+    endTimeUsec: Int64
+  ): SearchLineageNodeDetectionsResult
+  """Detailed key activities for this process."""
+  lineageNodeKeyActivities(
+    """Optional page number."""
+    page: Int
+    """Optional number of records per page."""
+    pageSize: Int
+    """How searchTerm affects returned records."""
+    searchMode: SearchMode
+    """Optional filters that use public field names."""
+    fieldFilters: [FieldFilter!]
+    """Optional sort order."""
+    sortCriteria: [SortCriterion!]
+    """Optional start of the time range, in Unix microseconds."""
+    startTimeUsec: Int64
+    """Optional end of the time range, in Unix microseconds."""
+    endTimeUsec: Int64
+  ): SearchLineageNodeKeyActivitiesResult
+  """Detailed child processes for this process."""
+  lineageNodeChildProcesses(
+    """Optional page number."""
+    page: Int
+    """Optional number of records per page."""
+    pageSize: Int
+    """How searchTerm affects returned records."""
+    searchMode: SearchMode
+    """Optional filters that use public field names."""
+    fieldFilters: [FieldFilter!]
+    """Optional sort order."""
+    sortCriteria: [SortCriterion!]
+    """Optional start of the time range, in Unix microseconds."""
+    startTimeUsec: Int64
+    """Optional end of the time range, in Unix microseconds."""
+    endTimeUsec: Int64
+  ): SearchLineageNodeChildProcessesResult
+  """Detailed related events for this process."""
+  lineageNodeRelatedEvents(
+    """Related event family to return."""
+    eventType: RelatedEventIndexType!
+    """Optional page number."""
+    page: Int
+    """Optional number of records per page."""
+    pageSize: Int
+    """How searchTerm affects returned records."""
+    searchMode: SearchMode
+    """Optional filters that use public field names."""
+    fieldFilters: [FieldFilter!]
+    """Optional sort order."""
+    sortCriteria: [SortCriterion!]
+    """Optional start of the time range, in Unix microseconds."""
+    startTimeUsec: Int64
+    """Optional end of the time range, in Unix microseconds."""
+    endTimeUsec: Int64
+  ): SearchLineageNodeRelatedEventsResult
+}
+
+"""Record counts for each lineage data type."""
+type SearchLineageCounts {
+  """Number of process information records."""
+  lineageNode: Int!
+  """Number of detection records."""
+  lineageNodeDetections: Int!
+  """Number of key activity records."""
+  lineageNodeKeyActivities: Int!
+  """Number of child process records."""
+  lineageNodeChildProcesses: Int!
+  """Related event counts by event family."""
+  lineageNodeRelatedEvents: SearchLineageRelatedEventCounts!
+}
+
+"""Related event counts by event family."""
+type SearchLineageRelatedEventCounts {
+  """Number of DNS query events."""
+  dnsquery: Int!
+  """Number of file modification events."""
+  filemod: Int!
+  """Number of HTTP events."""
+  http: Int!
+  """Number of network flow events."""
+  netflow: Int!
+  """Number of registry events."""
+  registry: Int!
+  """Number of script block events."""
+  scriptblock: Int!
+  """Number of other related events."""
+  other: Int!
+}
+
+"""Text-search highlights for one field."""
+type FieldHighlight {
+  """Public field name that contains the highlight."""
+  field: String!
+  """Highlighted text snippets. Matching text is marked with HTML em tags."""
+  snippets: [String!]!
+}
+
+"""Process information returned by searchLineage."""
+type SearchLineageNode {
+  """Correlation ID for this process."""
+  processCorrelationId: String!
+  """File name portion of imagePath."""
+  processName: String
+  """Path to the process executable."""
+  imagePath: String!
+  """Path to the parent process executable."""
+  parentImagePath: String!
+  """Command used to start the process."""
+  commandLine: String!
+  """Time the process event was observed, in Unix microseconds."""
+  eventObservedAtUsec: Int64!
+  """Operating system process ID."""
+  processId: String!
+  """Whether the user has administrator privileges."""
+  userIsAdmin: Boolean
+  """Whether the process has administrator privileges."""
+  processIsAdmin: Boolean
+  """Whether the process was blocked."""
+  wasBlocked: Boolean
+  """Hash values for the process executable."""
+  programHash: ProcessHashes!
+  """User who ran the process."""
+  username: String!
+  """Operating system process ID for the parent process."""
+  parentProcessId: String!
+  """Process time window value."""
+  processTimeWindow: Int64
+  """Host identifier for the process."""
+  hostId: String!
+  """Resource identifier for the process."""
+  resourceId: String!
+  """Identifier of the process lineage."""
+  lineageId: String!
+  """MITRE ATT&CK information associated with the process."""
+  mitreAttackInfo: [ProcessInfoMitreAttackInfo!]
+}
+
+"""Process information, search highlights, and enrichment status."""
+type SearchLineageNodeResult {
+  """Process information. Null when no process record is found."""
+  node: SearchLineageNode
+  """Whether the process record matches searchTerm."""
+  matched: Boolean!
+  """Text-search highlights for the process record."""
+  highlights: [FieldHighlight!]!
+  """Whether process information enrichment is running."""
+  isEnriching: Boolean!
+}
+
+"""Detections, search highlights, and enrichment status."""
+type SearchLineageNodeDetectionsResult {
+  """Total number of matching detections."""
+  totalCount: Int!
+  """Returned page number."""
+  page: Int!
+  """Number of records in each page."""
+  pageSize: Int!
+  """Detection records in this page."""
+  detections: [SearchLineageNodeDetectionItem!]!
+  """Whether detection enrichment is running."""
+  isEnriching: Boolean!
+}
+
+"""One detection and its search details."""
+type SearchLineageNodeDetectionItem {
+  """Detection record."""
+  detection: Detection!
+  """Whether the detection matches searchTerm."""
+  matched: Boolean!
+  """Text-search highlights for the detection."""
+  highlights: [FieldHighlight!]!
+}
+
+"""Key activities, search highlights, and enrichment status."""
+type SearchLineageNodeKeyActivitiesResult {
+  """Total number of matching key activities."""
+  totalCount: Int!
+  """Returned page number."""
+  page: Int!
+  """Number of records in each page."""
+  pageSize: Int!
+  """Key activity records in this page."""
+  keyActivities: [SearchLineageNodeKeyActivityItem!]!
+  """Whether key activity enrichment is running."""
+  isEnriching: Boolean!
+}
+
+"""One key activity and its search details."""
+type SearchLineageNodeKeyActivityItem {
+  """Key activity record."""
+  keyActivity: KeyActivity!
+  """Whether the key activity matches searchTerm."""
+  matched: Boolean!
+  """Text-search highlights for the key activity."""
+  highlights: [FieldHighlight!]!
+}
+
+"""Child processes, search highlights, and enrichment status."""
+type SearchLineageNodeChildProcessesResult {
+  """Total number of matching child processes."""
+  totalCount: Int
+  """Returned page number."""
+  page: Int
+  """Number of records in each page."""
+  pageSize: Int
+  """Child process records in this page."""
+  children: [SearchLineageNodeChildProcessItem]
+  """Maximum records available from enrichment."""
+  maxResults: Int
+  """Time range covered by the returned records."""
+  timeRange: DataTimeRange
+  """Whether child process enrichment is running."""
+  isEnriching: Boolean!
+}
+
+"""One child process and its search details."""
+type SearchLineageNodeChildProcessItem {
+  """Child process record."""
+  node: LineageProcessNode!
+  """Whether the child process matches searchTerm."""
+  matched: Boolean!
+  """Text-search highlights for the child process."""
+  highlights: [FieldHighlight!]!
+}
+
+"""Related events, search highlights, and enrichment status."""
+type SearchLineageNodeRelatedEventsResult {
+  """Total number of matching related events."""
+  totalCount: Int!
+  """Returned page number."""
+  page: Int!
+  """Number of records in each page."""
+  pageSize: Int!
+  """Related event records in this page."""
+  events: [SearchLineageNodeRelatedEventItem!]!
+  """Maximum records available from enrichment."""
+  maxResults: Int
+  """Time range covered by the returned records."""
+  timeRange: DataTimeRange
+  """Whether related event enrichment is running."""
+  isEnriching: Boolean!
+}
+
+"""One related event and its search details."""
+type SearchLineageNodeRelatedEventItem {
+  """Related event record."""
+  event: LineageNodeRelatedEvent!
+  """Whether the related event matches searchTerm."""
+  matched: Boolean!
+  """Text-search highlights for the related event."""
+  highlights: [FieldHighlight!]!
+}
+
+type Query {
+  """Returns a process lineage as a flat list."""
+  processLineageTreeSearch(
+    """Process lineage search input."""
+    input: LineageProcessInput!
+  ): LineageProcessResult
+  """
+  Returns most recent related events across event families. Results are not paginated.
+  """
+  lineageNodeTopRelatedEvents(
+    """Most recent related events input."""
+    input: LineageNodeTopRelatedEventsInput!
+  ): LineageNodeTopRelatedEventsResult
+  """
+  Returns lineage counts and selected process details for multiple processes.
+  """
+  searchLineage(
+    """Lineage search input."""
+    input: SearchLineageInput!
+  ): [SearchLineageItem!]!
+  """Returns enrichment status for job IDs."""
+  enrichmentJobs(
+    """Enrichment job IDs to check. You can send up to 100 IDs."""
+    tokens: [UUID!]!
+  ): [EnrichmentJob!]!
+  """
+  Returns status for enrichment query IDs from EnrichmentQueryEntry.queryId.
+  """
+  enrichmentQueries(
+    """Enrichment query IDs to check. You can send up to 100 IDs."""
+    queryIds: [UUID!]!
+  ): [EnrichmentQueryEntry!]!
+}
+
+type Mutation {
+  """Starts enrichment for one process and returns its job ID."""
+  enrichNode(
+    """Enrichment request input."""
+    input: EnrichNodeInput!
+  ): UUID!
+}

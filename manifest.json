@@ -1,10 +1,10 @@
 {
   "manifest_version": "0.3",
   "name": "sophos-central-mcp-server",
-  "display_name": "Sophos Central",
+  "display_name": "Sophos Fusion (formerly Sophos Central)",
   "version": "0.5.0",
-  "description": "Query and manage Sophos Central from Claude. 288 tools across 20 API namespaces: endpoints, alerts, policies, firewalls, email, mobile, XDR, cases, SIEM, licensing, and more.",
-  "long_description": "Connects Claude to the Sophos Central REST APIs so you can list and act on endpoints, alerts, policies, firewalls, email quarantine, mobile devices, XDR Data Lake queries, cases, SIEM feeds, licensing, audit events, and more from a chat.\n\nWorks with tenant, partner, and organisation API credentials. Partner and organisation credentials unlock the cross-tenant tools (`sophos_list_tenants`, `sophos_list_account_health`, `sophos_partner_gap_analysis`) and every tenant-scoped tool then needs a `tenant_id`. Tenant credentials operate on that tenant only. Regional API hosts are discovered automatically.\n\nWrite actions carry `destructiveHint` annotations so clients can warn before isolating an endpoint, wiping a device, deleting a policy, and similar operations. The full tool list is in the project README.",
+  "description": "Query and manage Sophos Fusion (formerly Sophos Central) from Claude. 300 tools across 21 API namespaces: endpoints, alerts, policies, firewalls, email, mobile, XDR, cases, SIEM, licensing, Fusion GraphQL cases, and more.",
+  "long_description": "Connects Claude to the Sophos Fusion (formerly Sophos Central) APIs so you can list and act on endpoints, alerts, policies, firewalls, email quarantine, mobile devices, XDR Data Lake queries, cases, SIEM feeds, licensing, audit events, and more from a chat. The `sophos_fusion_*` tools use the Sophos Fusion GraphQL APIs (Cases v2 today) beside the Sophos Central REST tools, on the same credential.\n\nWorks with tenant, partner, and organisation API credentials. Partner and organisation credentials unlock the cross-tenant tools (`sophos_list_tenants`, `sophos_list_account_health`, `sophos_partner_gap_analysis`) and every tenant-scoped tool then needs a `tenant_id`. Tenant credentials operate on that tenant only. Regional API hosts are discovered automatically.\n\nWrite actions carry `destructiveHint` annotations so clients can warn before isolating an endpoint, wiping a device, deleting a policy, and similar operations. The full tool list is in the project README.",
   "author": {
     "name": "Aaron Jacobs",
     "url": "https://github.com/Aaronjacobs000"
@@ -1200,16 +1200,106 @@
     {
       "name": "sophos_get_ba_pricing",
       "description": "Return pricing info for a set of product lines for a reseller."
+    },
+    {
+      "name": "sophos_fusion_list_cases",
+      "description": "List cases from the Sophos Fusion Cases GraphQL API, with filters that compile to a Fusion Query Language (QL) string."
+    },
+    {
+      "name": "sophos_fusion_get_case",
+      "description": "Get full details of one Sophos Fusion case, including key findings (the REST \"overview\"), verdicts, links, processing status and evidence counts."
+    },
+    {
+      "name": "sophos_fusion_get_case_evidence",
+      "description": "List the evidence attached to a Sophos Fusion case: detection IDs, event IDs, asset IDs and saved-search IDs, with when and by whom each was attached and whe..."
+    },
+    {
+      "name": "sophos_fusion_get_case_summary",
+      "description": "One-call investigation summary of a Sophos Fusion case: the case, its evidence counts, the attached detections resolved to full records in a single batched D..."
+    },
+    {
+      "name": "sophos_fusion_list_case_reference_data",
+      "description": "List the case types, primary statuses and primary verdicts this tenant can use in Sophos Fusion."
+    },
+    {
+      "name": "sophos_fusion_create_case",
+      "description": "Create a case in Sophos Fusion."
+    },
+    {
+      "name": "sophos_fusion_update_case",
+      "description": "Update a Sophos Fusion case. PATCH style: only the fields supplied change."
+    },
+    {
+      "name": "sophos_fusion_split_case",
+      "description": "Move some of a Sophos Fusion case's evidence into a new case created by the same call."
+    },
+    {
+      "name": "sophos_fusion_merge_cases",
+      "description": "Merge one or more Sophos Fusion cases into a target case."
+    },
+    {
+      "name": "sophos_fusion_list_case_comments",
+      "description": "List the comments on a Sophos Fusion case. Comments are the two way channel with the Sophos MDR analyst on a PROVIDER managed case; they had no REST equivalent."
+    },
+    {
+      "name": "sophos_fusion_add_case_comment",
+      "description": "Add a comment to a Sophos Fusion case. On a PROVIDER managed case this is how you talk to the Sophos MDR analyst."
+    },
+    {
+      "name": "sophos_fusion_update_case_comment",
+      "description": "Edit the text of a Sophos Fusion case comment, mark it read, or both. Marking read is an update, not its own call."
+    },
+    {
+      "name": "sophos_fusion_delete_case_comment",
+      "description": "Delete a comment from a Sophos Fusion case. Cannot be undone."
+    },
+    {
+      "name": "sophos_fusion_add_case_evidence",
+      "description": "Attach detections, events, hosts (assets) or saved searches to an existing Sophos Fusion case. Evidence added this way is not genesis evidence."
+    },
+    {
+      "name": "sophos_fusion_remove_case_evidence",
+      "description": "Detach detections, events, assets or saved searches from a Sophos Fusion case, or everything with remove_all."
+    },
+    {
+      "name": "sophos_fusion_list_case_files",
+      "description": "List the files attached to a Sophos Fusion case, or every file in the tenant when case_id is omitted."
+    },
+    {
+      "name": "sophos_fusion_upload_case_file",
+      "description": "Attach a file to a Sophos Fusion case: registers the upload, PUTs the bytes to the presigned URL the API returns, then polls until the file status leaves SCH..."
+    },
+    {
+      "name": "sophos_fusion_delete_case_file",
+      "description": "Delete a file from a Sophos Fusion case."
+    },
+    {
+      "name": "sophos_fusion_create_case_link",
+      "description": "Attach an external link (a ServiceNow ticket, a runbook, a report) to a Sophos Fusion case. Links had no REST equivalent."
+    },
+    {
+      "name": "sophos_fusion_update_case_link",
+      "description": "Change the URL, title, type, reference or internal flag of an existing Sophos Fusion case link. Only the fields supplied change."
+    },
+    {
+      "name": "sophos_fusion_delete_case_link",
+      "description": "Remove a link from a Sophos Fusion case. Cannot be undone."
+    },
+    {
+      "name": "sophos_fusion_search_detections",
+      "description": "Search detections in Sophos Fusion with a Fusion Query Language (QL) query."
     }
   ],
   "keywords": [
     "sophos",
     "sophos-central",
+    "sophos-fusion",
     "mcp",
     "security",
     "soc",
     "endpoint-management",
-    "xdr"
+    "xdr",
+    "graphql"
   ],
   "license": "MIT",
   "privacy_policies": [

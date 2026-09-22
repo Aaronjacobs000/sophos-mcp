@@ -56,3 +56,14 @@ export function withErrorHandling<TArgs>(
     }
   };
 }
+
+/**
+ * Attaches non-empty warnings to a result object. Tools surface partial
+ * response and migration warnings this way rather than dropping them.
+ */
+export function withWarnings<T extends object>(
+  result: T,
+  warnings: string[]
+): T | (T & { warnings: string[] }) {
+  return warnings.length > 0 ? { ...result, warnings } : result;
+}
