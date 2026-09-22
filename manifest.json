@@ -11,11 +11,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Aaronjacobs000/sophos-central-mcp"
+    "url": "https://github.com/Aaronjacobs000/sophos-mcp"
   },
-  "homepage": "https://github.com/Aaronjacobs000/sophos-central-mcp",
-  "documentation": "https://github.com/Aaronjacobs000/sophos-central-mcp#readme",
-  "support": "https://github.com/Aaronjacobs000/sophos-central-mcp/issues",
+  "homepage": "https://github.com/Aaronjacobs000/sophos-mcp",
+  "documentation": "https://github.com/Aaronjacobs000/sophos-mcp#readme",
+  "support": "https://github.com/Aaronjacobs000/sophos-mcp/issues",
   "icon": "icon.png",
   "server": {
     "type": "node",

@@ -39,12 +39,14 @@ Pick one:
 
 The `.mcpb` file is an [MCP Bundle](https://github.com/modelcontextprotocol/mcpb): a zip containing the built server, its production dependencies, and a manifest that tells Claude Desktop how to run it and which settings to ask for. No terminal and no config file edits.
 
-1. Download `sophos-central-mcp-server-<version>.mcpb` from the [latest GitHub release](https://github.com/Aaronjacobs000/sophos-central-mcp/releases/latest).
+1. Download `sophos-central-mcp-server-<version>.mcpb` from the [latest GitHub release](https://github.com/Aaronjacobs000/sophos-mcp/releases/latest).
 2. Open the file with Claude Desktop. Double-clicking it works on macOS and Windows. You can also go to **Settings > Extensions > Advanced settings**, find the **Extension Developer** section, click **Install Extension...** and pick the file.
 3. Claude Desktop shows the extension details and asks for your **Sophos Central Client ID** and **Client Secret**. Both fields are marked sensitive in the manifest, so Claude Desktop keeps them in the operating system's secure storage instead of a config file.
 4. Click **Install**, make sure the extension is enabled, then start a new chat. The `sophos_*` tools are available straight away.
 
 To update, download the newer `.mcpb` and install it the same way. To remove it, open **Settings > Extensions** and uninstall the extension.
+
+To change the credentials later, open **Settings > Extensions** and click this extension. The **Sophos Central Client ID** and **Client Secret** fields are editable there. They are stored in the operating system's secure storage and show masked, so you replace a value rather than read the old one back. The server reads them at startup, so toggle the extension off and on, or restart Claude Desktop, if a change does not take effect.
 
 The bundle runs the server in stdio mode and sets `TRANSPORT=stdio` for you. Which tools you get depends on the credential type, exactly as with the other install options: partner and organisation credentials unlock the cross-tenant tools, tenant credentials do not.
 
@@ -85,7 +87,7 @@ npm install -g sophos-central-mcp-server
 **Or from source:**
 
 ```bash
-git clone https://github.com/Aaronjacobs000/sophos-central-mcp.git
+git clone https://github.com/Aaronjacobs000/sophos-mcp.git
 cd sophos-central-mcp
 npm install
 npm run build

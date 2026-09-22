@@ -8,11 +8,11 @@
   "description": "MCP server for the Sophos Fusion (formerly Sophos Central) APIs - SOC monitoring, endpoint management, admin automation, XDR investigation, and Fusion GraphQL cases",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Aaronjacobs000/sophos-central-mcp.git"
+    "url": "git+https://github.com/Aaronjacobs000/sophos-mcp.git"
   },
-  "homepage": "https://github.com/Aaronjacobs000/sophos-central-mcp#readme",
+  "homepage": "https://github.com/Aaronjacobs000/sophos-mcp#readme",
   "bugs": {
-    "url": "https://github.com/Aaronjacobs000/sophos-central-mcp/issues"
+    "url": "https://github.com/Aaronjacobs000/sophos-mcp/issues"
   },
   "type": "module",
   "main": "dist/index.js",
