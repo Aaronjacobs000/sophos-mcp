@@ -13,13 +13,15 @@ import type {
   SophosQueryRun,
   SophosDetectionsResultPage,
 } from "../types/sophos.js";
-import { jsonResult, withErrorHandling } from "./helpers.js";
+import type { FusionMigrationGuard } from "../fusion/migration.js";
+import { jsonResult, withErrorHandling, withWarnings } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
 export function registerDetectionTools(
   server: McpServer,
   client: SophosClient,
-  tenantResolver: TenantResolver
+  tenantResolver: TenantResolver,
+  migration: FusionMigrationGuard
 ): void {
   // --- Run Detections Query ---
   server.registerTool(
@@ -27,6 +29,8 @@ export function registerDetectionTools(
     {
       title: "Run Sophos Detections Query",
       description: `Start an asynchronous query to retrieve individual detections (XDR/EDR findings).
+
+Refused for a tenant that has migrated to Sophos Fusion, where this Classic API references the pre-migration objects; use sophos_fusion_search_detections there.
 
 This is an async API. The tool returns a run ID. Use sophos_get_detections_run to poll
 the status, then sophos_get_detections_results to retrieve results once status is "finished".
@@ -70,6 +74,7 @@ Returns:
     },
     withErrorHandling(async ({ tenant_id, from_date, to_date, severity, sort_direction }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const warnings = await migration.assertClassic(resolvedTenantId, "sophos_run_detections_query", "sophos_fusion_search_detections");
       const body: Record<string, unknown> = {
         sort: [{ field: "sensorGeneratedAt", direction: sort_direction }],
       };
@@ -82,13 +87,13 @@ Returns:
         "/detections/v1/queries/detections",
         { method: "POST", body }
       );
-      return jsonResult({
+      return jsonResult(withWarnings({
         run_id: run.id,
         status: run.status,
         result: run.result,
         created_at: run.createdAt,
         message: `Query started. Poll status with sophos_get_detections_run run_id="${run.id}", then fetch results with sophos_get_detections_results.`,
-      });
+      }, warnings));
     })
   );
 
@@ -98,6 +103,8 @@ Returns:
     {
       title: "Get Sophos Detections Query Run Status",
       description: `Poll the status of a detections query run started with sophos_run_detections_query.
+
+Refused for a tenant that has migrated to Sophos Fusion, where this Classic API references the pre-migration objects; use sophos_fusion_search_detections there.
 
 Args:
   - run_id (string): The run ID returned by sophos_run_detections_query.
@@ -123,18 +130,19 @@ Returns:
     },
     withErrorHandling(async ({ run_id, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const warnings = await migration.assertClassic(resolvedTenantId, "sophos_get_detections_run", "sophos_fusion_search_detections");
       const run = await client.tenantRequest<SophosQueryRun>(
         resolvedTenantId,
         `/detections/v1/queries/detections/${run_id}`
       );
-      return jsonResult({
+      return jsonResult(withWarnings({
         run_id: run.id,
         status: run.status,
         result: run.result,
         created_at: run.createdAt,
         finished_at: run.finishedAt ?? null,
         ready: run.status === "finished" && run.result === "succeeded",
-      });
+      }, warnings));
     })
   );
 
@@ -144,6 +152,8 @@ Returns:
     {
       title: "Get Sophos Detections Query Results",
       description: `Retrieve results from a completed detections query run.
+
+Refused for a tenant that has migrated to Sophos Fusion, where this Classic API references the pre-migration objects; use sophos_fusion_search_detections there.
 
 Use after sophos_get_detections_run shows status "finished" and result "succeeded".
 
@@ -187,18 +197,19 @@ Returns:
     },
     withErrorHandling(async ({ run_id, tenant_id, limit, page }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const warnings = await migration.assertClassic(resolvedTenantId, "sophos_get_detections_results", "sophos_fusion_search_detections");
       const data = await client.tenantRequest<SophosDetectionsResultPage>(
         resolvedTenantId,
         `/detections/v1/queries/detections/${run_id}/results`,
         { params: { pageSize: String(limit), page: String(page) } }
       );
-      return jsonResult({
+      return jsonResult(withWarnings({
         run_id,
         total: data.pages.total ?? data.pages.items ?? data.items.length,
         page: data.pages.current ?? page,
         page_size: data.pages.size,
         detections: data.items,
-      });
+      }, warnings));
     })
   );
 
@@ -208,6 +219,8 @@ Returns:
     {
       title: "Run Sophos Detection Groups Query",
       description: `Start an asynchronous query to retrieve grouped detections (related detections grouped together).
+
+Refused for a tenant that has migrated to Sophos Fusion, where this Classic API references the pre-migration objects; use sophos_fusion_search_detections there.
 
 This is an async API. Returns a run ID. Use sophos_get_detection_groups_run to poll
 the status, then sophos_get_detection_groups_results to retrieve results once finished.
@@ -251,6 +264,7 @@ Returns:
     },
     withErrorHandling(async ({ tenant_id, from_date, to_date, severity, sort_direction }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const warnings = await migration.assertClassic(resolvedTenantId, "sophos_run_detection_groups_query", "sophos_fusion_search_detections");
       const body: Record<string, unknown> = {
         sort: [{ field: "sensorGeneratedAt", direction: sort_direction }],
       };
@@ -263,13 +277,13 @@ Returns:
         "/detections/v1/queries/detection-groups",
         { method: "POST", body }
       );
-      return jsonResult({
+      return jsonResult(withWarnings({
         run_id: run.id,
         status: run.status,
         result: run.result,
         created_at: run.createdAt,
         message: `Query started. Poll with sophos_get_detection_groups_run run_id="${run.id}", then fetch results with sophos_get_detection_groups_results.`,
-      });
+      }, warnings));
     })
   );
 
@@ -279,6 +293,8 @@ Returns:
     {
       title: "Get Sophos Detection Groups Query Run Status",
       description: `Poll the status of a detection groups query run started with sophos_run_detection_groups_query.
+
+Refused for a tenant that has migrated to Sophos Fusion, where this Classic API references the pre-migration objects; use sophos_fusion_search_detections there.
 
 Args:
   - run_id (string): The run ID from sophos_run_detection_groups_query.
@@ -303,13 +319,14 @@ Returns:
     },
     withErrorHandling(async ({ run_id, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const warnings = await migration.assertClassic(resolvedTenantId, "sophos_get_detection_groups_run", "sophos_fusion_search_detections");
       const run = await client.tenantRequest<SophosQueryRun>(
         resolvedTenantId,
         `/detections/v1/queries/detection-groups/${run_id}`
       );
       const ready = run.status === "finished" && run.result === "succeeded";
       const failed = run.status === "finished" && run.result === "failed";
-      return jsonResult({
+      return jsonResult(withWarnings({
         run_id: run.id,
         status: run.status,
         result: run.result,
@@ -320,7 +337,7 @@ Returns:
           message:
             "No grouped detections found for the queried time period. This is expected for tenants with no detection groups. Try sophos_run_detections_query instead to query individual detections.",
         }),
-      });
+      }, warnings));
     })
   );
 
@@ -330,6 +347,8 @@ Returns:
     {
       title: "Get Sophos Detection Groups Query Results",
       description: `Retrieve results from a completed detection groups query run.
+
+Refused for a tenant that has migrated to Sophos Fusion, where this Classic API references the pre-migration objects; use sophos_fusion_search_detections there.
 
 Use after sophos_get_detection_groups_run shows status "finished" and result "succeeded".
 
@@ -373,18 +392,19 @@ Returns:
     },
     withErrorHandling(async ({ run_id, tenant_id, limit, page }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const warnings = await migration.assertClassic(resolvedTenantId, "sophos_get_detection_groups_results", "sophos_fusion_search_detections");
       const data = await client.tenantRequest<SophosDetectionsResultPage>(
         resolvedTenantId,
         `/detections/v1/queries/detection-groups/${run_id}/results`,
         { params: { pageSize: String(limit), page: String(page) } }
       );
-      return jsonResult({
+      return jsonResult(withWarnings({
         run_id,
         total: data.pages.total ?? data.pages.items ?? data.items.length,
         page: data.pages.current ?? page,
         page_size: data.pages.size,
         detection_groups: data.items,
-      });
+      }, warnings));
     })
   );
 }

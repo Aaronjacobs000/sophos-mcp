@@ -54,3 +54,11 @@ export const CHARACTER_LIMIT = Math.max(
 );
 export const DEFAULT_PAGE_SIZE = 50;
 export const MAX_PAGE_SIZE = 100;
+
+// Migration awareness for the Classic Cases and Detections REST tools. A
+// tenant that has moved to Sophos Fusion is refused on those tools and pointed
+// at the sophos_fusion_* equivalent, because for such a tenant the Classic
+// APIs answer from the pre-migration Sophos Central objects. Set
+// SOPHOS_CLASSIC_MIGRATION_CHECK=off to skip the check.
+export const CLASSIC_MIGRATION_CHECK =
+  (process.env.SOPHOS_CLASSIC_MIGRATION_CHECK || "on").toLowerCase() !== "off";

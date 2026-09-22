@@ -22,6 +22,7 @@ import { TenantResolver } from "./client/tenant-resolver.js";
 import { SophosClient } from "./client/sophos-client.js";
 import { FusionClient } from "./client/fusion-client.js";
 import { CaseReferenceDataCache } from "./fusion/case-reference-data.js";
+import { FusionMigrationGuard } from "./fusion/migration.js";
 
 // Tool registration modules
 import { registerTenantTools } from "./tools/tenants.js";
@@ -77,6 +78,8 @@ async function main(): Promise<void> {
   const sophosClient = new SophosClient(tokenManager, tenantResolver);
   const fusionClient = new FusionClient(tokenManager);
   const caseReferenceData = new CaseReferenceDataCache(fusionClient);
+  // Classic case and detection tools refuse a tenant that has moved to Fusion
+  const migrationGuard = new FusionMigrationGuard(caseReferenceData);
 
   // Create the MCP server
   const server = new McpServer({
@@ -105,8 +108,8 @@ async function main(): Promise<void> {
   registerExclusionTools(server, sophosClient, tenantResolver);
 
   // Phase 3: Investigation tools
-  registerCaseTools(server, sophosClient, tenantResolver);
-  registerDetectionTools(server, sophosClient, tenantResolver);
+  registerCaseTools(server, sophosClient, tenantResolver, migrationGuard);
+  registerDetectionTools(server, sophosClient, tenantResolver, migrationGuard);
   registerSiemTools(server, sophosClient, tenantResolver);
   registerXdrTools(server, sophosClient, tenantResolver);
   registerLiveDiscoverTools(server, sophosClient, tenantResolver);

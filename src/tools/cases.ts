@@ -16,7 +16,8 @@ import type {
   SophosCaseDetectionPage,
   SophosCaseMitreSummary,
 } from "../types/sophos.js";
-import { jsonResult, withErrorHandling } from "./helpers.js";
+import type { FusionMigrationGuard } from "../fusion/migration.js";
+import { jsonResult, withErrorHandling, withWarnings } from "./helpers.js";
 
 // Cases API max page size is 50
 const CASES_MAX_PAGE_SIZE = 50;
@@ -24,7 +25,8 @@ const CASES_MAX_PAGE_SIZE = 50;
 export function registerCaseTools(
   server: McpServer,
   client: SophosClient,
-  tenantResolver: TenantResolver
+  tenantResolver: TenantResolver,
+  migration: FusionMigrationGuard
 ): void {
   // --- List Cases ---
   server.registerTool(
@@ -32,6 +34,8 @@ export function registerCaseTools(
     {
       title: "List Sophos Cases",
       description: `List investigation cases from a Sophos Central tenant.
+
+Refused for a tenant that has migrated to Sophos Fusion, where this Classic API references the pre-migration objects; use sophos_fusion_list_cases there.
 
 Retrieves cases from the Cases API with optional pagination.
 
@@ -73,6 +77,7 @@ Returns:
     },
     withErrorHandling(async ({ tenant_id, limit, page }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const warnings = await migration.assertClassic(resolvedTenantId, "sophos_list_cases", "sophos_fusion_list_cases");
       const data = await client.tenantRequest<SophosCasePage>(
         resolvedTenantId,
         "/cases/v1/cases",
@@ -83,13 +88,13 @@ Returns:
           },
         }
       );
-      return jsonResult({
+      return jsonResult(withWarnings({
         total: data.pages.total,
         page: data.pages.current ?? page,
         page_size: data.pages.size,
         total_pages: data.pages.total,
         cases: data.items.map(formatCase),
-      });
+      }, warnings));
     })
   );
 
@@ -99,6 +104,8 @@ Returns:
     {
       title: "Get Sophos Case",
       description: `Get full details of a specific Sophos Central case by ID.
+
+Refused for a tenant that has migrated to Sophos Fusion, where this Classic API references the pre-migration objects; use sophos_fusion_get_case there.
 
 Args:
   - case_id (string): The case ID.
@@ -123,11 +130,12 @@ Returns:
     },
     withErrorHandling(async ({ case_id, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const warnings = await migration.assertClassic(resolvedTenantId, "sophos_get_case", "sophos_fusion_get_case");
       const data = await client.tenantRequest<SophosCase>(
         resolvedTenantId,
         `/cases/v1/cases/${case_id}`
       );
-      return jsonResult(formatCase(data));
+      return jsonResult(withWarnings(formatCase(data), warnings));
     })
   );
 
@@ -137,6 +145,8 @@ Returns:
     {
       title: "Create Sophos Case",
       description: `Create a new self-managed investigation case in Sophos Central.
+
+Refused for a tenant that has migrated to Sophos Fusion, where this Classic API references the pre-migration objects; use sophos_fusion_create_case there.
 
 Only self-managed cases can be created via the API.
 
@@ -186,6 +196,7 @@ Returns:
     withErrorHandling(
       async ({ tenant_id, name, severity, status, initial_detection_id, assignee, overview }) => {
         const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+        const warnings = await migration.assertClassic(resolvedTenantId, "sophos_create_case", "sophos_fusion_create_case");
         // The Cases API rejects a create without an assignee (400
         // "Assignee cannot be null or blank", verified live 21/09/2026).
         const body: Record<string, unknown> = {
@@ -203,7 +214,7 @@ Returns:
           "/cases/v1/cases",
           { method: "POST", body }
         );
-        return jsonResult(formatCase(data));
+        return jsonResult(withWarnings(formatCase(data), warnings));
       }
     )
   );
@@ -214,6 +225,8 @@ Returns:
     {
       title: "Update Sophos Case",
       description: `Update an existing self-managed case in Sophos Central.
+
+Refused for a tenant that has migrated to Sophos Fusion, where this Classic API references the pre-migration objects; use sophos_fusion_update_case there.
 
 Only self-managed cases can be updated via the API. Supply only the fields to change.
 
@@ -261,6 +274,7 @@ Returns:
     withErrorHandling(
       async ({ case_id, tenant_id, name, severity, status, assignee, overview }) => {
         const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+        const warnings = await migration.assertClassic(resolvedTenantId, "sophos_update_case", "sophos_fusion_update_case");
         const body: Record<string, unknown> = {};
         if (name !== undefined) body.name = name;
         if (severity !== undefined) body.severity = severity;
@@ -273,7 +287,7 @@ Returns:
           `/cases/v1/cases/${case_id}`,
           { method: "PATCH", body }
         );
-        return jsonResult(formatCase(data));
+        return jsonResult(withWarnings(formatCase(data), warnings));
       }
     )
   );
@@ -284,6 +298,8 @@ Returns:
     {
       title: "List Sophos Case Detections",
       description: `List the detections associated with a specific Sophos Central case.
+
+Refused for a tenant that has migrated to Sophos Fusion, where this Classic API references the pre-migration objects; use sophos_fusion_get_case_evidence for the IDs or sophos_fusion_get_case_summary for the resolved detections there.
 
 Args:
   - case_id (string): The case ID.
@@ -325,6 +341,7 @@ Returns:
     },
     withErrorHandling(async ({ case_id, tenant_id, limit, page }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const warnings = await migration.assertClassic(resolvedTenantId, "sophos_list_case_detections", "sophos_fusion_get_case_evidence for the IDs or sophos_fusion_get_case_summary for the resolved detections");
       const data = await client.tenantRequest<SophosCaseDetectionPage>(
         resolvedTenantId,
         `/cases/v1/cases/${case_id}/detections`,
@@ -335,13 +352,13 @@ Returns:
           },
         }
       );
-      return jsonResult({
+      return jsonResult(withWarnings({
         case_id,
         total: data.pages.total ?? data.pages.items ?? data.items.length,
         page: data.pages.current ?? page,
         page_size: data.pages.size,
         detections: data.items,
-      });
+      }, warnings));
     })
   );
 
@@ -351,6 +368,8 @@ Returns:
     {
       title: "Get Case MITRE ATT&CK Summary",
       description: `Get the MITRE ATT&CK tactics and techniques summary for a Sophos Central case.
+
+Refused for a tenant that has migrated to Sophos Fusion, where this Classic API references the pre-migration objects; use sophos_fusion_get_case_summary, which builds the MITRE roll-up there.
 
 Provides a breakdown of ATT&CK tactics observed in the case detections, with associated techniques and counts.
 
@@ -377,11 +396,12 @@ Returns:
     },
     withErrorHandling(async ({ case_id, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const warnings = await migration.assertClassic(resolvedTenantId, "sophos_get_case_mitre_summary", "sophos_fusion_get_case_summary, which builds the MITRE roll-up");
       const data = await client.tenantRequest<SophosCaseMitreSummary>(
         resolvedTenantId,
         `/cases/v1/cases/${case_id}/mitre-attack-summary`
       );
-      return jsonResult({ case_id, mitre_attack_summary: data });
+      return jsonResult(withWarnings({ case_id, mitre_attack_summary: data }, warnings));
     })
   );
 
@@ -391,6 +411,8 @@ Returns:
     {
       title: "Delete Sophos Case",
       description: `Delete an investigation case from Sophos Central.
+
+Refused for a tenant that has migrated to Sophos Fusion, where this Classic API references the pre-migration objects; use sophos_fusion_update_case to close the case with a verdict and then archive it (Fusion has no delete) there.
 
 Only self-managed cases can be deleted via the API.
 
@@ -405,8 +427,9 @@ Args:
     },
     withErrorHandling(async ({ case_id, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const warnings = await migration.assertClassic(resolvedTenantId, "sophos_delete_case", "sophos_fusion_update_case to close the case with a verdict and then archive it (Fusion has no delete)");
       await client.tenantRequest(resolvedTenantId, `/cases/v1/cases/${case_id}`, { method: "DELETE" });
-      return jsonResult({ status: "deleted", case_id, message: `Case ${case_id} deleted.` });
+      return jsonResult(withWarnings({ status: "deleted", case_id, message: `Case ${case_id} deleted.` }, warnings));
     })
   );
 
@@ -416,6 +439,8 @@ Args:
     {
       title: "List Case Impacted Entities",
       description: `List impacted entities (endpoints, users) associated with a Sophos Central case.
+
+Refused for a tenant that has migrated to Sophos Fusion, where this Classic API references the pre-migration objects; use sophos_fusion_get_case_summary (source and target entities on each detection) there.
 
 Args:
   - case_id (string): Case ID (e.g. '1-598868').
@@ -432,17 +457,18 @@ Args:
     },
     withErrorHandling(async ({ case_id, tenant_id, limit, page }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const warnings = await migration.assertClassic(resolvedTenantId, "sophos_list_case_impacted_entities", "sophos_fusion_get_case_summary (source and target entities on each detection)");
       const data = await client.tenantRequest<SophosCaseDetectionPage>(
         resolvedTenantId,
         `/cases/v1/cases/${case_id}/impacted-entities`,
         { params: { pageSize: String(limit), page: String(page) } }
       );
-      return jsonResult({
+      return jsonResult(withWarnings({
         case_id,
         total: data.pages.total ?? data.pages.items ?? data.items.length,
         page: data.pages.current ?? page,
         impacted_entities: data.items,
-      });
+      }, warnings));
     })
   );
 
@@ -452,6 +478,8 @@ Args:
     {
       title: "Get Case Detection Detail",
       description: `Get details of a specific detection within a Sophos Central case.
+
+Refused for a tenant that has migrated to Sophos Fusion, where this Classic API references the pre-migration objects; use sophos_fusion_get_case_summary there.
 
 Args:
   - case_id (string): Case ID (e.g. '1-598868').
@@ -466,11 +494,12 @@ Args:
     },
     withErrorHandling(async ({ case_id, detection_id, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const warnings = await migration.assertClassic(resolvedTenantId, "sophos_get_case_detection", "sophos_fusion_get_case_summary");
       const data = await client.tenantRequest<SophosCaseDetection>(
         resolvedTenantId,
         `/cases/v1/cases/${case_id}/detections/${detection_id}`
       );
-      return jsonResult(data);
+      return jsonResult(withWarnings(data, warnings));
     })
   );
 }
