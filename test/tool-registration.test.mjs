@@ -194,6 +194,8 @@ test("the write tools carry the measured warnings and the guards in their schema
   expect("sophos_fusion_add_case_evidence", /also attaches its linked asset and events/);
   expect("sophos_fusion_remove_case_evidence", /SOURCE IDs/);
   expect("sophos_fusion_remove_case_evidence", /silent no-op/);
-  expect("sophos_fusion_add_case_evidence", /Reads lag writes/);
+  expect("sophos_fusion_add_case_evidence", /land category by category/);
+  expect("sophos_fusion_update_case", /refused before any write/);
+  expect("sophos_fusion_update_case", /verdict "" clears/);
   expect("sophos_fusion_search_detections", /0 to 1 float/);
 });

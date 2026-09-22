@@ -112,7 +112,7 @@ const MANAGED_BY_NOTE =
 const RN_NOTE = `Six section resource names (e.g. ${RESOURCE_NAME_EXAMPLE}), never bare UUIDs`;
 
 const LAG_NOTE =
-  "Reads lag writes by a few seconds: an evidence count read straight after this call may still show the previous number.";
+  "Evidence jobs are queued and land category by category: an add showed after about 5 seconds and a three category removal took about 25 seconds in testing, so a count read straight after this call still shows the previous number. Poll sophos_fusion_get_case_evidence until it settles.";
 
 const KNOWN_MENTION_GROUPS = ["@authorized_contacts", "@customer", "@sophos"];
 
@@ -568,14 +568,14 @@ Returns:
       title: "Update Fusion Case",
       description: `Update a Sophos Fusion case. PATCH style: only the fields supplied change.
 
-Tags: the API replaces the whole tag list on every write, so this tool reads the current tags and merges yours in; pass replace_tags true to replace the list instead (tags [] with replace_tags true clears it). Closing: set status to a closed status (see is_closed in sophos_fusion_list_case_reference_data); when the case type supports verdicts one is required and the tool refuses with the valid names if none is given. Reopening: a closed case that holds a verdict cannot move to an open status while the verdict stands, so the tool clears the verdict in the same update. Once a case has left new it cannot return to it. A closed case is frozen apart from status, verdicts, secondary status, archive and secondary reasons. An archived case refuses every update until unarchived; pass archived false (alone or with other changes, which are applied after the unarchive). Archiving is applied last, after every other change in the same call, because an archived case cannot be edited. There is no delete in Fusion: close, then archive. managed_by cannot be changed after creation and is not accepted here. assignee_id is a Subject ID or @mention; an empty string clears the assignee.
+Tags: the API replaces the whole tag list on every write, so this tool reads the current tags and merges yours in; pass replace_tags true to replace the list instead (tags [] with replace_tags true clears it). Closing: set status to a closed status (see is_closed in sophos_fusion_list_case_reference_data); when the case type supports verdicts one is required and the tool refuses with the valid names if none is given. Reopening: Fusion refuses to move a closed case that holds a verdict to an open status unless the update also clears the verdict, so the tool clears it (an empty verdict; a null only satisfies the rule and leaves the stored verdict in place) and says so in notes. verdict "" clears the recorded verdict on an open case. Once a case has left new it cannot return to it. A closed case is frozen: only status, verdict, secondary status, secondary reasons and archive can change. This tool does not reopen a case behind your back, so a title, severity, assignee, key findings or tag change on a closed case is refused before any write, with the hint to reopen first; drop those fields to archive a closed case. An archived case refuses every update until unarchived; pass archived false (alone or with other changes, which are applied after the unarchive). There is no delete in Fusion: close, then archive. managed_by cannot be changed after creation and is not accepted here. assignee_id is a Subject ID or @mention; an empty string clears the assignee.
 
 Args:
   - case_id (string): ${ID_NOTE}
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
   - title (string, optional), severity (number|string, optional): 2, 4, 6, 8, 10 or label.
   - status (string, optional): Primary status name or UUID.
-  - verdict (string, optional): Primary verdict name or UUID (required when closing a type that supports verdicts).
+  - verdict (string, optional): Primary verdict name or UUID (required when closing a type that supports verdicts); "" clears the recorded verdict.
   - close_reason (string, optional): Free text recorded with a close.
   - assignee_id (string, optional): Subject ID or @mention; "" clears.
   - key_findings (string, optional): Markdown; replaces the key findings document.
@@ -584,14 +584,14 @@ Args:
   - archived (boolean, optional): true archives a closed case, false unarchives.
 
 Returns:
-  The updated case, plus notes on anything the tool did on your behalf (verdict cleared, tags merged, order of operations).`,
+  The updated case, plus notes on anything the tool did on your behalf (verdict cleared on reopen, tags merged, order of operations).`,
       inputSchema: {
         case_id: z.string().describe(ID_NOTE),
         tenant_id: tenantIdField,
         title: z.string().min(1).max(256).optional().describe("New title"),
         severity: severityField.optional(),
         status: z.string().optional().describe("Primary status name or UUID"),
-        verdict: z.string().optional().describe("Primary verdict name or UUID"),
+        verdict: z.string().optional().describe('Primary verdict name or UUID; "" clears'),
         close_reason: z.string().optional().describe("Reason recorded when closing"),
         assignee_id: z.string().optional().describe('Subject ID or @mention; "" clears'),
         key_findings: z.string().optional().describe("Key findings, Markdown (replaces)"),
@@ -625,43 +625,58 @@ Returns:
         : undefined;
       if (status) fields.primaryStatusId = status.id;
       if (args.verdict !== undefined) {
-        fields.primaryVerdictId = await referenceData.resolveVerdictId(tenantId, args.verdict);
+        fields.primaryVerdictId =
+          args.verdict === "" ? "" : await referenceData.resolveVerdictId(tenantId, args.verdict);
       }
 
       if (Object.keys(fields).length === 0 && args.tags === undefined && args.archived === undefined) {
         throw new Error("Nothing to update: supply at least one field to change.");
       }
 
-      // One read serves the tag merge, the reopen verdict clear, the one way
-      // door on new and the archived check.
-      let current: FusionCaseDetail | null = null;
-      if (status || args.tags !== undefined || args.archived !== undefined) {
-        const read = await client
-          .query<FusionCaseResponse>(tenantId, GET_CASE, { arguments: { id: resolved.id } })
-          .catch((error: unknown) => rethrowNotFound(error, args.case_id, tenantId));
-        warnings.push(...read.warnings);
-        current = read.data.case;
-        if (!current) {
-          throw new Error(`Fusion case ${args.case_id} not found in tenant ${tenantId}.`);
-        }
+      // One read serves the archived and closed pre-checks, the tag merge,
+      // the one way door on new and the reopen rule. Every pre-check runs
+      // before any write so a refused call changes nothing.
+      const read = await client
+        .query<FusionCaseResponse>(tenantId, GET_CASE, { arguments: { id: resolved.id } })
+        .catch((error: unknown) => rethrowNotFound(error, args.case_id, tenantId));
+      warnings.push(...read.warnings);
+      const current = read.data.case;
+      if (!current) {
+        throw new Error(`Fusion case ${args.case_id} not found in tenant ${tenantId}.`);
       }
 
       if (args.tags !== undefined) {
         if (args.replace_tags) {
           fields.tags = args.tags;
         } else {
-          fields.tags = mergeTags(current?.tags, args.tags);
-          notes.push(`Tags merged with the existing list (${(current?.tags ?? []).length} existing); pass replace_tags true to replace it.`);
+          fields.tags = mergeTags(current.tags, args.tags);
+          notes.push(`Tags merged with the existing list (${(current.tags ?? []).length} existing); pass replace_tags true to replace it.`);
         }
       }
 
-      if (current?.archivedAt && args.archived !== false) {
+      if (current.archivedAt && args.archived !== false) {
         throw new Error(
-          "This case is archived and refuses every update. Pass archived false first (it can be combined with the other changes in one call; the unarchive is applied before them)."
+          "This case is archived and refuses every update. Pass archived false first (it can be combined with the other changes in one call; the unarchive is applied before them). Nothing was changed."
         );
       }
 
-      if (status && current) {
+      // A closed case is frozen apart from status, verdicts, secondary
+      // status, secondary reasons and archive. The tool refuses the frozen
+      // fields rather than reopening the case on the caller's behalf: a
+      // reopen is a visible state change on a real case and four writes.
+      const reopening = status !== undefined && !status.isClosed;
+      if (current.primaryStatus.isClosed && !reopening) {
+        const frozen = (["title", "severity", "assigneeId", "keyFindings", "tags"] as const).filter(
+          (key) => key in fields
+        );
+        if (frozen.length > 0) {
+          throw new Error(
+            `This case is closed (${current.primaryStatus.name}) and Fusion only allows status, verdict, secondary status, secondary reasons and archive to change while closed; ${frozen.join(", ")} cannot. Reopen it first in its own call (sophos_fusion_update_case with an open status), or drop those fields. Nothing was changed.`
+          );
+        }
+      }
+
+      if (status) {
         const currentName = current.primaryStatus.name.toLowerCase();
         if (status.name.toLowerCase() === "new" && currentName !== "new") {
           throw new Error(
@@ -687,10 +702,14 @@ Returns:
           }
         }
         if (!status.isClosed && current.primaryStatus.isClosed && current.primaryVerdict && args.verdict === undefined) {
-          // A verdict cannot ride along into an open status; clearing it in
-          // the same update is what unblocks the transition.
-          fields.primaryVerdictId = null;
-          notes.push(`Cleared the verdict ${current.primaryVerdict.name} because Fusion refuses to reopen a case that still holds one.`);
+          // Fusion refuses the transition out of closed while a verdict is
+          // set. A null verdict in the same update satisfies the rule but
+          // leaves the stored verdict in place; an empty string clears it
+          // (both measured on a live tenant, 22/09/2026).
+          fields.primaryVerdictId = "";
+          notes.push(
+            `Cleared the recorded verdict ${current.primaryVerdict.name}: Fusion refuses to leave a closed status while a verdict is set. Pass verdict when closing again.`
+          );
         }
       }
 
@@ -1765,7 +1784,7 @@ function rethrowNotFound(error: unknown, caseRef: string, tenantId: string): nev
 const CASE_WRITE_HINTS: Array<[RegExp, string]> = [
   [
     /closed primary status/i,
-    "The case is closed: only status, verdicts, secondary status, secondary reasons and archive can change, and evidence writes are refused. Reopen it first (sophos_fusion_update_case with an open status).",
+    "The case is closed: only status, verdicts, secondary status, secondary reasons and archive can change, and evidence writes are refused. Reopen it first in its own call (sophos_fusion_update_case with an open status), then retry.",
   ],
   [
     /archived investigations cannot be updated/i,

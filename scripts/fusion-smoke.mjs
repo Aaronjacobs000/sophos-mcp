@@ -30,8 +30,9 @@
  * managed_by CUSTOMER), exercises comment add, update and delete (with the
  * mention read-back), link create, update and delete, tag merge and replace,
  * evidence add and remove_all, file upload, list and soft delete, the
- * verdict clear on reopen and the one way door on new, then closes it with a
- * verdict and archives it (Fusion has no delete). Evidence is borrowed from
+ * reopen rule (verdict cleared, read back), the one way door on new and the
+ * closed-case freeze, then closes it with a verdict and archives it (Fusion
+ * has no delete). Evidence is borrowed from
  * the newest existing case or the detection search and detached again; no
  * existing case is modified.
  *
@@ -79,14 +80,18 @@ await client.connect(transport);
 let failures = 0;
 const ledger = [];
 
-/** Calls a tool and prints the result. Returns { ok, text, json }. */
-async function call(name, args, { expectError = false, quiet = false } = {}) {
-  console.log(`\n== ${name} ${JSON.stringify(args)} ==`);
+/**
+ * Calls a tool and prints the result. Returns { ok, text, json }.
+ * quiet trims the output, silent suppresses it (polling), tolerate records
+ * neither outcome as a failure (diagnostics).
+ */
+async function call(name, args, { expectError = false, quiet = false, silent = false, tolerate = false } = {}) {
+  if (!silent) console.log(`\n== ${name} ${JSON.stringify(args)} ==`);
   const result = await client.callTool({ name, arguments: args });
   const text = result.content.map((c) => c.text ?? "").join("\n");
-  console.log(quiet ? `${text.slice(0, 600)}${text.length > 600 ? " ..." : ""}` : text);
+  if (!silent) console.log(quiet ? `${text.slice(0, 600)}${text.length > 600 ? " ..." : ""}` : text);
   const ok = !result.isError;
-  if (ok === expectError) {
+  if (!tolerate && ok === expectError) {
     failures += 1;
     console.log(expectError ? "!! expected an error but the call succeeded" : "!! call failed");
   }
@@ -115,17 +120,25 @@ function check(condition, message) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Polls the case until every processing_status is SUCCESS or FAILED. */
-async function waitForProcessing(caseId, attempts = 12) {
-  for (let i = 0; i < attempts; i++) {
-    const { json } = await call("sophos_fusion_get_case", { ...scope, case_id: caseId }, { quiet: true });
-    const status = json?.processing_status ?? {};
-    const states = Object.values(status);
-    if (states.every((s) => s === "SUCCESS" || s === "FAILED" || s === null)) return json;
-    await sleep(2500);
+/**
+ * Polls the case evidence every 2 s until done(counts) holds or maxSeconds
+ * pass, printing each read with its offset. Reads lag writes by a few
+ * seconds, so a count taken straight after a write proves nothing.
+ */
+async function waitForEvidence(caseId, done, maxSeconds = 45) {
+  const started = Date.now();
+  for (;;) {
+    const { json } = await call("sophos_fusion_get_case_evidence", { ...scope, case_id: caseId }, { silent: true });
+    const counts = json?.counts ?? {};
+    const elapsed = Math.round((Date.now() - started) / 1000);
+    console.log(`   evidence at +${elapsed}s: ${JSON.stringify(counts)}`);
+    if (done(counts)) return { json, elapsed, timedOut: false };
+    if (Date.now() - started >= maxSeconds * 1000) return { json, elapsed, timedOut: true };
+    await sleep(2000);
   }
-  return null;
 }
+
+const allZero = (c) => c.detections === 0 && c.events === 0 && c.assets === 0 && c.search_queries === 0;
 
 const stamp = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
@@ -405,9 +418,13 @@ try {
 
       const added = await call("sophos_fusion_add_case_evidence", { ...scope, case_id: caseId, ...evidenceIn });
       if (added.ok) record(`Evidence attached to ${created.json.short_id}: ${JSON.stringify(evidenceIn)}`);
-      const afterAdd = await waitForProcessing(caseId);
-      check(afterAdd !== null, "evidence processing finished");
-      await sleep(3000);
+      const wanted = (c) =>
+        (!borrowedDetectionId || c.detections >= 1) && (!borrowedEventId || c.events >= 1);
+      const afterAdd = await waitForEvidence(caseId, wanted, 45);
+      check(!afterAdd.timedOut, `the added evidence appeared (after ${afterAdd.elapsed}s)`);
+      // The expansion (asset and events that ride in with a detection) can
+      // land a beat after the detection itself; give it a moment to settle.
+      await sleep(4000);
       const ev = await call("sophos_fusion_get_case_evidence", { ...scope, case_id: caseId });
       if (borrowedEventId) check(ev.json?.counts?.events >= 1, "at least one event attached");
       if (borrowedDetectionId) check(ev.json?.counts?.detections === 1, "one detection attached");
@@ -419,12 +436,27 @@ try {
       // is the only way to take back what a detection brought with it.
       const removed = await call("sophos_fusion_remove_case_evidence", { ...scope, case_id: caseId, remove_all: true });
       if (removed.ok) record(`All evidence detached from ${created.json.short_id}`);
-      await waitForProcessing(caseId);
-      await sleep(3000);
-      const evAfter = await call("sophos_fusion_get_case_evidence", { ...scope, case_id: caseId });
-      check(evAfter.json?.counts?.events === 0, "events back to 0 after remove_all");
-      check(evAfter.json?.counts?.detections === 0, "detections back to 0 after remove_all");
-      check(evAfter.json?.counts?.assets === 0, "assets back to 0 after remove_all");
+      const afterRemove = await waitForEvidence(caseId, allZero, 60);
+      const counts = afterRemove.json?.counts ?? {};
+      check(counts.detections === 0, "detections back to 0 after remove_all");
+      check(counts.assets === 0, "assets back to 0 after remove_all");
+      check(counts.events === 0, `events back to 0 after remove_all (settled after ${afterRemove.elapsed}s)`);
+      check(counts.search_queries === 0, "search queries back to 0 after remove_all");
+
+      if (counts.events > 0) {
+        // Diagnostic: does an events-only removal take the leftovers? Tells a
+        // combined-call problem apart from events that cannot be removed.
+        const leftover = (afterRemove.json?.events ?? []).map((e) => e.event_id);
+        console.log(`\n   diagnostic: ${leftover.length} event(s) survived remove_all; trying an events-only removal`);
+        const retry = await call(
+          "sophos_fusion_remove_case_evidence",
+          { ...scope, case_id: caseId, event_ids: leftover },
+          { tolerate: true }
+        );
+        if (retry.ok) record(`Events-only removal retried on ${created.json.short_id}`);
+        const afterRetry = await waitForEvidence(caseId, allZero, 45);
+        console.log(`   diagnostic result: events ${afterRetry.json?.counts?.events} after an events-only call (${afterRetry.elapsed}s)`);
+      }
     } else {
       console.log("\nNo evidence to borrow; add/remove evidence skipped.");
     }
@@ -477,13 +509,22 @@ try {
     check(closed.json?.closed_at !== null, "closed_at set");
     check(closed.json?.verdict?.name === "false_positive", "verdict recorded");
 
-    // Reopening a closed case that holds a verdict needs the verdict cleared
-    // in the same update; the tool does that and says so.
+    // Reopening a closed case that holds a verdict: Fusion refuses the
+    // transition unless the update clears the verdict. A null satisfies the
+    // rule but leaves the stored verdict in place; an empty string clears it
+    // (live tenant, 22/09/2026). The tool sends the empty string and the
+    // read back must show no verdict.
     const reopened = await call("sophos_fusion_update_case", { ...scope, case_id: caseId, status: "in_progress" });
     if (reopened.ok) record(`Case ${created.json.short_id} reopened (verdict cleared by the tool)`);
     check(reopened.json?.status?.name === "in_progress", "reopened to in_progress");
-    check(reopened.json?.verdict === null, "verdict cleared on reopen");
-    check((reopened.json?.notes ?? []).some((n) => /Cleared the verdict/.test(n)), "the tool reports the verdict clear");
+    check(reopened.json?.closed_at === null, "closed_at cleared on reopen");
+    check(reopened.json?.verdict === null, "verdict cleared on reopen (in the update response)");
+    const reread = await call("sophos_fusion_get_case", { ...scope, case_id: caseId }, { quiet: true });
+    check(reread.json?.verdict === null, "verdict cleared on reopen (read back)");
+    check(
+      (reopened.json?.notes ?? []).some((n) => /Cleared the recorded verdict false_positive/.test(n)),
+      "the tool reports the verdict clear"
+    );
 
     const closedAgain = await call("sophos_fusion_update_case", {
       ...scope,
@@ -501,23 +542,33 @@ try {
     );
     check(byVerdict.json?.cases?.some((c) => c.id === caseId), "verdict filter finds the closed case");
 
-    // Retitle and archive in one call: the tool applies the retitle first,
-    // because an archived case refuses every update.
-    const archived = await call("sophos_fusion_update_case", {
-      ...scope,
-      case_id: caseId,
-      title: `${title} (archived)`,
-      archived: true,
-    });
-    if (archived.ok) record(`Case ${created.json.short_id} retitled and archived`);
+    // A closed case is frozen apart from status, verdict, secondary status,
+    // reasons and archive. The tool refuses a retitle on a closed case before
+    // any write rather than reopening it on the caller's behalf.
+    const frozenClosed = await call(
+      "sophos_fusion_update_case",
+      { ...scope, case_id: caseId, title: `${title} (archived)`, archived: true },
+      { expectError: true }
+    );
+    check(
+      /closed/.test(frozenClosed.text) && /title cannot/.test(frozenClosed.text) && /Reopen it first/.test(frozenClosed.text),
+      "retitle plus archive on a closed case is refused with the closed hint"
+    );
+    const unchanged = await call("sophos_fusion_get_case", { ...scope, case_id: caseId }, { quiet: true });
+    check(
+      unchanged.json?.archived_at === null && !/\(archived\)$/.test(unchanged.json?.title ?? ""),
+      "the refused call changed nothing (not archived, not retitled)"
+    );
+
+    const archived = await call("sophos_fusion_update_case", { ...scope, case_id: caseId, archived: true });
+    if (archived.ok) record(`Case ${created.json.short_id} archived`);
     check(archived.json?.archived_at !== null, "archived_at set");
-    check(/\(archived\)$/.test(archived.json?.title ?? ""), "retitle applied before the archive");
-    const frozen = await call(
+    const frozenArchived = await call(
       "sophos_fusion_update_case",
       { ...scope, case_id: caseId, title: "should not apply" },
       { expectError: true }
     );
-    check(/archived/.test(frozen.text), "an archived case refuses updates with a hint");
+    check(/archived and refuses every update/.test(frozenArchived.text), "an archived case refuses updates with the archived hint");
   }
 
   // --- Classic REST, writes on one new case ---
