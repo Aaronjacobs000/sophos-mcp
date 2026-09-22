@@ -10,7 +10,7 @@ npm start           # Run the compiled server
 npm run dev         # Watch mode (tsc --watch)
 npm test            # Build, then run the node:test suites in test/ (no network)
 npm run build:mcpb  # Build the Claude Desktop extension bundle into release/
-node scripts/fusion-smoke.mjs [tenant-id]   # Live check of the Fusion and Classic case tools (needs credentials); read-only unless --write, --write-classic or --all
+node scripts/fusion-smoke.mjs [tenant-id]   # Live check of the Fusion tools and the Classic gate (needs credentials); read-only unless --write, --write-classic or --all
 ```
 
 `npm test` and TypeScript compilation (`npm run build`) are the verification steps. Fix all type errors and keep the tests green before considering a change complete. The tests stub `fetch`; nothing in them reaches Sophos.
@@ -42,7 +42,7 @@ This is a **Model Context Protocol (MCP) server** that wraps the Sophos Central 
 3. `TenantResolver.init()` calls `/whoami/v1` to discover caller identity type: `partner | organization | tenant`
 4. For partner/org callers, `loadTenants()` paginates through all managed tenants and caches `tenantId → apiHost`
 5. `SophosClient` (REST) and `FusionClient` (GraphQL) are created on the same `TokenManager`
-6. Tools are registered conditionally: `sophos_list_tenants` only for partner/org; all others always. The Fusion block is registered last
+6. Tools are registered conditionally: `sophos_list_tenants` only for partner/org; all others always. The Classic case and detection tools take a `FusionMigrationGuard` built on the case reference cache. The Fusion block (cases, then detections) is registered last
 7. Transport starts: streamable HTTP on `127.0.0.1:PORT/mcp` (stateless, new transport per request) or stdio
 
 ### Core classes
@@ -50,7 +50,8 @@ This is a **Model Context Protocol (MCP) server** that wraps the Sophos Central 
 - **`TokenManager`** (`src/auth/token-manager.ts`): OAuth2 client credentials flow with in-memory token caching (60s early refresh, deduplicates concurrent refresh calls). Shared by both clients.
 - **`TenantResolver`** (`src/client/tenant-resolver.ts`): Holds caller identity and `tenantId → TenantInfo` map. Key methods: `resolveTenantId(providedId?)`, which enforces that partner/org callers must supply a tenant ID; `resolveApiHost(tenantId)`, which returns the per-tenant regional REST host. Fusion calls use `resolveTenantId` only; there is no regional host.
 - **`SophosClient`** (`src/client/sophos-client.ts`): Two methods, `tenantRequest<T>(tenantId, path, opts)` and `globalRequest<T>(path, opts)`. Both inject auth headers and run `executeWithRetry` (2 retries, exponential backoff, respects `Retry-After` on 429, no retry on 401/403/404).
-- **`FusionClient`** (`src/client/fusion-client.ts`): One method, `query<T>(tenantId, document, variables)`, which POSTs to `SOPHOS_FUSION_GRAPHQL_URL` with the bearer token and `X-Tenant-ID`. Same retry shape as the REST client (30 s timeout, 2 retries, `Retry-After` on 429, no retry on 4xx) with full-jitter backoff. Returns `{ data, warnings }`.
+- **`FusionClient`** (`src/client/fusion-client.ts`): `query<T>(tenantId, document, variables)` POSTs to `SOPHOS_FUSION_GRAPHQL_URL` with the bearer token and `X-Tenant-ID`. Same transport retry shape as the REST client (30 s timeout, 2 retries, `Retry-After` on 429, no retry on 4xx) with full-jitter backoff, plus the one GraphQL-layer retry described below. Returns `{ data, warnings }`. `putPresigned(url, bytes, contentType)` is the plain PUT behind case file uploads.
+- **`FusionMigrationGuard`** (`src/fusion/migration.ts`): `assertClassic(tenantId, classicTool, useInstead)` throws when the tenant has moved to Fusion (the case reference cache returns at least one case type; an unmigrated tenant gets an empty list with no error) and returns warnings otherwise. Every Classic case and detection handler calls it first. `SOPHOS_CLASSIC_MIGRATION_CHECK=off` disables it.
 
 ### The GraphQL 200 rule
 
@@ -59,7 +60,8 @@ A GraphQL-layer failure comes back as **HTTP 200 with an `errors` array** beside
 - `errors` present and no usable data (data null, or every root field null): throws `FusionGraphQLError` with every message joined. Never retried.
 - `errors` present beside usable data (a partial response, typically a federated field): returns the data with the messages in `warnings`. Tools attach `warnings` to their result; they are never dropped.
 - A null root field with no errors passes through for the tool to report as not found. In practice an unknown case ID arrives as errors (`record not found`) beside `data: { case: null }`, which the first rule throws; `FusionGraphQLError.notFound` recognises it and the case tools translate it into their not-found message.
-- The `extensions.code` cannot tell a transient failure from a rejected query: `conn busy`, `record not found` and `query not valid for any known schema type(s)` all carry `DOWNSTREAM_SERVICE_ERROR`. So nothing at the GraphQL layer is retried.
+- The `extensions.code` cannot tell a transient failure from a rejected query: `conn busy`, `record not found` and `query not valid for any known schema type(s)` all carry `DOWNSTREAM_SERVICE_ERROR`. So the code is never used to decide a retry.
+- The one GraphQL-layer retry is keyed on the error path. `createCase` and `addEvidenceToCase` fail roughly one call in two with `not allowed`, `path: ["partnerPreferences"]`, from `investigations-v2`; the identical call succeeds on retry (measured 22/09/2026). `FusionGraphQLError.isTransientPartnerPreferences` is `errors[0].path[0] === "partnerPreferences"` and nothing else; `query()` retries only that, up to 8 attempts with a short capped backoff. An error carrying the operation name in its path (`createCase`, `addEvidenceToCase`, `tdrusers`) is a real input or permission error and surfaces at once.
 
 Transport failures (expired token, 429, 5xx) use the usual non-2xx status and the standard Sophos error object. A query the schema rejects is HTTP 400 with a GraphQL `errors` array and no data; the client keeps that message. A missing required variable is HTTP 200 with `errors` (`BAD_USER_INPUT`) and no `data` key at all.
 
@@ -68,15 +70,18 @@ Transport failures (expired token, 429, 5xx) use the usual non-2xx status and th
 - `queries/<api>.ts`: hand-written GraphQL documents as string constants, one file per API, minimal selection sets, no codegen. Operation names use the `detection*` form, never the `alertsService*` aliases. Federated `*Subject` fields are not selected. Never put two case-scoped root fields in one document (`case` plus `caseEvidence`, or two aliased `case` fields): investigations-v2 answers `conn busy` every time. The three reference-data root fields are fine together.
 - `case-reference-data.ts`: `CaseReferenceDataCache`, per tenant, 15 minute TTL, one round trip for case types, primary statuses and primary verdicts. Fusion filters and writes these by UUID and the set depends on the tenant's licensed services, so names resolve at runtime and are never hard-coded.
 - `cases-ql.ts`: builds the QL string for `cases(arguments: { query })` from the list tool's filters. Names never reach QL; only `*Id` columns are searchable.
-- `format.ts`: severity scales (case 2 to 10 integer; detection 0 to 1 float; Classic REST detection 0 to 10; never converted), `{ seconds, nanos }` to ISO 8601, ID shape checks (UUID, `CSE#####` short ID, legacy `1-598868`), QL quoting.
+- `format.ts`: severity scales (case 2 to 10 integer; detection 0 to 1 float; Classic REST detection 0 to 10; never converted), `{ seconds, nanos }` to ISO 8601, ID shape checks (UUID, `CSE#####` short ID, legacy `1-598868`, six section resource names for detection and event IDs), QL quoting, comment mention parsing, tag merging, the detection row formatter.
+- `migration.ts`: the migration guard (above).
 - `types.ts`: response types for the selected fields.
 - `schemas/fusion/*.graphql` (repo root): the five schemas exactly as downloaded from the developer portal on 21/09/2026, for reference and diffing. Do not edit them; re-download to update.
 
 Fusion and Classic cases are separate sets. A legacy ID never resolves in Fusion and a Fusion ID never resolves in REST; the tools refuse the wrong shape with a pointer to the other family. There is no delete in Fusion: close (with a verdict when the type supports one), then archive.
 
+Measured case rules the tools enforce or explain (live tenant, 22/09/2026): `managedBy` is required on create, never defaulted (omitting it makes an unclaimed case) and immutable, and `health_check` and `threat_hunt` pin it to `PROVIDER`; `keyFindings.documentVersion` is exactly `"1.0"`; tags on update replace, so the tool merges unless told to replace; a closed case is frozen apart from status, verdicts, secondary status, archive and reasons; an archived case refuses every update; a closed case with a verdict reopens only with `primaryVerdictId: null` in the same update; `new` is a one way door; retitle before archive. Evidence: detection and event IDs are six section RNs; adding a detection also attaches its asset and events and removing it does not retract them; `removeEvidenceFromCase` takes source IDs (an entry `id` is a silent no-op); reads lag writes by a few seconds. Comments: `AddCaseComment` has no `Input` suffix; `@authorized_contacts`, `@customer` and `@sophos` fire wherever they appear and unknown tokens are dropped silently, so the tools read `mentionsIds` back; never select `authorSubject` or `mentionsSubjects` (they turn the response into an error). Files: `caseFiles` is tenant wide with no `query` (client-side filter by `caseId`), `deleteCaseFile` is soft. `casePrimaryStatuses` returns six statuses while case types list eight, so status IDs degrade to the raw ID rather than throwing.
+
 ### Tool registration pattern
 
-Each file in `src/tools/` exports a `register*Tools(server, client, tenantResolver)` function (`fusion-cases.ts` takes `(server, fusionClient, tenantResolver, caseReferenceData)`). Tools follow this pattern:
+Each file in `src/tools/` exports a `register*Tools(server, client, tenantResolver)` function (`cases.ts` and `detections.ts` take the migration guard as a fourth parameter; `fusion-cases.ts` takes `(server, fusionClient, tenantResolver, caseReferenceData)`; `fusion-detections.ts` takes `(server, fusionClient, tenantResolver)`). Tools follow this pattern:
 
 ```typescript
 server.registerTool(

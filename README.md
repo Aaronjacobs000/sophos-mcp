@@ -1,6 +1,6 @@
 # Sophos Fusion MCP Server (formerly Sophos Central)
 
-MCP (Model Context Protocol) server for the Sophos Fusion and Sophos Central APIs. Supports partner, organisation, and single-tenant credential types with automatic region routing. **300 tools** covering 21 Sophos API namespaces: the Sophos Central REST APIs plus the Sophos Fusion GraphQL APIs (`sophos_fusion_*`). Install it as a Claude Desktop extension (`.mcpb`), run it with npx, or host it yourself over streamable HTTP.
+MCP (Model Context Protocol) server for the Sophos Fusion and Sophos Central APIs. Supports partner, organisation, and single-tenant credential types with automatic region routing. **310 tools** covering 22 Sophos API namespaces: the Sophos Central REST APIs plus the Sophos Fusion GraphQL APIs (`sophos_fusion_*`). Install it as a Claude Desktop extension (`.mcpb`), run it with npx, or host it yourself over streamable HTTP.
 
 The npm package, the `.mcpb` bundle and the binaries keep the `sophos-central-mcp-server` name so existing installs update in place.
 
@@ -137,7 +137,7 @@ The script:
 npm test
 ```
 
-Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and a registration check that lists all 300 tools over an in-memory transport. Nothing in `npm test` reaches Sophos.
+Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, and a registration check that lists all 310 tools over an in-memory transport and checks the descriptions for the measured warnings. Nothing in `npm test` reaches Sophos.
 
 To exercise the Fusion tools against a live tenant, put credentials in `.env` (or export them) and run:
 
@@ -149,7 +149,7 @@ node scripts/fusion-smoke.mjs --write-classic  # plus the Classic case tools on 
 node scripts/fusion-smoke.mjs --all            # everything
 ```
 
-It spawns the built server over stdio and calls the tools through an MCP client, so what runs is what a host runs. Read-only mode covers the reference data, the case list with filter and cursor variants, the newest case by short ID, its evidence, summary and comments, the not-found and legacy-ID refusals, and the six Classic read tools. `--write` creates one case titled `MCP smoke test <timestamp>`, exercises comment, link, update, evidence add and remove on it, then closes it with a verdict and archives it (Fusion has no delete). `--write-classic` creates, updates and deletes one Classic case; the Cases API requires an assignee and a detection that still exists, so set `SMOKE_CLASSIC_ASSIGNEE` (a tenant admin email) and, if needed, `SMOKE_CLASSIC_DETECTION_ID` (a recent detection ID). Every write is listed at the end. Existing cases are never modified.
+It spawns the built server over stdio and calls the tools through an MCP client, so what runs is what a host runs. Read-only mode covers the reference data, the case list with filter and cursor variants, the newest case by short ID, its evidence, summary, comments and files, the detection search, the not-found and legacy-ID refusals, and the Classic side: on a migrated tenant the migration refusal, otherwise the six Classic read tools. `--write` creates one case titled `MCP smoke test <timestamp>` (managed_by CUSTOMER), exercises comment add, edit and delete with the mention read-back, link create, update and delete, tag merge and replace, evidence add and remove_all, file upload, list and soft delete, the verdict clear on reopen and the one way door on new, then closes it with a verdict and archives it (Fusion has no delete). `--write-classic` creates, updates and deletes one Classic case; the Cases API requires an assignee and a detection that still exists, so set `SMOKE_CLASSIC_ASSIGNEE` (a tenant admin email) and, if needed, `SMOKE_CLASSIC_DETECTION_ID` (a recent detection ID). Every write is listed at the end. Existing cases are never modified.
 
 **Cutting a release:** bump `version` in `package.json`, run `npm run build:mcpb`, commit `package.json`, `package-lock.json`, and `manifest.json`, tag, and attach the `.mcpb` from `release/` to the GitHub release. Publish to npm as before so the Claude Code and self-hosted options pick up the same version.
 
@@ -164,7 +164,8 @@ It spawns the built server over stdio and calls the tools through an MCP client,
 - **Dual transport**: stdio (Claude Desktop, Claude Code, and the `.mcpb` bundle) or streamable HTTP (self-hosted)
 - **One-click install**: Ships as a Claude Desktop extension (`.mcpb`) with credentials held in the OS secure store
 - **Two API generations**: the Sophos Central REST APIs and the Sophos Fusion GraphQL APIs on one credential, with `sophos_fusion_*` tools for the GraphQL side
-- **Full API coverage**: 300 tools across endpoints, alerts, policies, firewalls, web filtering, licensing, audit events, email, mobile, XDR, cases, SIEM, and more
+- **Migration aware**: the Classic case and detection tools refuse a tenant that has moved to Sophos Fusion and name the `sophos_fusion_*` tool to use instead
+- **Full API coverage**: 310 tools across endpoints, alerts, policies, firewalls, web filtering, licensing, audit events, email, mobile, XDR, cases, SIEM, and more
 
 ## Screenshots
 
@@ -199,6 +200,7 @@ TRANSPORT=http
 | `TRANSPORT` | No | http | `http` for streamable HTTP, `stdio` for subprocess mode |
 | `CHARACTER_LIMIT` | No | 50000 | Maximum characters per tool response before truncation (minimum 10000) |
 | `SOPHOS_FUSION_GRAPHQL_URL` | No | `https://api.taegis.sophos.com/graphql` | Sophos Fusion GraphQL endpoint. Override when the Fusion branded hostnames ship |
+| `SOPHOS_CLASSIC_MIGRATION_CHECK` | No | on | `off` skips the migration check on the Classic case and detection tools (they then run for every tenant) |
 
 ## Tools
 
@@ -209,7 +211,9 @@ The server speaks to two Sophos API generations on one credential:
 - **Sophos Central REST APIs** (retained). Every tool without the `fusion` prefix. Regional hosts, discovered from `/whoami/v1`.
 - **Sophos Fusion GraphQL APIs** (new, 18/09/2026). The `sophos_fusion_*` tools. One endpoint, `https://api.taegis.sophos.com/graphql`, same token, same `X-Tenant-ID` header. Filters are written in Fusion Query Language (QL). Case types, statuses and verdicts are tenant reference data resolved to IDs at runtime, case severity is an integer (2 to 10), and assignees are Subject IDs, not email addresses. A GraphQL failure arrives as HTTP 200 with an `errors` array; the client treats that as an error, and a partial response (data plus errors) is returned with a `warnings` list rather than as a clean result.
 
-Sophos deprecated the Cases REST API and the Detections REST API (now "Classic XDR APIs") on 18/09/2026, with no removal date published. The Classic tools stay registered: legacy cases (IDs like `1-598868`) are only readable through REST, Fusion holds a separate case set (a UUID plus a `CSE#####` short ID), and neither ID form resolves in the other API. Live Discover and XDR Query are not deprecated. Data Lake search over GraphQL has not shipped (Sophos says October 2026), so `sophos_run_xdr_query` stays on the SQL XDR Query API. Fusion tools for detections, events, threat timeline and live endpoint search are planned; today the Fusion family is cases.
+Sophos is moving tenants to Fusion over the coming months (the [upgrade centre](https://community.sophos.com/sophos-xdr/sophos-xdr-mdr-expansion/upgrade-center) announces each account's slot). This is a point in time change, not a fallback: once a tenant has moved, the Classic Cases and Detections REST APIs reference the pre-migration Sophos Central objects, so their answers are wrong rather than stale. The Classic tools therefore check which world a tenant is in before every call, using the Fusion case reference data (a tenant that has not moved gets an empty case type list), and refuse a migrated tenant with a message naming the `sophos_fusion_*` tool to use. For a tenant that has not moved they stay correct and carry no deprecation label. Fusion holds a separate case set (a UUID plus a `CSE#####` short ID) and neither ID form resolves in the other API. Live Discover and XDR Query are unaffected. Data Lake search over GraphQL has not shipped (Sophos says October 2026), so `sophos_run_xdr_query` stays on the SQL XDR Query API. Fusion tools for events, threat timeline and live endpoint search are planned.
+
+Two Fusion case writes, `createCase` and `addEvidenceToCase`, fail roughly one call in two with `not allowed` on `partnerPreferences` from `investigations-v2`. It is an intermittent downstream fault, not authorisation: the identical call succeeds on retry. The client retries a call whose first error path is `partnerPreferences`, and only that, up to 8 times with a short backoff; an error naming the operation in its path is a real input or permission error and surfaces at once.
 
 ### Partner & Organisation (18 tools)
 
@@ -402,7 +406,7 @@ Sophos deprecated the Cases REST API and the Detections REST API (now "Classic X
 
 ### Cases (9 tools)
 
-Sophos Central Cases REST API, deprecated by Sophos on 18/09/2026 and still working. This is the only way to read legacy cases (IDs like `1-598868`). For Fusion cases use the `sophos_fusion_*` tools below.
+Sophos Central Cases REST API. Correct for a tenant that has not moved to Fusion, and the only way to read its legacy cases (IDs like `1-598868`). Refused for a tenant that has moved, with a pointer to the `sophos_fusion_*` tool to use (see "Two API generations").
 
 | Tool | Description |
 |------|-------------|
@@ -416,28 +420,47 @@ Sophos Central Cases REST API, deprecated by Sophos on 18/09/2026 and still work
 | `sophos_list_case_impacted_entities` | List impacted entities for a case |
 | `sophos_get_case_mitre_summary` | Get MITRE ATT&CK breakdown for a case |
 
-### Fusion Cases (12 tools)
+### Fusion Cases (21 tools)
 
 Sophos Fusion Cases GraphQL API v2. Case IDs are UUIDs; short IDs (`CSE00001`) are accepted and resolved. Severity is 2 informational, 4 low, 6 medium, 8 high, 10 critical. Detection severity inside the case summary is a 0 to 1 float, a different scale from both the case severity and the Classic REST 0 to 10 detection severity; none of them convert. There is no delete: close the case (with a verdict when its type needs one), then archive it.
+
+`managed_by` is required on create and decides who works the case: `PROVIDER` hands it to Sophos MDR, `CUSTOMER` keeps it self managed. It cannot be changed afterwards, and a case created without it is unclaimed, so the tool never omits it. Detection and event IDs on the evidence tools are six section resource names (`alert://priv:event-filter:123456:1789526908712:<uuid>`), which `sophos_fusion_search_detections` returns. Evidence reads lag writes by a few seconds; adding a detection also attaches its linked asset and events, and removing it does not retract them (`remove_all` does). Comment @mentions (`@authorized_contacts`, `@customer`, `@sophos`) fire wherever they appear, including in prose, and an unrecognised token is dropped silently, so the comment tools read the stored mentions back. Tags are merged on update unless `replace_tags` is set. File deletion is soft. Split and merge are irreversible and need a confirmation argument.
 
 | Tool | Description |
 |------|-------------|
 | `sophos_fusion_list_cases` | List cases with QL filters (type, status, verdict resolved to IDs), offset or cursor pagination |
 | `sophos_fusion_get_case` | Full case detail including key findings, verdict, links and processing status |
-| `sophos_fusion_get_case_evidence` | Detection, event, asset and saved-search IDs attached to a case |
+| `sophos_fusion_get_case_evidence` | Detection, event, asset and saved-search source IDs attached to a case |
 | `sophos_fusion_get_case_summary` | Case plus its detections resolved in one batched call and a MITRE ATT&CK roll-up |
 | `sophos_fusion_list_case_reference_data` | The tenant's case types, primary statuses and verdicts (15 minute cache) |
-| `sophos_fusion_create_case` | Create a case: type and status by name or ID, integer severity, Markdown key findings, genesis evidence |
-| `sophos_fusion_update_case` | Update fields, close with a verdict, archive or unarchive, reassign |
-| `sophos_fusion_list_case_comments` | List comments |
-| `sophos_fusion_add_case_comment` | Add a comment (supports @mentions) |
-| `sophos_fusion_add_case_evidence` | Attach detections, events, hosts or saved searches (asynchronous) |
-| `sophos_fusion_remove_case_evidence` | Detach evidence (asynchronous) |
+| `sophos_fusion_create_case` | Create a case: required managed_by, type and status by name or ID, integer severity, Markdown key findings, genesis evidence |
+| `sophos_fusion_update_case` | Update fields, merge or replace tags, close with a verdict, reopen (verdict cleared), archive or unarchive in the right order |
+| `sophos_fusion_split_case` | Move named evidence into a new case (irreversible, confirm_split) |
+| `sophos_fusion_merge_cases` | Merge source cases into a target and close them (asynchronous, irreversible, confirm_merge) |
+| `sophos_fusion_list_case_comments` | List comments (raw author IDs, resolved mentions, read state) |
+| `sophos_fusion_add_case_comment` | Add a comment and report which @mentions actually fired |
+| `sophos_fusion_update_case_comment` | Edit a comment or mark it read |
+| `sophos_fusion_delete_case_comment` | Delete a comment |
+| `sophos_fusion_add_case_evidence` | Attach detections, events, hosts or saved searches (asynchronous, RNs checked) |
+| `sophos_fusion_remove_case_evidence` | Detach evidence by source ID, or everything with remove_all (asynchronous) |
+| `sophos_fusion_list_case_files` | List a case's files (deleted hidden by default, download URLs on request) |
+| `sophos_fusion_upload_case_file` | Attach a file: register, PUT to the presigned URL, poll to UPLOADED |
+| `sophos_fusion_delete_case_file` | Soft delete a file |
 | `sophos_fusion_create_case_link` | Attach an external link (ServiceNow ticket, report) |
+| `sophos_fusion_update_case_link` | Change a link's URL, title, type or reference |
+| `sophos_fusion_delete_case_link` | Remove a link |
+
+### Fusion Detections (1 tool)
+
+Sophos Fusion Detections GraphQL API v2. One QL search replaces the Classic run, poll, results triple. Source keyword `alert`; working example `from alert severity >= 0.1 EARLIEST=-90d`. Severity is a 0 to 1 float.
+
+| Tool | Description |
+|------|-------------|
+| `sophos_fusion_search_detections` | Search detections with QL; returns the resource-name IDs the case evidence tools take |
 
 ### Detections (6 tools)
 
-Async API: start a query, poll for completion, then fetch results.
+Sophos Central Detections REST API, async: start a query, poll for completion, then fetch results. Refused for a tenant that has moved to Fusion, with a pointer to `sophos_fusion_search_detections`.
 
 | Tool | Description |
 |------|-------------|
@@ -725,18 +748,20 @@ src/
 ├── auth/token-manager.ts        # OAuth2 token lifecycle
 ├── client/
 │   ├── sophos-client.ts         # REST client with region routing (Sophos Central)
-│   ├── fusion-client.ts         # GraphQL client (Sophos Fusion), 200-with-errors handling
+│   ├── fusion-client.ts         # GraphQL client (Sophos Fusion), 200-with-errors handling, path-keyed retry
 │   └── tenant-resolver.ts       # Whoami + tenant cache
 ├── fusion/
 │   ├── queries/cases.ts         # Cases v2 GraphQL documents
-│   ├── queries/detections.ts    # Detections v2 documents used by the case summary
+│   ├── queries/detections.ts    # Detections v2 documents: the case summary lookup and the QL search
 │   ├── case-reference-data.ts   # Per-tenant cache of case types, statuses, verdicts
 │   ├── cases-ql.ts              # QL builder for the cases search
-│   ├── format.ts                # Severity scales, timestamps, ID checks
+│   ├── format.ts                # Severity scales, timestamps, ID checks, mentions, tags, detection rows
+│   ├── migration.ts             # Has this tenant moved to Fusion? Gates the Classic case and detection tools
 │   └── types.ts                 # Fusion response types
 ├── tools/
 │   ├── helpers.ts               # Shared response formatting
 │   ├── fusion-cases.ts          # Sophos Fusion cases (GraphQL)
+│   ├── fusion-detections.ts     # Sophos Fusion detection search (GraphQL)
 │   ├── tenants.ts               # Tenant listing (partner/org only)
 │   ├── partner.ts               # Partner admin, roles, billing (partner/org only)
 │   ├── alerts.ts                # Alert list, get, acknowledge, search
