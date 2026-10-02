@@ -83,87 +83,92 @@ async function main(): Promise<void> {
   // Classic case and detection tools refuse a tenant that has moved to Fusion
   const migrationGuard = new FusionMigrationGuard(caseReferenceData);
 
-  // Create the MCP server
-  const server = new McpServer({
-    name: "sophos-central-mcp-server",
-    version: pkgVersion,
-  });
+  // Create the MCP server. One McpServer serves one transport at a time, so
+  // the stateless HTTP transport builds a fresh one per request; stdio uses one.
+  const createServer = (): McpServer => {
+    const server = new McpServer({
+      name: "sophos-central-mcp-server",
+      version: pkgVersion,
+    });
+
+    // Partner/org-only tools
+    if (identity.idType !== "tenant") {
+      registerTenantTools(server, tenantResolver);
+      registerPartnerTools(server, sophosClient, tenantResolver);
+    }
+
+    // Phase 1: Tenant-scoped SOC monitoring tools
+    registerAlertTools(server, sophosClient, tenantResolver);
+    registerEndpointTools(server, sophosClient, tenantResolver);
+    registerHealthTools(server, sophosClient, tenantResolver);
+    registerDirectoryTools(server, sophosClient, tenantResolver);
+
+    // Phase 2: Admin automation tools
+    registerPolicyTools(server, sophosClient, tenantResolver);
+    registerGroupTools(server, sophosClient, tenantResolver);
+    registerExclusionTools(server, sophosClient, tenantResolver);
+
+    // Phase 3: Investigation tools
+    registerCaseTools(server, sophosClient, tenantResolver, migrationGuard);
+    registerDetectionTools(server, sophosClient, tenantResolver, migrationGuard);
+    registerSiemTools(server, sophosClient, tenantResolver);
+    registerXdrTools(server, sophosClient, tenantResolver);
+    registerLiveDiscoverTools(server, sophosClient, tenantResolver);
+
+    // Phase 4: Endpoint migration and software package tools
+    registerEndpointMigrationTools(server, sophosClient, tenantResolver);
+
+    // Phase 5: Endpoint settings tools
+    registerEndpointSettingsTools(server, sophosClient, tenantResolver);
+
+    // Phase 6: Firewall management tools
+    registerFirewallTools(server, sophosClient, tenantResolver);
+
+    // Phase 7: Admin management and directory user/group tools
+    registerAdminManagementTools(server, sophosClient, tenantResolver);
+
+    // Phase 8: Email protection tools
+    registerEmailTools(server, sophosClient, tenantResolver);
+
+    // Phase 9: DNS, cloud security, Wi-Fi, licensing, accounts, user activity
+    registerDnsProtectionTools(server, sophosClient, tenantResolver);
+    registerCloudSecurityTools(server, sophosClient, tenantResolver);
+    registerWifiTools(server, sophosClient, tenantResolver);
+    registerUserActivityTools(server, sophosClient, tenantResolver);
+
+    // Phase 10: Mobile device management tools
+    registerMobileTools(server, sophosClient, tenantResolver);
+
+    // Phase 11: Audit events, licensing, web filtering, switch, accounts,
+    // business automation
+    registerAuditEventTools(server, sophosClient, tenantResolver);
+    registerLicensingTools(server, sophosClient, tenantResolver);
+    registerWebFilteringTools(server, sophosClient, tenantResolver);
+    registerSwitchTools(server, sophosClient, tenantResolver);
+    registerAccountsTools(server, sophosClient, tenantResolver);
+    registerBusinessAutomationTools(server, sophosClient, tenantResolver);
+
+    // Fusion: GraphQL APIs on api.taegis.sophos.com, beside the Classic REST tools
+    registerFusionCaseTools(server, fusionClient, tenantResolver, caseReferenceData);
+    registerFusionDetectionTools(server, fusionClient, tenantResolver);
+
+    return server;
+  };
 
   // Register tools based on identity type
   console.error(`[sophos-mcp] Registering tools for ${identity.idType} caller...`);
-
-  // Partner/org-only tools
-  if (identity.idType !== "tenant") {
-    registerTenantTools(server, tenantResolver);
-    registerPartnerTools(server, sophosClient, tenantResolver);
-  }
-
-  // Phase 1: Tenant-scoped SOC monitoring tools
-  registerAlertTools(server, sophosClient, tenantResolver);
-  registerEndpointTools(server, sophosClient, tenantResolver);
-  registerHealthTools(server, sophosClient, tenantResolver);
-  registerDirectoryTools(server, sophosClient, tenantResolver);
-
-  // Phase 2: Admin automation tools
-  registerPolicyTools(server, sophosClient, tenantResolver);
-  registerGroupTools(server, sophosClient, tenantResolver);
-  registerExclusionTools(server, sophosClient, tenantResolver);
-
-  // Phase 3: Investigation tools
-  registerCaseTools(server, sophosClient, tenantResolver, migrationGuard);
-  registerDetectionTools(server, sophosClient, tenantResolver, migrationGuard);
-  registerSiemTools(server, sophosClient, tenantResolver);
-  registerXdrTools(server, sophosClient, tenantResolver);
-  registerLiveDiscoverTools(server, sophosClient, tenantResolver);
-
-  // Phase 4: Endpoint migration and software package tools
-  registerEndpointMigrationTools(server, sophosClient, tenantResolver);
-
-  // Phase 5: Endpoint settings tools
-  registerEndpointSettingsTools(server, sophosClient, tenantResolver);
-
-  // Phase 6: Firewall management tools
-  registerFirewallTools(server, sophosClient, tenantResolver);
-
-  // Phase 7: Admin management and directory user/group tools
-  registerAdminManagementTools(server, sophosClient, tenantResolver);
-
-  // Phase 8: Email protection tools
-  registerEmailTools(server, sophosClient, tenantResolver);
-
-  // Phase 9: DNS, cloud security, Wi-Fi, licensing, accounts, user activity
-  registerDnsProtectionTools(server, sophosClient, tenantResolver);
-  registerCloudSecurityTools(server, sophosClient, tenantResolver);
-  registerWifiTools(server, sophosClient, tenantResolver);
-  registerUserActivityTools(server, sophosClient, tenantResolver);
-
-  // Phase 10: Mobile device management tools
-  registerMobileTools(server, sophosClient, tenantResolver);
-
-  // Phase 11: Audit events, licensing, web filtering, switch, accounts,
-  // business automation
-  registerAuditEventTools(server, sophosClient, tenantResolver);
-  registerLicensingTools(server, sophosClient, tenantResolver);
-  registerWebFilteringTools(server, sophosClient, tenantResolver);
-  registerSwitchTools(server, sophosClient, tenantResolver);
-  registerAccountsTools(server, sophosClient, tenantResolver);
-  registerBusinessAutomationTools(server, sophosClient, tenantResolver);
-
-  // Fusion: GraphQL APIs on api.taegis.sophos.com, beside the Classic REST tools
-  registerFusionCaseTools(server, fusionClient, tenantResolver, caseReferenceData);
-  registerFusionDetectionTools(server, fusionClient, tenantResolver);
-
+  const server = createServer();
   console.error("[sophos-mcp] All tools registered.");
 
   // Start transport
   if (config.transport === "http") {
-    await runHTTP(server, config.port);
+    await runHTTP(createServer, config.port);
   } else {
     await runStdio(server);
   }
 }
 
-async function runHTTP(server: McpServer, port: number): Promise<void> {
+async function runHTTP(createServer: () => McpServer, port: number): Promise<void> {
   const app = express();
   // Refuse browser-originated requests (cross-site POST, DNS rebinding)
   app.use(localRequestsOnly);
@@ -171,12 +176,16 @@ async function runHTTP(server: McpServer, port: number): Promise<void> {
 
   // MCP endpoint: stateless streamable HTTP
   app.post("/mcp", async (req, res) => {
+    const server = createServer();
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless
       enableJsonResponse: true,
     });
 
-    res.on("close", () => transport.close());
+    res.on("close", () => {
+      transport.close();
+      server.close();
+    });
 
     await server.connect(transport);
     await transport.handleRequest(req, res, req.body);

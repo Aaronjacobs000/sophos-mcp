@@ -109,7 +109,7 @@ sophos-central-mcp      # global npm install
 npm start               # from a source checkout
 ```
 
-With `TRANSPORT=http` (the default) the server listens on `http://127.0.0.1:3100/mcp` and answers `GET /health` with `{"status":"ok","server":"sophos-central-mcp-server"}`. The MCP endpoint is stateless: every request gets a fresh transport. Point any streamable HTTP client at it, for example Claude Code:
+With `TRANSPORT=http` (the default) the server listens on `http://127.0.0.1:3100/mcp` and answers `GET /health` with `{"status":"ok","server":"sophos-central-mcp-server"}`. The MCP endpoint is stateless: every request gets a fresh server and transport, so concurrent tool calls work. Point any streamable HTTP client at it, for example Claude Code:
 
 ```bash
 claude mcp add --transport http sophos-central http://127.0.0.1:3100/mcp
@@ -144,7 +144,7 @@ The script:
 npm test
 ```
 
-Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, and a registration check that lists all 310 tools over an in-memory transport and checks the descriptions for the measured warnings. Nothing in `npm test` reaches Sophos.
+Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, a registration check that lists all 310 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (localhost guard, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
 
 To exercise the Fusion tools against a live tenant, put credentials in `.env` (or export them) and run:
 
@@ -743,7 +743,7 @@ Per sophos_fusion_* call: resolve tenant -> POST api.taegis.sophos.com/graphql -
 
 - **Dynamic tool registration**: Only tools valid for the caller type are exposed to the LLM
 - **Explicit tenant context**: Partner/org callers must specify `tenant_id` to prevent cross-tenant accidents
-- **Stateless HTTP**: Each MCP request creates a fresh transport instance (no session affinity)
+- **Stateless HTTP**: Each MCP request creates a fresh server and transport instance (no session affinity)
 - **Localhost binding**: HTTP server binds to `127.0.0.1` only
 
 ## Project Structure
