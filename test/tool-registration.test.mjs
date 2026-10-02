@@ -136,6 +136,13 @@ test("every Fusion case tool has a schema, annotations and dash-free prose", asy
   assert.equal(readOnly.length, 8, "eight Fusion tools are read-only");
 });
 
+test("a tool that writes a local file is not marked read-only", async () => {
+  const { tools } = await listAllTools();
+  const download = tools.find((t) => t.name === "sophos_download_firewall_backup");
+  assert.equal(download.annotations.readOnlyHint, false, "it writes output_path");
+  assert.equal(download.annotations.destructiveHint, true, "it replaces any file already at output_path");
+});
+
 test("Classic case and detection tools name the migration refusal and the Fusion tool to use", async () => {
   const { tools } = await listAllTools();
   const byName = new Map(tools.map((t) => [t.name, t]));

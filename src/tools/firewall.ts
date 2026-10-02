@@ -1060,9 +1060,10 @@ Args:
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
+      // Writes output_path on this machine, replacing any file already there
       annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
+        readOnlyHint: false,
+        destructiveHint: true,
         idempotentHint: true,
         openWorldHint: true,
       },
