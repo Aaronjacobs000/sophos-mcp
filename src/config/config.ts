@@ -9,6 +9,12 @@ export interface SophosConfig {
   tenantId?: string;
   port: number;
   transport: "http" | "stdio";
+  /** Address the HTTP transport binds to. 127.0.0.1 unless MCP_HTTP_HOST says otherwise. */
+  httpHost: string;
+  /** When set, every /mcp request must send it as a bearer token. */
+  httpToken?: string;
+  /** Browser origins allowed besides loopback ones, from MCP_ALLOWED_ORIGINS. */
+  allowedOrigins: string[];
 }
 
 export function loadConfig(): SophosConfig {
@@ -36,7 +42,36 @@ export function loadConfig(): SophosConfig {
     tenantId: process.env.SOPHOS_TENANT_ID || undefined,
     port: rawPort,
     transport: (process.env.TRANSPORT as "http" | "stdio") || "http",
+    httpHost: process.env.MCP_HTTP_HOST || "127.0.0.1",
+    httpToken: process.env.MCP_HTTP_TOKEN || undefined,
+    allowedOrigins: parseAllowedOrigins(process.env.MCP_ALLOWED_ORIGINS),
   };
+}
+
+/**
+ * MCP_ALLOWED_ORIGINS is a comma separated list of browser origins, such as
+ * "https://inspector.example.com,http://10.0.0.5:6274". Each entry is reduced
+ * to its origin (scheme, host and port) so it compares equal to the Origin
+ * header a browser sends.
+ */
+export function parseAllowedOrigins(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "")
+    .map((entry) => {
+      let url: URL;
+      try {
+        url = new URL(entry);
+      } catch {
+        throw new Error(`Invalid MCP_ALLOWED_ORIGINS entry "${entry}": not a URL such as https://host:port.`);
+      }
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        throw new Error(`Invalid MCP_ALLOWED_ORIGINS entry "${entry}": it must be an http or https origin.`);
+      }
+      return url.origin;
+    });
 }
 
 // Sophos Central global API endpoints

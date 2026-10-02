@@ -109,7 +109,7 @@ sophos-central-mcp      # global npm install
 npm start               # from a source checkout
 ```
 
-With `TRANSPORT=http` (the default) the server listens on `http://127.0.0.1:3100/mcp` and answers `GET /health` with `{"status":"ok","server":"sophos-central-mcp-server"}`. The MCP endpoint is stateless: every request gets a fresh server and transport, so concurrent tool calls work. Point any streamable HTTP client at it, for example Claude Code:
+With `TRANSPORT=http` (the default) the server listens on `http://127.0.0.1:3100/mcp` (`MCP_HTTP_HOST` and `PORT` change that) and answers `GET /health` with `{"status":"ok","server":"sophos-central-mcp-server"}`. The MCP endpoint is stateless: every request gets a fresh server and transport, so concurrent tool calls work. Point any streamable HTTP client at it, for example Claude Code:
 
 ```bash
 claude mcp add --transport http sophos-central http://127.0.0.1:3100/mcp
@@ -117,7 +117,31 @@ claude mcp add --transport http sophos-central http://127.0.0.1:3100/mcp
 
 With `TRANSPORT=stdio` the server speaks MCP over stdin/stdout and is meant to be spawned by the client, which is what Options 1 and 2 do for you.
 
-The HTTP server binds to `127.0.0.1` only and has no authentication of its own. It refuses any request whose `Host` is not `localhost`, `127.0.0.1` or `[::1]`, or whose `Origin` (when sent) is not one of those, so a web page cannot drive it by cross-site POST or DNS rebinding. If it needs to be reachable from another host, put it behind something that adds TLS and auth (an SSH tunnel or an authenticating reverse proxy) rather than changing the bind address; a proxy must forward `Host` as `127.0.0.1:<PORT>`.
+By default the HTTP server binds to `127.0.0.1` and has no authentication. It refuses any request with a browser `Origin` other than `localhost`, `127.0.0.1`, `[::1]` or one listed in `MCP_ALLOWED_ORIGINS`, so a web page cannot drive it by cross-site POST or DNS rebinding. MCP clients that are not browsers send no `Origin`, so this does not affect them, on this machine or another.
+
+### Using it from other machines
+
+To let agents on other machines use the server:
+
+1. Make a token, for example `openssl rand -hex 32`.
+2. Start the server listening on the network, with the token:
+
+   ```bash
+   MCP_HTTP_HOST=0.0.0.0 MCP_HTTP_TOKEN=<token> TRANSPORT=http npm start
+   ```
+
+   `0.0.0.0` listens on every interface. To listen on one only, use that interface's address, such as a LAN or Tailscale IP.
+3. Point each client at `http://<server>:3100/mcp` and have it send `Authorization: Bearer <token>`. In Claude Code:
+
+   ```bash
+   claude mcp add --transport http sophos-central http://<server>:3100/mcp --header "Authorization: Bearer <token>"
+   ```
+
+Every `/mcp` request without the right token gets a 401. `/health` stays open. Without a token, anyone who can reach the port can use every tool with your Sophos credentials, and the server prints a warning at startup saying so.
+
+Plain HTTP sends the token and tool results in clear text. On any network you don't fully trust, encrypt it: TLS through a reverse proxy (Caddy or nginx, say), or reach the server over Tailscale.
+
+A browser based MCP client on another machine sends an `Origin` and is refused until you add that origin to `MCP_ALLOWED_ORIGINS`. Agents and CLI clients need nothing there.
 
 ### Build the .mcpb yourself (maintainers)
 
@@ -144,7 +168,7 @@ The script:
 npm test
 ```
 
-Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, a registration check that lists all 310 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (localhost guard, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
+Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, a registration check that lists all 310 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
 
 To exercise the Fusion tools against a live tenant, put credentials in `.env` (or export them) and run:
 
@@ -205,6 +229,9 @@ TRANSPORT=http
 | `SOPHOS_CLIENT_SECRET` | Yes | - | OAuth2 client secret |
 | `PORT` | No | 3100 | HTTP server port |
 | `TRANSPORT` | No | http | `http` for streamable HTTP, `stdio` for subprocess mode |
+| `MCP_HTTP_HOST` | No | 127.0.0.1 | Address the HTTP server binds to. `0.0.0.0` for every interface, or one interface's IP. See [Using it from other machines](#using-it-from-other-machines) |
+| `MCP_HTTP_TOKEN` | No | - | When set, every `/mcp` request needs `Authorization: Bearer <token>`. `/health` stays open. Set it whenever `MCP_HTTP_HOST` is not loopback |
+| `MCP_ALLOWED_ORIGINS` | No | - | Comma separated browser origins (`https://host:port`) allowed besides localhost ones. Only browser based clients need this |
 | `CHARACTER_LIMIT` | No | 50000 | Maximum characters per tool response before truncation (minimum 10000) |
 | `SOPHOS_FUSION_GRAPHQL_URL` | No | `https://api.taegis.sophos.com/graphql` | Sophos Fusion GraphQL endpoint. Override when the Fusion branded hostnames ship. Must be `https` on a `sophos.com` host, since the bearer token goes to it; the server refuses to start otherwise |
 | `SOPHOS_CLASSIC_MIGRATION_CHECK` | No | on | `off` skips the migration check on the Classic case and detection tools (they then run for every tenant) |
@@ -744,14 +771,14 @@ Per sophos_fusion_* call: resolve tenant -> POST api.taegis.sophos.com/graphql -
 - **Dynamic tool registration**: Only tools valid for the caller type are exposed to the LLM
 - **Explicit tenant context**: Partner/org callers must specify `tenant_id` to prevent cross-tenant accidents
 - **Stateless HTTP**: Each MCP request creates a fresh server and transport instance (no session affinity)
-- **Localhost binding**: HTTP server binds to `127.0.0.1` only
+- **Localhost by default**: HTTP server binds to `127.0.0.1` unless `MCP_HTTP_HOST` says otherwise
 
 ## Project Structure
 
 ```
 src/
 ├── index.ts                     # Entry point, server bootstrap
-├── http-guard.ts                # HTTP transport: refuse non-localhost Host or Origin
+├── http-guard.ts                # HTTP transport: refuse foreign browser Origins, optional bearer token
 ├── config/config.ts             # Environment config
 ├── auth/token-manager.ts        # OAuth2 token lifecycle
 ├── client/
@@ -803,7 +830,7 @@ Packaging files at the repo root: `manifest.json` (MCPB manifest, regenerated by
 
 - Credentials are read from environment variables only, never logged
 - JWT tokens are held in memory with automatic refresh
-- HTTP server binds to `127.0.0.1` (localhost only) and refuses requests with a non-localhost `Host` or `Origin`
+- HTTP server binds to `127.0.0.1` by default and refuses requests from a browser `Origin` that is not localhost or listed in `MCP_ALLOWED_ORIGINS`. If `MCP_HTTP_HOST` opens it to the network, set `MCP_HTTP_TOKEN` and put TLS in front (a reverse proxy or Tailscale)
 - Write actions have `destructiveHint` annotations so clients can warn users
 - Partner/org callers require explicit `tenant_id` on every call
 - The REST client refuses a request path where an ID argument carries a `.` or `..` segment (encoded too), `?`, `#`, a backslash, an encoded `/` or a control character, so a crafted ID cannot redirect a call to another resource

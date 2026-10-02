@@ -15,15 +15,16 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import express from "express";
+import type { AddressInfo } from "node:net";
 
-import { loadConfig } from "./config/config.js";
+import { loadConfig, type SophosConfig } from "./config/config.js";
 import { TokenManager } from "./auth/token-manager.js";
 import { TenantResolver } from "./client/tenant-resolver.js";
 import { SophosClient } from "./client/sophos-client.js";
 import { FusionClient } from "./client/fusion-client.js";
 import { CaseReferenceDataCache } from "./fusion/case-reference-data.js";
 import { FusionMigrationGuard } from "./fusion/migration.js";
-import { localRequestsOnly } from "./http-guard.js";
+import { openListenerWarning, refuseForeignOrigins, requireBearerToken } from "./http-guard.js";
 
 // Tool registration modules
 import { registerTenantTools } from "./tools/tenants.js";
@@ -162,16 +163,20 @@ async function main(): Promise<void> {
 
   // Start transport
   if (config.transport === "http") {
-    await runHTTP(createServer, config.port);
+    await runHTTP(createServer, config);
   } else {
     await runStdio(server);
   }
 }
 
-async function runHTTP(createServer: () => McpServer, port: number): Promise<void> {
+async function runHTTP(createServer: () => McpServer, config: SophosConfig): Promise<void> {
   const app = express();
   // Refuse browser-originated requests (cross-site POST, DNS rebinding)
-  app.use(localRequestsOnly);
+  app.use(refuseForeignOrigins(config.allowedOrigins));
+  // Opt-in shared secret for /mcp; /health stays open
+  if (config.httpToken) {
+    app.use("/mcp", requireBearerToken(config.httpToken));
+  }
   app.use(express.json());
 
   // MCP endpoint: stateless streamable HTTP
@@ -196,8 +201,19 @@ async function runHTTP(createServer: () => McpServer, port: number): Promise<voi
     res.json({ status: "ok", server: "sophos-central-mcp-server" });
   });
 
-  app.listen(port, "127.0.0.1", () => {
-    console.error(`[sophos-mcp] HTTP server listening on http://127.0.0.1:${port}/mcp`);
+  const listener = app.listen(config.port, config.httpHost, (error?: Error) => {
+    if (error) {
+      console.error(`[sophos-mcp] Fatal error: cannot listen on ${config.httpHost}:${config.port}:`, error.message);
+      process.exit(1);
+    }
+    const { address, port } = listener.address() as AddressInfo;
+    const shown = address.includes(":") ? `[${address}]` : address;
+    console.error(`[sophos-mcp] HTTP server listening on http://${shown}:${port}/mcp`);
+    if (config.httpToken) {
+      console.error("[sophos-mcp] /mcp requires the MCP_HTTP_TOKEN bearer token");
+    }
+    const warning = openListenerWarning(address, config.httpToken !== undefined);
+    if (warning) console.error(warning);
   });
 }
 

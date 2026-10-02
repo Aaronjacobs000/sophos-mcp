@@ -1,6 +1,7 @@
 // Runs the built entry point in HTTP mode against an in-memory Sophos (see
-// fake-sophos-fetch.mjs) and checks two things about runHTTP() in src/index.ts:
-// overlapping tool calls all succeed, and the localhost guard is wired in.
+// fake-sophos-fetch.mjs) and checks runHTTP() in src/index.ts: overlapping tool
+// calls all succeed, and the Origin guard, the MCP_HTTP_TOKEN check and the
+// listen address log are wired in.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -19,7 +20,7 @@ async function freePort() {
   return port;
 }
 
-async function startServer() {
+async function startServer(extraEnv = {}) {
   const port = await freePort();
   const env = {
     ...process.env,
@@ -29,7 +30,8 @@ async function startServer() {
     PORT: String(port),
     FAKE_SOPHOS_DELAY_MS: "300",
   };
-  delete env.SOPHOS_FUSION_GRAPHQL_URL;
+  for (const name of ["SOPHOS_FUSION_GRAPHQL_URL", "MCP_HTTP_HOST", "MCP_HTTP_TOKEN", "MCP_ALLOWED_ORIGINS"]) delete env[name];
+  Object.assign(env, extraEnv);
   const child = spawn(process.execPath, ["--import", fakeSophos, entry], { env, stdio: ["ignore", "ignore", "pipe"] });
   let stderr = "";
   await new Promise((resolve, reject) => {
@@ -43,7 +45,9 @@ async function startServer() {
     });
     child.on("exit", (code) => reject(new Error(`server exited with ${code}: ${stderr}`)));
   });
-  return { port, stop: () => child.kill() };
+  // Give the lines printed right after the listen line time to arrive
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  return { port, stderr: () => stderr, stop: () => child.kill() };
 }
 
 function callTool(port, id, headers = {}) {
@@ -74,6 +78,32 @@ test("the HTTP entry point refuses a foreign Origin", async () => {
   try {
     const res = await callTool(server.port, 1, { Origin: "https://attacker.example" });
     assert.equal(res.status, 403);
+  } finally {
+    server.stop();
+  }
+});
+
+test("the HTTP entry point listens on 127.0.0.1 by default, with no warning", async () => {
+  const server = await startServer();
+  try {
+    assert.match(server.stderr(), new RegExp(`HTTP server listening on http://127\\.0\\.0\\.1:${server.port}/mcp`));
+    assert.doesNotMatch(server.stderr(), /WARNING/);
+  } finally {
+    server.stop();
+  }
+});
+
+test("the HTTP entry point enforces MCP_HTTP_TOKEN and never prints it", async () => {
+  const token = "entry-point-test-token-5f1c";
+  const server = await startServer({ MCP_HTTP_TOKEN: token });
+  try {
+    assert.equal((await callTool(server.port, 1)).status, 401);
+    assert.equal((await callTool(server.port, 2, { Authorization: "Bearer wrong" })).status, 401);
+    const right = await callTool(server.port, 3, { Authorization: `Bearer ${token}` });
+    assert.equal(right.status, 200);
+    assert.match((await right.json()).result.content[0].text, /"count": 0/);
+    assert.equal((await fetch(`http://127.0.0.1:${server.port}/health`)).status, 200);
+    assert.doesNotMatch(server.stderr(), new RegExp(token));
   } finally {
     server.stop();
   }

@@ -43,7 +43,7 @@ This is a **Model Context Protocol (MCP) server** that wraps the Sophos Central 
 4. For partner/org callers, `loadTenants()` paginates through all managed tenants and caches `tenantId → apiHost`
 5. `SophosClient` (REST) and `FusionClient` (GraphQL) are created on the same `TokenManager`
 6. Tools are registered conditionally: `sophos_list_tenants` only for partner/org; all others always. The Classic case and detection tools take a `FusionMigrationGuard` built on the case reference cache. The Fusion block (cases, then detections) is registered last
-7. Transport starts: streamable HTTP on `127.0.0.1:PORT/mcp` (stateless, new `McpServer` and transport per request, behind `src/http-guard.ts`, which refuses a non-localhost `Host` or `Origin`) or stdio
+7. Transport starts: streamable HTTP on `MCP_HTTP_HOST:PORT/mcp` (default `127.0.0.1:3100`; stateless, new `McpServer` and transport per request, behind `src/http-guard.ts`, which refuses a browser `Origin` that is not loopback or in `MCP_ALLOWED_ORIGINS`, and requires `Authorization: Bearer` on `/mcp` when `MCP_HTTP_TOKEN` is set; a non-loopback bind with no token prints a warning) or stdio. The `Host` header is not checked, so clients on other machines can connect
 
 ### Core classes
 
