@@ -18,6 +18,41 @@ export interface RequestOptions {
   headers?: Record<string, string>;
 }
 
+/**
+ * Tools build REST paths by interpolating ID arguments, and those arguments
+ * come from the model, so a prompt-injected ID such as "../../common/v1/admins/x"
+ * would turn an approved call into the same method on a different resource.
+ * URL parsing resolves "." and ".." segments (percent-encoded too), treats a
+ * backslash as a slash and drops tabs and newlines, and "?" or "#" would cut
+ * the path short. No API path or ID needs any of these, and query strings go
+ * through `params`, never the path, so a path carrying one is refused before
+ * any token is fetched or request sent.
+ */
+export function assertSafeApiPath(path: string): void {
+  const refuse = (): never => {
+    throw new Error(
+      `Refused request path "${path}": an ID argument contains a "." or ".." segment, "?", "#", a backslash, an encoded "/" or a control character, which would send the request to a different API path. Check the ID.`
+    );
+  };
+  if (!path.startsWith("/") || /[?#\\\u0000-\u001f\u007f]/.test(path)) refuse();
+  for (const segment of path.slice(1).split("/")) {
+    // Decode until stable so double encoding cannot hide a dot segment
+    let decoded = segment;
+    for (let rounds = 0; ; rounds++) {
+      if (rounds === 5) refuse();
+      let next: string;
+      try {
+        next = decodeURIComponent(decoded);
+      } catch {
+        return refuse();
+      }
+      if (next === decoded) break;
+      decoded = next;
+    }
+      if (decoded === "." || decoded === ".." || /[/\\\u0000-\u001f\u007f]/.test(decoded)) refuse();
+  }
+}
+
 export class SophosClient {
   constructor(
     private tokenManager: TokenManager,
@@ -33,6 +68,7 @@ export class SophosClient {
     path: string,
     options: RequestOptions = {}
   ): Promise<T> {
+    assertSafeApiPath(path);
     const apiHost = await this.tenantResolver.resolveApiHost(tenantId);
     const token = await this.tokenManager.getToken();
 
@@ -71,6 +107,7 @@ export class SophosClient {
     path: string,
     options: RequestOptions = {}
   ): Promise<T> {
+    assertSafeApiPath(path);
     const identity = this.tenantResolver.getIdentity();
     const token = await this.tokenManager.getToken();
     const idHeader = this.tenantResolver.getIdHeader();
