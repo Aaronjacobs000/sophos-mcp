@@ -21,6 +21,8 @@ export function loadConfig(): SophosConfig {
     );
   }
 
+  checkFusionGraphQLUrl(SOPHOS_FUSION_GRAPHQL_URL);
+
   const rawPort = parseInt(process.env.PORT || "3100", 10);
   if (!Number.isInteger(rawPort) || rawPort < 1 || rawPort > 65535) {
     throw new Error(
@@ -46,6 +48,28 @@ export const SOPHOS_GLOBAL_API = "https://api.central.sophos.com";
 // November 2026 need no code change.
 export const SOPHOS_FUSION_GRAPHQL_URL =
   process.env.SOPHOS_FUSION_GRAPHQL_URL || "https://api.taegis.sophos.com/graphql";
+
+/**
+ * The bearer token is sent to SOPHOS_FUSION_GRAPHQL_URL, and dotenv fills that
+ * from a .env in the working directory, which for a stdio server is whatever
+ * directory the client was started in (a cloned repo, say). So the override
+ * must be an https URL on a sophos.com host, or the server refuses to start.
+ */
+export function checkFusionGraphQLUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`Invalid SOPHOS_FUSION_GRAPHQL_URL "${value}": not a URL.`);
+  }
+  const host = url.hostname;
+  if (url.protocol !== "https:" || (host !== "sophos.com" && !host.endsWith(".sophos.com"))) {
+    throw new Error(
+      `Invalid SOPHOS_FUSION_GRAPHQL_URL "${value}": it must be an https URL on a sophos.com host, because the Sophos bearer token is sent to it.`
+    );
+  }
+  return value;
+}
 
 // Response size limits (CHARACTER_LIMIT configurable via env var)
 export const CHARACTER_LIMIT = Math.max(

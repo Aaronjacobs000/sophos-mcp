@@ -123,7 +123,7 @@ Helper functions in `src/tools/helpers.ts`:
 |---|---|
 | `SOPHOS_AUTH_URL` | `https://id.sophos.com/api/v2/oauth2/token` |
 | `SOPHOS_GLOBAL_API` | `https://api.central.sophos.com` |
-| `SOPHOS_FUSION_GRAPHQL_URL` | `https://api.taegis.sophos.com/graphql`, env override of the same name |
+| `SOPHOS_FUSION_GRAPHQL_URL` | `https://api.taegis.sophos.com/graphql`, env override of the same name (https on a `sophos.com` host only, checked in `loadConfig`) |
 | `CHARACTER_LIMIT` | `50000` (env override, minimum 10000) |
 | `DEFAULT_PAGE_SIZE` | `50` |
 
