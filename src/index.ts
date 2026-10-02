@@ -23,6 +23,7 @@ import { SophosClient } from "./client/sophos-client.js";
 import { FusionClient } from "./client/fusion-client.js";
 import { CaseReferenceDataCache } from "./fusion/case-reference-data.js";
 import { FusionMigrationGuard } from "./fusion/migration.js";
+import { localRequestsOnly } from "./http-guard.js";
 
 // Tool registration modules
 import { registerTenantTools } from "./tools/tenants.js";
@@ -164,6 +165,8 @@ async function main(): Promise<void> {
 
 async function runHTTP(server: McpServer, port: number): Promise<void> {
   const app = express();
+  // Refuse browser-originated requests (cross-site POST, DNS rebinding)
+  app.use(localRequestsOnly);
   app.use(express.json());
 
   // MCP endpoint: stateless streamable HTTP
