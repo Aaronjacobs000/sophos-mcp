@@ -275,6 +275,8 @@ Args:
       title: "Check Sophos Firewall Firmware Upgrade",
       description: `Check if firmware upgrades are available for one or more managed firewalls.
 
+Returns each firewall's upgradeToVersion list: the versions sophos_start_firmware_upgrade takes as upgrade_to_version.
+
 Args:
   - firewall_ids (array): Firewall IDs to check (at least one).
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
@@ -318,7 +320,9 @@ WARNING: This will upgrade firewall firmware which may cause a brief
 service interruption during reboot.
 
 Args:
-  - firewalls (array): Firewalls to upgrade. Each item: {id (required), upgrade_to_version (optional), upgrade_at (optional ISO 8601 datetime)}.
+  - firewalls (array): Firewalls to upgrade. Each item: {id (required), upgrade_to_version (optional), upgrade_at (optional)}.
+    - upgrade_to_version: A value from sophos_check_firmware_upgrade's upgradeToVersion list. Strongly recommended: the API does not document which version it uses when omitted.
+    - upgrade_at: ISO 8601 with Z or an offset, converted to UTC before sending (2026-10-08T02:00:00+10:00 becomes 2026-10-07T16:00:00.000Z). A time with no offset is refused. Omit to upgrade now.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         firewalls: z
@@ -328,11 +332,20 @@ Args:
               upgrade_to_version: z
                 .string()
                 .optional()
-                .describe("Target firmware version (omit for latest)"),
+                .describe(
+                  "Target firmware version from sophos_check_firmware_upgrade's upgradeToVersion list. Strongly recommended: the API does not document which version it uses when omitted."
+                ),
               upgrade_at: z
                 .string()
+                .datetime({
+                  offset: true,
+                  message:
+                    "upgrade_at must be ISO 8601 with Z or an explicit offset, e.g. 2026-10-08T02:00:00+10:00. A time with no offset is ambiguous.",
+                })
                 .optional()
-                .describe("ISO 8601 datetime to schedule the upgrade"),
+                .describe(
+                  "When to upgrade: ISO 8601 with Z or an offset, converted to UTC (2026-10-08T02:00:00+10:00 becomes 2026-10-07T16:00:00.000Z). Omit to upgrade now."
+                ),
             })
           )
           .min(1)
@@ -357,7 +370,16 @@ Args:
         firewalls: firewalls.map((fw) => {
           const item: Record<string, unknown> = { id: fw.id };
           if (fw.upgrade_to_version) item.upgradeToVersion = fw.upgrade_to_version;
-          if (fw.upgrade_at) item.upgradeAt = fw.upgrade_at;
+          if (fw.upgrade_at) {
+            // The schema requires Z or an offset; send UTC in the documented
+            // yyyy-MM-dd'T'HH:mm:ss.SSS'Z' format. The schema still lets an
+            // impossible offset such as +99:99 through.
+            const at = new Date(fw.upgrade_at);
+            if (Number.isNaN(at.getTime())) {
+              throw new Error(`upgrade_at "${fw.upgrade_at}" is not a valid date and time. Nothing was sent.`);
+            }
+            item.upgradeAt = at.toISOString();
+          }
           return item;
         }),
       };
@@ -370,6 +392,7 @@ Args:
       return jsonResult({
         status: "firmware_upgrade_initiated",
         firewalls: firewalls.map((fw) => fw.id),
+        sent: body.firewalls,
         result: data,
       });
     })
@@ -405,15 +428,24 @@ Args:
     },
     withErrorHandling(async ({ firewall_ids, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      await client.tenantRequest(
+      // The API answers {deleted: boolean}. SophosClient turns a 204 into {}.
+      const data = await client.tenantRequest<{ deleted?: unknown } | null>(
         resolvedTenantId,
         "/firewall/v1/firewalls/actions/firmware-upgrade",
         { method: "DELETE", params: { ids: firewall_ids.join(",") } }
       );
+      if (data?.deleted === true) {
+        return jsonResult({
+          status: "firmware_upgrade_cancelled",
+          firewall_ids,
+          message: "Scheduled firmware upgrades cancelled.",
+        });
+      }
       return jsonResult({
-        status: "firmware_upgrade_cancelled",
+        status: "firmware_upgrade_not_cancelled",
         firewall_ids,
-        message: "Scheduled firmware upgrades cancelled.",
+        message: "Sophos did not confirm the cancellation (deleted is not true). The upgrades may still be scheduled.",
+        result: data,
       });
     })
   );
