@@ -11,7 +11,10 @@
  * - endpointGroups without an endpoints key gets a 500 "Error processing data"
  *   on POST and PATCH; {endpoints: [], endpointGroups: [id]} works.
  * - PATCH replaces the whole assignment: a family key left out comes back empty.
+ * - A server endpoint or server group on a computer policy is accepted (201) but
+ *   never applies, so the tools look the targets up and refuse the mismatch.
  * - A new policy reaches the list 1.6 to 21.8 s after creation; GET by ID works at once.
+ * Web profile rules are in prepareWebProfileSettings.
  */
 
 import { z } from "zod";
@@ -173,34 +176,281 @@ function assignmentCounts(a: PolicyAssignment | null) {
     : { kind: a.kind, endpoints: a.endpoints.length, endpoint_groups: a.endpoint_groups.length };
 }
 
+const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+interface TargetInfo {
+  id: string;
+  type?: string;
+  name?: string;
+  hostname?: string;
+}
+
+/**
+ * Looks IDs up with one batched list call per 50, then GET by ID for any the
+ * list does not return yet (a group reaches the list about 1 s after creation;
+ * GET by ID is current at once). Returns id to target; absent means not found.
+ */
+async function lookUpTargets(
+  client: SophosClient,
+  tenantId: string,
+  path: "/endpoint/v1/endpoints" | "/endpoint/v1/endpoint-groups",
+  ids: string[]
+): Promise<Map<string, TargetInfo>> {
+  const found = new Map<string, TargetInfo>();
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50);
+    const params: Record<string, string> = { ids: chunk.join(","), pageSize: "50" };
+    if (path === "/endpoint/v1/endpoints") params.view = "basic";
+    const page = await client.tenantRequest<SophosPagedResponse<TargetInfo>>(tenantId, path, { params });
+    for (const item of page.items ?? []) found.set(item.id, item);
+  }
+  for (const id of ids.filter((x) => !found.has(x))) {
+    try {
+      found.set(id, await client.tenantRequest<TargetInfo>(tenantId, `${path}/${id}`));
+    } catch (error) {
+      if (!/Sophos API error 404:/.test(message(error))) throw error;
+    }
+  }
+  return found;
+}
+
+/**
+ * Sophos accepts a server endpoint or server group on a computer policy (201,
+ * measured 13/10/2026) although it never applies there. Refuses that, the
+ * reverse, and IDs the tenant does not have, before anything is written.
+ * Security VMs pass either way.
+ */
+export async function assertDeviceTargets(
+  client: SophosClient,
+  tenantId: string,
+  policyType: string,
+  args: AssignmentArgs
+): Promise<void> {
+  const endpointIds = uniq(args.endpoints);
+  const groupIds = uniq(args.endpoint_groups);
+  if (endpointIds.length + groupIds.length === 0) return;
+  const want = policyType.startsWith("server-") ? "server" : "computer";
+  const problems: string[] = [];
+  const check = (ids: string[], found: Map<string, TargetInfo>, what: "endpoint" | "endpoint group") => {
+    for (const id of ids) {
+      const target = found.get(id);
+      if (!target) {
+        problems.push(`${what} ${id} was not found in this tenant`);
+      } else if ((target.type === "computer" || target.type === "server") && target.type !== want) {
+        const label = target.hostname ?? target.name;
+        problems.push(`${what} ${id}${label ? ` (${label})` : ""} is a ${target.type}${what === "endpoint" ? "" : " group"}`);
+      }
+    }
+  };
+  if (endpointIds.length) {
+    const found = await lookUpTargets(client, tenantId, "/endpoint/v1/endpoints", endpointIds);
+    check(endpointIds, found, "endpoint");
+  }
+  if (groupIds.length) {
+    const found = await lookUpTargets(client, tenantId, "/endpoint/v1/endpoint-groups", groupIds);
+    check(groupIds, found, "endpoint group");
+  }
+  if (problems.length) {
+    throw new Error(
+      `Policy type ${policyType} applies to ${want}s only: ${problems.join("; ")}. Nothing was written.`
+    );
+  }
+}
+
+/** Every pre-write check for an assignment on a policy of the given type. */
+async function validateAssignment(
+  client: SophosClient,
+  tenantId: string,
+  policyType: string,
+  kind: "user" | "device",
+  args: AssignmentArgs
+): Promise<void> {
+  if (kind === "user") assertUserAssignable(policyType);
+  else await assertDeviceTargets(client, tenantId, policyType, args);
+}
+
+const WEB_PROFILE_ID = "endpoint.web-control.web-profile-id";
+const FILTER_BY_WEB_PROFILE = "endpoint.web-control.filter-by-web-profile.enabled";
+const WEB_PROFILE_MODE = "endpoint.web-control.web-profile.enabled";
+const WEB_PROFILE_KEYS = [WEB_PROFILE_ID, FILTER_BY_WEB_PROFILE, WEB_PROFILE_MODE];
+
+/** A setting's value whether it was passed as {value} or bare. */
+function settingValue(settings: Record<string, unknown> | undefined, key: string): unknown {
+  const raw = settings?.[key];
+  return raw && typeof raw === "object" && "value" in raw ? (raw as { value: unknown }).value : raw;
+}
+
+/**
+ * Applies the measured web profile rules (13/10/2026) to a settings write:
+ * - web-profile-id is ignored (200, no change) unless filter-by-web-profile.enabled
+ *   is true in the same write, so it is added; an explicit false is refused.
+ * - Clearing the id ("") with filter-by still true gets a 400, so false is added.
+ * - web-profile.enabled picks web profiles (true) or legacy settings (false).
+ *   Linking a profile turns it on unless the caller set it. On create, Sophos
+ *   defaults it to true even with no profile, so a new web control policy gets
+ *   it explicitly: true with a profile, false (legacy settings) without.
+ * Returns the settings to send and the web profile keys to read back.
+ */
+export function prepareWebProfileSettings(
+  settings: Record<string, unknown> | undefined,
+  createType?: string
+): { settings?: Record<string, unknown>; sent: Record<string, unknown> } {
+  const out: Record<string, unknown> = { ...(settings ?? {}) };
+  const hasId = WEB_PROFILE_ID in out;
+  const id = settingValue(out, WEB_PROFILE_ID);
+  const linking = hasId && typeof id === "string" && id !== "";
+  if (hasId) {
+    const filterBy = settingValue(out, FILTER_BY_WEB_PROFILE);
+    if (linking) {
+      if (filterBy === false) {
+        throw new Error(
+          `${WEB_PROFILE_ID} only sticks when ${FILTER_BY_WEB_PROFILE} is true in the same write, and you sent false. Drop it or send true. Nothing was written.`
+        );
+      }
+      out[FILTER_BY_WEB_PROFILE] = { value: true };
+      if (!(WEB_PROFILE_MODE in out)) out[WEB_PROFILE_MODE] = { value: true };
+    } else {
+      if (filterBy === true) {
+        throw new Error(
+          `Clearing ${WEB_PROFILE_ID} needs ${FILTER_BY_WEB_PROFILE} false in the same write (Sophos answers 400 "Invalid Web Profile Id" otherwise). Nothing was written.`
+        );
+      }
+      out[FILTER_BY_WEB_PROFILE] = { value: false };
+    }
+  }
+  const webControl = createType === "web-control" || createType === "server-web-control";
+  if (webControl && !(WEB_PROFILE_MODE in out)) out[WEB_PROFILE_MODE] = { value: linking };
+  const sent: Record<string, unknown> = {};
+  for (const key of WEB_PROFILE_KEYS) if (key in out) sent[shortKey(key)] = settingValue(out, key);
+  return { settings: settings === undefined && Object.keys(out).length === 0 ? undefined : out, sent };
+}
+
+const shortKey = (key: string) => key.replace("endpoint.web-control.", "");
+
 /**
  * Reads the policy back by ID (the list lags by up to about 22 s; GET by ID
- * does not) and reports what Sophos stored against what was sent.
+ * does not) and reports what Sophos stored against what was sent: the
+ * assignment, the web profile settings, or both, from one GET.
  */
-async function readBackAssignment(
+async function readBack(
   client: SophosClient,
   tenantId: string,
   policyId: string,
-  sent: PolicyAssignment
+  sent: { assignment?: PolicyAssignment; webProfile?: Record<string, unknown> }
 ) {
+  const wantProfile = sent.webProfile && Object.keys(sent.webProfile).length > 0;
+  if (!sent.assignment && !wantProfile) return {};
+  const result: Record<string, unknown> = {};
+  const warnings: string[] = [];
   try {
     const policy = await client.tenantRequest<SophosPolicy>(tenantId, `/endpoint/v1/policies/${policyId}`);
-    const stored = storedAssignment(policy.appliesTo);
-    const matches = sameAssignment(sent, stored);
-    return {
-      assignment_stored: stored,
-      assignment_matches: matches,
-      ...(matches
-        ? {}
-        : { warning: "The stored assignment differs from what was sent. assignment_stored is what Sophos holds." }),
-    };
+    if (sent.assignment) {
+      const stored = storedAssignment(policy.appliesTo);
+      result.assignment_stored = stored;
+      result.assignment_matches = sameAssignment(sent.assignment, stored);
+      if (!result.assignment_matches) {
+        warnings.push("The stored assignment differs from what was sent. assignment_stored is what Sophos holds.");
+      }
+    }
+    if (wantProfile) {
+      const stored: Record<string, unknown> = {};
+      for (const key of Object.keys(sent.webProfile!)) {
+        stored[key] = settingValue(policy.settings, `endpoint.web-control.${key}`) ?? null;
+      }
+      result.web_profile_sent = sent.webProfile;
+      result.web_profile_stored = stored;
+      result.web_profile_matches = Object.keys(stored).every((k) => stored[k] === sent.webProfile![k]);
+      if (!result.web_profile_matches) {
+        warnings.push("The stored web profile settings differ from what was sent. web_profile_stored is what Sophos holds.");
+      }
+    }
   } catch (error) {
-    return {
-      assignment_stored: null,
-      assignment_matches: null,
-      warning: `The write succeeded but the read-back failed: ${error instanceof Error ? error.message : String(error)}. Check with sophos_get_policy.`,
-    };
+    if (sent.assignment) Object.assign(result, { assignment_stored: null, assignment_matches: null });
+    if (wantProfile) Object.assign(result, { web_profile_sent: sent.webProfile, web_profile_stored: null, web_profile_matches: null });
+    warnings.push(`The write succeeded but the read-back failed: ${message(error)}. Check with sophos_get_policy.`);
   }
+  return warnings.length ? { ...result, warning: warnings.join(" ") } : result;
+}
+
+type AssignmentMode = "replace" | "add" | "remove";
+
+/**
+ * The whole set_policy_assignments path, shared with clone: read the policy,
+ * check, work out the target, write it with one PATCH (none when nothing
+ * would change) and read it back. Throws on a refusal before any write.
+ * targetsChecked skips the device target lookup when the caller already ran
+ * it against the same policy type.
+ */
+async function setPolicyAssignments(
+  client: SophosClient,
+  tenantId: string,
+  policyId: string,
+  mode: AssignmentMode,
+  args: AssignmentArgs,
+  { targetsChecked = false }: { targetsChecked?: boolean } = {}
+): Promise<Record<string, unknown>> {
+  const kind = requestedAssignmentKind(args);
+  if (!kind) {
+    throw new Error("Pass at least one of users, user_groups, endpoints or endpoint_groups. Nothing was sent.");
+  }
+
+  const policy = await client.tenantRequest<SophosPolicy>(tenantId, `/endpoint/v1/policies/${policyId}`);
+  if (kind === "user") assertUserAssignable(policy.type);
+  else if (mode !== "remove" && !targetsChecked) await assertDeviceTargets(client, tenantId, policy.type, args);
+  const before =
+    storedAssignment(policy.appliesTo) ?? emptyAssignment(policy.type?.startsWith("server-") ? "device" : "user");
+  const request = assignmentFromArgs(kind, args);
+  const requestLists = assignmentLists(request);
+  const beforeLists = before.kind === kind ? assignmentLists(before) : [[], []];
+
+  let target: PolicyAssignment;
+  let notAssigned: PolicyAssignment | undefined;
+  if (mode === "replace") {
+    target = request;
+  } else if (mode === "add") {
+    if (before.kind !== kind && assignmentSize(before) > 0) {
+      throw new Error(
+        `Policy ${policyId} is a ${before.kind} policy with ${assignmentSize(before)} assignment(s), and a policy cannot mix user and device assignments. Use mode "replace" to make it a ${kind} policy, which drops the current assignments. Nothing was written.`
+      );
+    }
+    const [a, b] = requestLists.map((ids, i) => uniq([...beforeLists[i], ...ids]));
+    target = kind === "user" ? { kind, users: a, user_groups: b } : { kind, endpoints: a, endpoint_groups: b };
+  } else {
+    if (before.kind !== kind) {
+      target = before;
+      notAssigned = request;
+    } else {
+      const [a, b] = beforeLists.map((ids, i) => ids.filter((id) => !requestLists[i].includes(id)));
+      target = kind === "user" ? { kind, users: a, user_groups: b } : { kind, endpoints: a, endpoint_groups: b };
+      const [x, y] = requestLists.map((ids, i) => ids.filter((id) => !beforeLists[i].includes(id)));
+      if (x.length + y.length > 0) {
+        notAssigned = kind === "user" ? { kind, users: x, user_groups: y } : { kind, endpoints: x, endpoint_groups: y };
+      }
+    }
+  }
+
+  const summary = {
+    policy_id: policyId,
+    name: policy.name,
+    type: policy.type,
+    mode,
+    assignment_before: before,
+    ...(notAssigned ? { not_assigned: notAssigned } : {}),
+  };
+  if (sameAssignment(target, before)) {
+    return { status: "unchanged", ...summary, message: "Nothing to change, so nothing was written." };
+  }
+
+  await client.tenantRequest<SophosPolicy>(tenantId, `/endpoint/v1/policies/${policyId}`, {
+    method: "PATCH",
+    body: { appliesTo: toAppliesTo(target) },
+  });
+  return {
+    status: "updated",
+    ...summary,
+    assignment_sent: target,
+    ...(await readBack(client, tenantId, policyId, { assignment: target })),
+  };
 }
 
 export function registerPolicyTools(
@@ -353,11 +603,20 @@ device keys on a user policy turn it into a device policy (and back): the kind
 follows which keys the assignment carries. To add or remove a few IDs without
 restating the rest, use sophos_set_policy_assignments. Never mix user and
 device keys; server policies (server-*) take only endpoints and
-endpoint_groups. Both are refused before anything is written.
+endpoint_groups, and computer policies only computer endpoints and groups (the
+IDs are looked up). Each is refused before anything is written.
 endpoint_groups is always sent with an endpoints key, because endpoint groups
 on their own get a 500 from Sophos. After the write the policy is read back by
 ID: assignment_stored is what Sophos holds and assignment_matches compares it
 with assignment_sent.
+
+Web profile: endpoint.web-control.web-profile-id only sticks when
+filter-by-web-profile.enabled is true in the same write (otherwise Sophos
+answers 200 and keeps the old value), so the tool adds it, and adds
+web-profile.enabled true (web profiles rather than legacy settings) unless you
+set it. Clearing the ID with "" adds filter-by-web-profile.enabled false, which
+Sophos needs. The result reads them back: web_profile_stored and
+web_profile_matches.
 
 Args:
   - policy_id (string): The policy ID to update.
@@ -404,12 +663,14 @@ Args:
         const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
         const kind = requestedAssignmentKind(assignmentArgs);
 
+        const webProfile = prepareWebProfileSettings(settings);
+
         const body: Record<string, unknown> = {};
         if (name !== undefined) body.name = name;
         if (enabled !== undefined) body.enabled = enabled;
         if (priority !== undefined) body.priority = priority;
         if (enforced !== undefined) body.enforced = enforced;
-        if (settings !== undefined) body.settings = settings;
+        if (webProfile.settings !== undefined) body.settings = webProfile.settings;
 
         if (Object.keys(body).length === 0 && !kind) {
           return jsonResult({
@@ -420,13 +681,11 @@ Args:
 
         let sent: PolicyAssignment | undefined;
         if (kind) {
-          if (kind === "user") {
-            const current = await client.tenantRequest<SophosPolicy>(
-              resolvedTenantId,
-              `/endpoint/v1/policies/${policy_id}`
-            );
-            assertUserAssignable(current.type);
-          }
+          const current = await client.tenantRequest<SophosPolicy>(
+            resolvedTenantId,
+            `/endpoint/v1/policies/${policy_id}`
+          );
+          await validateAssignment(client, resolvedTenantId, current.type, kind, assignmentArgs);
           sent = assignmentFromArgs(kind, assignmentArgs);
           body.appliesTo = toAppliesTo(sent);
         }
@@ -440,9 +699,8 @@ Args:
         return jsonResult({
           status: "updated",
           policy: formatPolicy(updated),
-          ...(sent
-            ? { assignment_sent: sent, ...(await readBackAssignment(client, resolvedTenantId, policy_id, sent)) }
-            : {}),
+          ...(sent ? { assignment_sent: sent } : {}),
+          ...(await readBack(client, resolvedTenantId, policy_id, { assignment: sent, webProfile: webProfile.sent })),
         });
       }
     )
@@ -459,10 +717,24 @@ Creates a copy of the source policy with a new name. The cloned policy starts
 as disabled and inherits all settings from the source. Useful for creating 
 variants of existing policies.
 
+Without assignment arguments the clone keeps the source's assignment (and starts
+disabled even when the source is enabled; measured 13/10/2026).
+
+Assignment (optional): users, user_groups, endpoints and endpoint_groups (plain
+ID arrays) become the clone's whole assignment, through the same path as
+sophos_set_policy_assignments with mode replace. The same rules apply and are
+checked against the source policy's type before the clone is made: never mix
+user and device keys, server policies take only server endpoints and groups,
+computer policies only computer ones. The result shows what the clone inherited
+(assignment_before) and what Sophos stored (assignment_stored). If the clone is
+made but the assignment write fails, the result still gives the clone's ID,
+with assignment_error.
+
 Args:
   - source_policy_id (string): The policy ID to clone.
   - name (string): Name for the new cloned policy.
-  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
+  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
+  - users, user_groups, endpoints, endpoint_groups (string arrays, optional): The clone's whole assignment.`,
       inputSchema: {
         source_policy_id: z.string().uuid().describe("Policy ID to clone from"),
         name: z.string().describe("Name for the cloned policy"),
@@ -471,6 +743,7 @@ Args:
           .uuid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
+        ...assignmentInputSchema,
       },
       annotations: {
         readOnlyHint: false,
@@ -479,19 +752,36 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ source_policy_id, name, tenant_id }) => {
+    withErrorHandling(async ({ source_policy_id, name, tenant_id, ...assignmentArgs }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const kind = requestedAssignmentKind(assignmentArgs);
+      if (kind) {
+        const source = await client.tenantRequest<SophosPolicy>(
+          resolvedTenantId,
+          `/endpoint/v1/policies/${source_policy_id}`
+        );
+        await validateAssignment(client, resolvedTenantId, source.type, kind, assignmentArgs);
+      }
 
       const created = await client.tenantRequest<SophosPolicy>(
         resolvedTenantId,
         `/endpoint/v1/policies/${source_policy_id}/clone`,
         { method: "POST", body: { name } }
       );
+      const result = { status: "cloned", policy: formatPolicy(created) };
+      if (!kind) return jsonResult(result);
 
-      return jsonResult({
-        status: "cloned",
-        policy: formatPolicy(created),
-      });
+      try {
+        const assignment = await setPolicyAssignments(client, resolvedTenantId, created.id, "replace", assignmentArgs, {
+          targetsChecked: true,
+        });
+        return jsonResult({ ...result, assignment });
+      } catch (error) {
+        return jsonResult({
+          ...result,
+          assignment_error: `${message(error)} The clone ${created.id} exists without the requested assignment.`,
+        });
+      }
     })
   );
 
@@ -508,10 +798,22 @@ policy) or to endpoints and endpoint groups (a device policy), never both.
 There is no type field: the kind follows which keys you send. A computer policy
 created with no assignment is an unassigned user policy. Server policies
 (server-*) take only endpoints and endpoint_groups. A mix, or user keys on a
-server policy, is refused before anything is sent. endpoint_groups is always
-sent with an endpoints key, because endpoint groups on their own get a 500 from
-Sophos. With an assignment, the new policy is read back by ID: assignment_stored
-is what Sophos holds and assignment_matches compares it with assignment_sent.
+server policy, is refused before anything is sent. Endpoint and group IDs are
+looked up first: a server endpoint or group on a computer policy (which Sophos
+accepts but never applies) or the reverse is refused, as is an ID the tenant
+does not have. endpoint_groups is always sent with an endpoints key, because
+endpoint groups on their own get a 500 from Sophos. With an assignment, the new
+policy is read back by ID: assignment_stored is what Sophos holds and
+assignment_matches compares it with assignment_sent.
+
+Web control (web-control, server-web-control): Sophos defaults a policy created
+through the API to endpoint.web-control.web-profile.enabled true (web profiles,
+not legacy settings) even with no profile. This tool sets it explicitly from
+what you send: true when settings carry a web-profile-id, false (legacy
+settings) otherwise, unless you set it yourself. A web-profile-id only sticks
+with filter-by-web-profile.enabled true in the same write, so the tool adds
+that too. The new policy is read back: web_profile_stored and
+web_profile_matches.
 
 Listing lag: the new policy can take up to about 25 seconds to appear in
 sophos_list_policies (measured 1.6 to 21.8 s). sophos_get_policy by ID works at
@@ -539,10 +841,12 @@ Args:
     withErrorHandling(async ({ tenant_id, name, type, enabled, priority, settings, ...assignmentArgs }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
       const kind = requestedAssignmentKind(assignmentArgs, type);
+      const webProfile = prepareWebProfileSettings(settings, type);
       const body: Record<string, unknown> = { name, type };
       if (enabled !== undefined) body.enabled = enabled;
       if (priority !== undefined) body.priority = priority;
-      if (settings !== undefined) body.settings = settings;
+      if (webProfile.settings !== undefined) body.settings = webProfile.settings;
+      if (kind) await validateAssignment(client, resolvedTenantId, type, kind, assignmentArgs);
       const sent = kind ? assignmentFromArgs(kind, assignmentArgs) : undefined;
       if (sent) body.appliesTo = toAppliesTo(sent);
 
@@ -554,9 +858,8 @@ Args:
       return jsonResult({
         status: "created",
         policy: formatPolicy(created),
-        ...(sent
-          ? { assignment_sent: sent, ...(await readBackAssignment(client, resolvedTenantId, created.id, sent)) }
-          : {}),
+        ...(sent ? { assignment_sent: sent } : {}),
+        ...(await readBack(client, resolvedTenantId, created.id, { assignment: sent, webProfile: webProfile.sent })),
       });
     })
   );
@@ -605,7 +908,10 @@ keys the assignment carries, so replace with device keys turns a user policy
 into a device policy, and back. Never mix user and device keys in one call.
 add refuses a kind change while the policy still has assignments of the other
 kind; use replace for that. Server policies (server-*) take only endpoints and
-endpoint_groups. Refusals happen before anything is written.
+endpoint_groups. Endpoint and group IDs being added are looked up: a server
+endpoint or group on a computer policy (which Sophos accepts but never applies)
+or the reverse is refused, as is an ID the tenant does not have. Refusals
+happen before anything is written.
 
 The policy is read first, written with one PATCH (none when nothing would
 change), then read back by ID. The result shows assignment_before,
@@ -631,71 +937,7 @@ Args:
     },
     withErrorHandling(async ({ policy_id, mode, tenant_id, ...assignmentArgs }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const kind = requestedAssignmentKind(assignmentArgs);
-      if (!kind) {
-        throw new Error("Pass at least one of users, user_groups, endpoints or endpoint_groups. Nothing was sent.");
-      }
-
-      const policy = await client.tenantRequest<SophosPolicy>(
-        resolvedTenantId,
-        `/endpoint/v1/policies/${policy_id}`
-      );
-      if (kind === "user") assertUserAssignable(policy.type);
-      const before =
-        storedAssignment(policy.appliesTo) ?? emptyAssignment(policy.type?.startsWith("server-") ? "device" : "user");
-      const request = assignmentFromArgs(kind, assignmentArgs);
-      const requestLists = assignmentLists(request);
-      const beforeLists = before.kind === kind ? assignmentLists(before) : [[], []];
-
-      let target: PolicyAssignment;
-      let notAssigned: PolicyAssignment | undefined;
-      if (mode === "replace") {
-        target = request;
-      } else if (mode === "add") {
-        if (before.kind !== kind && assignmentSize(before) > 0) {
-          throw new Error(
-            `Policy ${policy_id} is a ${before.kind} policy with ${assignmentSize(before)} assignment(s), and a policy cannot mix user and device assignments. Use mode "replace" to make it a ${kind} policy, which drops the current assignments. Nothing was written.`
-          );
-        }
-        const [a, b] = requestLists.map((ids, i) => uniq([...beforeLists[i], ...ids]));
-        target = kind === "user" ? { kind, users: a, user_groups: b } : { kind, endpoints: a, endpoint_groups: b };
-      } else {
-        if (before.kind !== kind) {
-          target = before;
-          notAssigned = request;
-        } else {
-          const [a, b] = beforeLists.map((ids, i) => ids.filter((id) => !requestLists[i].includes(id)));
-          target = kind === "user" ? { kind, users: a, user_groups: b } : { kind, endpoints: a, endpoint_groups: b };
-          const [x, y] = requestLists.map((ids, i) => ids.filter((id) => !beforeLists[i].includes(id)));
-          if (x.length + y.length > 0) {
-            notAssigned =
-              kind === "user" ? { kind, users: x, user_groups: y } : { kind, endpoints: x, endpoint_groups: y };
-          }
-        }
-      }
-
-      const summary = {
-        policy_id,
-        name: policy.name,
-        type: policy.type,
-        mode,
-        assignment_before: before,
-        ...(notAssigned ? { not_assigned: notAssigned } : {}),
-      };
-      if (sameAssignment(target, before)) {
-        return jsonResult({ status: "unchanged", ...summary, message: "Nothing to change, so nothing was written." });
-      }
-
-      await client.tenantRequest<SophosPolicy>(resolvedTenantId, `/endpoint/v1/policies/${policy_id}`, {
-        method: "PATCH",
-        body: { appliesTo: toAppliesTo(target) },
-      });
-      return jsonResult({
-        status: "updated",
-        ...summary,
-        assignment_sent: target,
-        ...(await readBackAssignment(client, resolvedTenantId, policy_id, target)),
-      });
+      return jsonResult(await setPolicyAssignments(client, resolvedTenantId, policy_id, mode, assignmentArgs));
     })
   );
 }

@@ -226,6 +226,26 @@ test("the policy write tools explain assignment kinds, the endpoint group compan
   expect("sophos_update_policy", /REPLACE the policy's\s+whole\s+assignment/);
   expect("sophos_create_policy", /up to about 25\s+seconds/);
   expect("sophos_list_policies", /measured\s+1\.6 to 21\.8 s/);
+  const clone = byName.get("sophos_clone_policy");
+  for (const key of ["users", "user_groups", "endpoints", "endpoint_groups"]) {
+    assert.equal(clone.inputSchema.properties[key]?.items?.format, "uuid", `clone takes ${key}`);
+  }
+  expect("sophos_clone_policy", /same path as\s+sophos_set_policy_assignments/);
+  expect("sophos_create_policy", /defaults a policy created\s+through the API to\s+endpoint\.web-control\.web-profile\.enabled true/);
+  expect("sophos_create_policy", /false \(legacy\s+settings\) otherwise/);
+  expect("sophos_update_policy", /only sticks when\s+filter-by-web-profile\.enabled is true/);
+  for (const name of ["sophos_create_policy", "sophos_set_policy_assignments"]) {
+    expect(name, /server\s+endpoint or group on a computer policy/);
+  }
+  for (const name of [
+    "sophos_clone_policy",
+    "sophos_list_policies",
+    "sophos_get_policy",
+    "sophos_create_web_filtering_profile",
+    "sophos_update_web_filtering_profile",
+  ]) {
+    assert.doesNotMatch(byName.get(name).description, /[\u2013\u2014]/, `${name} description has no en or em dash`);
+  }
   const set = byName.get("sophos_set_policy_assignments");
   assert.deepEqual(set.inputSchema.properties.mode.enum, ["replace", "add", "remove"]);
   assert.ok(set.inputSchema.required.includes("mode"), "mode is required");

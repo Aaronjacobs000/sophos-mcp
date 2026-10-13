@@ -168,7 +168,7 @@ The script:
 npm test
 ```
 
-Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, the policy assignment writes (body shapes, refusals and read-back) against an in-memory policy store, a registration check that lists all 311 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
+Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, the policy assignment and web profile writes (body shapes, refusals, target lookups and read-back) against an in-memory policy store, the no-retry rule for a POST or mutation after a 5xx, a registration check that lists all 311 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
 
 To exercise the Fusion tools against a live tenant, put credentials in `.env` (or export them) and run:
 
@@ -360,12 +360,14 @@ Two Fusion case writes, `createCase` and `addEvidenceToCase`, fail 74% of the ti
 | `sophos_list_policies` | List endpoint policies with optional type filter |
 | `sophos_get_policy` | Get full policy detail including all settings and assignments |
 | `sophos_create_policy` | Create a new endpoint policy, optionally assigned |
-| `sophos_clone_policy` | Clone an existing policy under a new name |
+| `sophos_clone_policy` | Clone an existing policy under a new name, optionally with a new assignment |
 | `sophos_update_policy` | Update policy name, enabled state, priority, settings, or the whole assignment |
 | `sophos_set_policy_assignments` | Replace, add or remove a policy's users, user groups, endpoints or endpoint groups |
 | `sophos_delete_policy` | Delete a policy |
 
-Assignments take plain ID arrays. A policy applies either to users and user groups (a user policy) or to endpoints and endpoint groups (a device policy), never both; the kind follows which keys you send. Server policies take only endpoints and endpoint groups. Endpoint groups are always sent with an `endpoints` key, because Sophos answers 500 to endpoint groups on their own. Every assignment write is read back by ID and the result shows what Sophos stored. A new policy can take up to about 25 seconds to show in `sophos_list_policies`; `sophos_get_policy` is current at once.
+Assignments take plain ID arrays. A policy applies either to users and user groups (a user policy) or to endpoints and endpoint groups (a device policy), never both; the kind follows which keys you send. Server policies take only server endpoints and groups, and computer policies only computer ones: the IDs are looked up first, because Sophos accepts a server on a computer policy without ever applying it. Endpoint groups are always sent with an `endpoints` key, because Sophos answers 500 to endpoint groups on their own. Every assignment write is read back by ID and the result shows what Sophos stored. A new policy can take up to about 25 seconds to show in `sophos_list_policies`; `sophos_get_policy` is current at once.
+
+Web profiles: setting `endpoint.web-control.web-profile-id` also sends `filter-by-web-profile.enabled` true, without which Sophos keeps the old value, and turns on `web-profile.enabled` unless you set it. A new web control policy gets `web-profile.enabled` set explicitly (true with a profile, false for legacy settings) instead of the API's default of true. The settings are read back after the write. A profile is linked from the policy side; the profile tools do not send `consumers`, which Sophos ignores.
 
 ### Endpoint Groups (7 tools)
 

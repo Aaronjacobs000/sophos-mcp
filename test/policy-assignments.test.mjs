@@ -1,144 +1,25 @@
 /**
  * Handler-level tests for policy assignment (appliesTo) writes through the
- * real SophosClient and the registered schemas, with fetch answered by an
- * in-memory policy store that behaves the way the live API measured on
- * 13/10/2026: plain ID arrays, PATCH replaces the whole assignment, a
- * user/device mix gets 400, user keys on a server policy get 400, and
- * endpointGroups without endpoints gets 500. No network.
+ * real SophosClient and the registered schemas, against the in-memory policy
+ * API in fake-policy-api.mjs: body shapes, the user/device and server/computer
+ * refusals, the target lookups, add/remove merging, clone with assignment and
+ * the read-back. No network.
  */
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { SophosClient } from "../dist/client/sophos-client.js";
-import { registerPolicyTools } from "../dist/tools/policies.js";
-
-const TENANT = "00000000-0000-4000-8000-000000000001";
-const HOST = "https://api-au01.central.sophos.com";
-const U1 = "00000000-0000-4000-8000-0000000000a1";
-const U2 = "00000000-0000-4000-8000-0000000000a2";
-const UG1 = "00000000-0000-4000-8000-0000000000b1";
-const E1 = "00000000-0000-4000-8000-0000000000c1";
-const G1 = "00000000-0000-4000-8000-0000000000d1";
-const G2 = "00000000-0000-4000-8000-0000000000d2";
-const P_USER = "00000000-0000-4000-8000-0000000000e1";
-const P_DEVICE = "00000000-0000-4000-8000-0000000000e2";
-const P_SERVER = "00000000-0000-4000-8000-0000000000e3";
-const P_EMPTY = "00000000-0000-4000-8000-0000000000e4";
-
-const USER_KEYS = ["users", "userGroups"];
-const DEVICE_KEYS = ["endpoints", "endpointGroups"];
-
-const reply = (status, body) =>
-  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
-
-/** Validates and normalises appliesTo the way Sophos does, or returns an error Response. */
-function applyAppliesTo(type, appliesTo) {
-  const keys = Object.keys(appliesTo);
-  const user = keys.some((k) => USER_KEYS.includes(k));
-  const device = keys.some((k) => DEVICE_KEYS.includes(k));
-  const all = keys.flatMap((k) => appliesTo[k]);
-  if (all.some((id) => typeof id !== "string")) {
-    return { error: reply(400, { error: "badRequest", message: "Error parsing the query params or request body" }) };
-  }
-  if (user && device) {
-    return { error: reply(400, { error: "badRequest", message: "AppliesTo node should include only either endpoints, endpointGroups or users, userGroups but not a mix of them" }) };
-  }
-  if (user && type.startsWith("server-")) {
-    return { error: reply(400, { error: "badRequest", message: `Policy type ${type} can only be applied to endpoints` }) };
-  }
-  if ("endpointGroups" in appliesTo && !("endpoints" in appliesTo)) {
-    return { error: reply(500, { error: "internalServerError", message: "Error processing data" }) };
-  }
-  return {
-    value: device
-      ? { endpoints: appliesTo.endpoints ?? [], endpointGroups: appliesTo.endpointGroups ?? [] }
-      : { users: appliesTo.users ?? [], userGroups: appliesTo.userGroups ?? [] },
-  };
-}
-
-/**
- * Registers the policy tools on a real SophosClient over an in-memory store.
- * `tamper(policy)` lets a test change what GET returns, to prove the
- * read-back reports what is stored rather than what was sent.
- */
-async function harness({ tamper } = {}) {
-  const store = new Map([
-    [P_USER, { id: P_USER, name: "ZZ user", type: "web-control", enabled: false, priority: 3, appliesTo: { users: [U1], userGroups: [] } }],
-    [P_DEVICE, { id: P_DEVICE, name: "ZZ device", type: "threat-protection", enabled: false, priority: 4, appliesTo: { endpoints: [E1], endpointGroups: [G1] } }],
-    [P_SERVER, { id: P_SERVER, name: "ZZ server", type: "server-web-control", enabled: false, priority: 1, appliesTo: { endpoints: [], endpointGroups: [] } }],
-    [P_EMPTY, { id: P_EMPTY, name: "ZZ empty", type: "web-control", enabled: false, priority: 5, appliesTo: { users: [], userGroups: [] } }],
-  ]);
-  let nextId = 1;
-  const calls = [];
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = async (url, init) => {
-    const u = new URL(String(url));
-    const method = init?.method ?? "GET";
-    const body = init?.body === undefined ? undefined : JSON.parse(init.body);
-    calls.push({ method, path: u.pathname, body });
-    const id = u.pathname.split("/")[4];
-    if (u.pathname === "/endpoint/v1/policies" && method === "GET") {
-      return reply(200, { items: [...store.values()], pages: { current: 1, total: 1, items: store.size } });
-    }
-    if (u.pathname === "/endpoint/v1/policies" && method === "POST") {
-      const created = { id: `00000000-0000-4000-8000-${String(nextId++).padStart(12, "0")}`, enabled: true, priority: 1, ...body };
-      const result = applyAppliesTo(body.type, body.appliesTo ?? {});
-      if (result.error) return result.error;
-      created.appliesTo = result.value;
-      store.set(created.id, created);
-      return reply(201, created);
-    }
-    const policy = store.get(id);
-    if (!policy) return reply(404, { error: "notFound", message: "Policy not found" });
-    if (method === "PATCH") {
-      const { appliesTo, ...rest } = body;
-      let next = policy.appliesTo;
-      if (appliesTo) {
-        const result = applyAppliesTo(policy.type, appliesTo);
-        if (result.error) return result.error;
-        next = result.value;
-      }
-      Object.assign(policy, rest, { appliesTo: next });
-      return reply(200, policy);
-    }
-    if (method === "GET") return reply(200, tamper ? tamper(structuredClone(policy)) : policy);
-    return reply(405, { error: "methodNotAllowed" });
-  };
-
-  const tokenManager = { getToken: async () => "fake-token" };
-  const tenantResolver = { resolveApiHost: async () => HOST, resolveTenantId: (tid) => tid ?? TENANT };
-  const server = new McpServer({ name: "test", version: "0.0.0" });
-  registerPolicyTools(server, new SophosClient(tokenManager, tenantResolver), tenantResolver);
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  await server.connect(serverTransport);
-  const mcp = new Client({ name: "test-client", version: "0.0.0" });
-  await mcp.connect(clientTransport);
-  return {
-    calls,
-    store,
-    writes: () => calls.filter((c) => c.method !== "GET"),
-    async call(name, args) {
-      const result = await mcp.callTool({ name, arguments: args });
-      const text = result.content.map((c) => c.text ?? "").join("\n");
-      return { isError: Boolean(result.isError), text, json: result.isError ? null : JSON.parse(text) };
-    },
-    async close() {
-      await mcp.close();
-      await server.close();
-      globalThis.fetch = realFetch;
-    },
-  };
-}
+import {
+  policyHarness as harness,
+  U1, U2, UG1, E1, ES1, EV1, G1, G2, G3, MISSING,
+  P_USER, P_DEVICE, P_SERVER, P_EMPTY,
+} from "./fake-policy-api.mjs";
 
 test("create with users sends plain IDs, reads the policy back by ID and reports what is stored", async () => {
   const h = await harness();
   try {
     const { isError, json } = await h.call("sophos_create_policy", {
       name: "ZZ create users",
-      type: "web-control",
+      type: "threat-protection",
       enabled: false,
       users: [U1, U1],
     });
@@ -146,7 +27,7 @@ test("create with users sends plain IDs, reads the policy back by ID and reports
     assert.deepEqual(h.calls.map((c) => c.method), ["POST", "GET"]);
     assert.deepEqual(h.calls[0].body, {
       name: "ZZ create users",
-      type: "web-control",
+      type: "threat-protection",
       enabled: false,
       appliesTo: { users: [U1], userGroups: [] },
     });
@@ -160,7 +41,7 @@ test("create with users sends plain IDs, reads the policy back by ID and reports
   }
 });
 
-test("create with endpoint groups always carries the endpoints companion key", async () => {
+test("create with endpoint groups looks the group up and always carries the endpoints companion key", async () => {
   const h = await harness();
   try {
     const { isError, json } = await h.call("sophos_create_policy", {
@@ -170,7 +51,8 @@ test("create with endpoint groups always carries the endpoints companion key", a
       endpoint_groups: [G2],
     });
     assert.equal(isError, false);
-    assert.deepEqual(h.calls[0].body.appliesTo, { endpoints: [], endpointGroups: [G2] });
+    assert.deepEqual(h.lookups().map((c) => [c.path, c.params.ids]), [["/endpoint/v1/endpoint-groups", G2]]);
+    assert.deepEqual(h.writes()[0].body.appliesTo, { endpoints: [], endpointGroups: [G2] });
     assert.deepEqual(json.assignment_stored, { kind: "device", endpoints: [], endpoint_groups: [G2] });
     assert.equal(json.assignment_matches, true);
   } finally {
@@ -178,13 +60,14 @@ test("create with endpoint groups always carries the endpoints companion key", a
   }
 });
 
-test("create with no assignment sends no appliesTo and makes no read-back", async () => {
+test("create with no assignment sends no appliesTo and, outside web control, makes no read-back", async () => {
   const h = await harness();
   try {
-    const { isError, json } = await h.call("sophos_create_policy", { name: "ZZ plain", type: "web-control" });
+    const { isError, json } = await h.call("sophos_create_policy", { name: "ZZ plain", type: "threat-protection" });
     assert.equal(isError, false);
     assert.equal(h.calls.length, 1);
     assert.equal("appliesTo" in h.calls[0].body, false);
+    assert.equal("settings" in h.calls[0].body, false);
     assert.equal("assignment_sent" in json, false);
   } finally {
     await h.close();
@@ -198,6 +81,7 @@ test("a user and device mix is refused before anything is sent", async () => {
       ["sophos_create_policy", { name: "ZZ mix", type: "web-control", users: [U1], endpoints: [E1] }],
       ["sophos_update_policy", { policy_id: P_USER, user_groups: [UG1], endpoint_groups: [G1] }],
       ["sophos_set_policy_assignments", { policy_id: P_USER, mode: "add", users: [], endpoints: [E1] }],
+      ["sophos_clone_policy", { source_policy_id: P_USER, name: "ZZ clone mix", users: [U1], endpoints: [E1] }],
     ]) {
       const { isError, text } = await h.call(name, args);
       assert.equal(isError, true, name);
@@ -230,6 +114,60 @@ test("user keys on a server policy are refused before any write", async () => {
   }
 });
 
+test("a server endpoint or server group on a computer policy is refused, and so is the reverse", async () => {
+  const h = await harness();
+  try {
+    const create = await h.call("sophos_create_policy", { name: "ZZ srv on computer", type: "web-control", endpoints: [ES1, E1] });
+    assert.equal(create.isError, true);
+    assert.match(create.text, /web-control applies to computers only: endpoint .*c2 \(DC01\) is a server\. Nothing was written\./);
+    assert.deepEqual(h.lookups().map((c) => c.params.ids), [`${ES1},${E1}`], "one batched lookup");
+
+    const update = await h.call("sophos_update_policy", { policy_id: P_DEVICE, endpoint_groups: [G2] });
+    assert.equal(update.isError, true);
+    assert.match(update.text, /endpoint group .*d2 \(ZZ servers\) is a server group/);
+
+    const set = await h.call("sophos_set_policy_assignments", { policy_id: P_SERVER, mode: "add", endpoint_groups: [G1], endpoints: [E1] });
+    assert.equal(set.isError, true);
+    assert.match(set.text, /server-web-control applies to servers only/);
+    assert.match(set.text, /\(victim\) is a computer;/);
+    assert.match(set.text, /\(ZZ computers\) is a computer group/);
+    assert.deepEqual(h.writes(), [], "nothing was written");
+  } finally {
+    await h.close();
+  }
+});
+
+test("an ID the tenant does not have is refused; a group not listed yet is found by GET; a security VM passes", async () => {
+  const h = await harness();
+  try {
+    const missing = await h.call("sophos_set_policy_assignments", { policy_id: P_DEVICE, mode: "add", endpoints: [MISSING] });
+    assert.equal(missing.isError, true);
+    assert.match(missing.text, /endpoint .*ff was not found in this tenant/);
+    assert.deepEqual(h.writes(), []);
+
+    const lagging = await h.call("sophos_set_policy_assignments", { policy_id: P_DEVICE, mode: "add", endpoint_groups: [G3] });
+    assert.equal(lagging.isError, false, lagging.text);
+    assert.ok(h.calls.some((c) => c.path === `/endpoint/v1/endpoint-groups/${G3}`), "fell back to GET by ID");
+    assert.deepEqual(lagging.json.assignment_stored.endpoint_groups, [G1, G3]);
+
+    const svm = await h.call("sophos_set_policy_assignments", { policy_id: P_SERVER, mode: "add", endpoints: [EV1] });
+    assert.equal(svm.isError, false, svm.text);
+  } finally {
+    await h.close();
+  }
+});
+
+test("remove does not look targets up", async () => {
+  const h = await harness();
+  try {
+    const { isError } = await h.call("sophos_set_policy_assignments", { policy_id: P_DEVICE, mode: "remove", endpoints: [E1] });
+    assert.equal(isError, false);
+    assert.deepEqual(h.lookups(), []);
+  } finally {
+    await h.close();
+  }
+});
+
 test("{id} objects are refused by the schema", async () => {
   const h = await harness();
   try {
@@ -256,13 +194,18 @@ test("update with an assignment replaces the whole assignment and reads it back"
   }
 });
 
-test("update with device keys flips a user policy to a device policy, with no pre-read", async () => {
+test("update with device keys flips a user policy to a device policy after checking the targets", async () => {
   const h = await harness();
   try {
     const { isError, json } = await h.call("sophos_update_policy", { policy_id: P_USER, endpoint_groups: [G1], name: "ZZ flipped" });
     assert.equal(isError, false);
-    assert.deepEqual(h.calls.map((c) => c.method), ["PATCH", "GET"]);
-    assert.deepEqual(h.calls[0].body, { name: "ZZ flipped", appliesTo: { endpoints: [], endpointGroups: [G1] } });
+    assert.deepEqual(h.calls.map((c) => `${c.method} ${c.path}`), [
+      `GET /endpoint/v1/policies/${P_USER}`,
+      "GET /endpoint/v1/endpoint-groups",
+      `PATCH /endpoint/v1/policies/${P_USER}`,
+      `GET /endpoint/v1/policies/${P_USER}`,
+    ]);
+    assert.deepEqual(h.writes()[0].body, { name: "ZZ flipped", appliesTo: { endpoints: [], endpointGroups: [G1] } });
     assert.deepEqual(json.assignment_stored, { kind: "device", endpoints: [], endpoint_groups: [G1] });
     assert.deepEqual(json.policy.applies_to, { kind: "device", endpoints: 0, endpoint_groups: 1 });
   } finally {
@@ -389,6 +332,62 @@ test("the read-back reports what Sophos stored when it differs from what was sen
     assert.deepEqual(json.assignment_stored, { kind: "user", users: [U1], user_groups: [] });
     assert.equal(json.assignment_matches, false);
     assert.match(json.warning, /differs from what was sent/);
+  } finally {
+    await h.close();
+  }
+});
+
+test("clone with an assignment checks it against the source type, clones, then replaces the clone's assignment", async () => {
+  const h = await harness();
+  try {
+    const { isError, json } = await h.call("sophos_clone_policy", { source_policy_id: P_DEVICE, name: "ZZ clone", endpoint_groups: [G3] });
+    assert.equal(isError, false, JSON.stringify(json));
+    assert.deepEqual(
+      h.calls.filter((c) => !/endpoint-groups/.test(c.path)).map((c) => `${c.method} ${c.path.replace(json.policy.id, "<clone>")}`),
+      [
+        `GET /endpoint/v1/policies/${P_DEVICE}`,
+        `POST /endpoint/v1/policies/${P_DEVICE}/clone`,
+        "GET /endpoint/v1/policies/<clone>",
+        "PATCH /endpoint/v1/policies/<clone>",
+        "GET /endpoint/v1/policies/<clone>",
+      ]
+    );
+    assert.equal(h.lookups().length, 2, "one list lookup plus the GET fallback, run once before the clone");
+    assert.equal(json.status, "cloned");
+    assert.deepEqual(json.assignment.assignment_before, { kind: "device", endpoints: [E1], endpoint_groups: [G1] });
+    assert.deepEqual(json.assignment.assignment_stored, { kind: "device", endpoints: [], endpoint_groups: [G3] });
+    assert.equal(json.assignment.assignment_matches, true);
+  } finally {
+    await h.close();
+  }
+});
+
+test("clone refuses a bad assignment before cloning, and without one makes a single call", async () => {
+  const h = await harness();
+  try {
+    const bad = await h.call("sophos_clone_policy", { source_policy_id: P_DEVICE, name: "ZZ clone", endpoints: [ES1] });
+    assert.equal(bad.isError, true);
+    assert.match(bad.text, /is a server/);
+    assert.deepEqual(h.writes(), [], "no clone was made");
+
+    h.calls.length = 0;
+    const plain = await h.call("sophos_clone_policy", { source_policy_id: P_DEVICE, name: "ZZ plain clone" });
+    assert.equal(plain.isError, false);
+    assert.deepEqual(h.calls.map((c) => c.method), ["POST"]);
+    assert.equal("assignment" in plain.json, false);
+  } finally {
+    await h.close();
+  }
+});
+
+test("clone reports the clone's ID when the assignment write fails after the clone", async () => {
+  const h = await harness({ failPatch: true });
+  try {
+    const { isError, json } = await h.call("sophos_clone_policy", { source_policy_id: P_USER, name: "ZZ clone", users: [U2] });
+    assert.equal(isError, false);
+    assert.equal(json.status, "cloned");
+    assert.match(json.assignment_error, /Rejected by the test/);
+    assert.match(json.assignment_error, new RegExp(`The clone ${json.policy.id} exists without the requested assignment`));
   } finally {
     await h.close();
   }
