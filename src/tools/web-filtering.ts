@@ -27,13 +27,6 @@ const siteListActionSchema = z.object({
   priority: z.coerce.number().int().describe("Priority"),
 });
 
-const consumerSchema = z.object({
-  type: z
-    .enum(["computerWebControlPolicy", "serverWebControlPolicy"])
-    .describe("Consumer policy type"),
-  id: z.string().describe("Consumer policy ID"),
-});
-
 const tenantIdSchema = z
   .string()
   .uuid()
@@ -66,7 +59,6 @@ function buildProfileBody(args: {
   category_actions?: { name: string; action: "allow" | "block" | "warn" }[];
   filter_by_site_list?: boolean;
   site_list_actions?: { id: string; action: "allow" | "block" | "warn"; priority: number }[];
-  consumers?: { type: "computerWebControlPolicy" | "serverWebControlPolicy"; id: string }[];
 }): Record<string, unknown> {
   const body: Record<string, unknown> = { name: args.name };
   if (args.description !== undefined) body.description = args.description;
@@ -76,7 +68,6 @@ function buildProfileBody(args: {
   if (args.category_actions) body.categoryActions = args.category_actions;
   if (args.filter_by_site_list !== undefined) body.filterBySiteList = args.filter_by_site_list;
   if (args.site_list_actions) body.siteListActions = args.site_list_actions;
-  if (args.consumers) body.consumers = args.consumers;
   return body;
 }
 
@@ -155,6 +146,12 @@ Args:
       title: "Create Web Filtering Profile",
       description: `Create a web filtering profile.
 
+A profile is linked to a policy from the policy side only: set
+endpoint.web-control.web-profile-id in a web control policy's settings with
+sophos_update_policy or sophos_create_policy. Sophos ignores consumers on a
+profile write (accepted, nothing linked; measured 13/10/2026), so this tool
+does not send it. The profile's consumers list is read-only.
+
 Args:
   - name (string): Profile name.
   - description (string, optional): Profile description.
@@ -164,7 +161,6 @@ Args:
   - category_actions (array, optional): [{name, action: allow|block|warn}].
   - filter_by_site_list (boolean, optional): Enable site list filtering.
   - site_list_actions (array, optional): [{id, action: allow|block|warn, priority}].
-  - consumers (array, optional): [{type: computerWebControlPolicy|serverWebControlPolicy, id}].
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         name: z.string().describe("Profile name"),
@@ -187,10 +183,6 @@ Args:
           .array(siteListActionSchema)
           .optional()
           .describe("Site list actions"),
-        consumers: z
-          .array(consumerSchema)
-          .optional()
-          .describe("Web control policies consuming this profile"),
         tenant_id: tenantIdSchema,
       },
       annotations: {
@@ -219,7 +211,9 @@ Args:
       description: `Update (replace) a web filtering profile.
 
 PUT semantics: the supplied fields replace the stored profile, so fetch the
-profile first and send the complete desired state.
+profile first and send the complete desired state. consumers is not sent:
+Sophos ignores it on a profile write, and policies link to a profile through
+their own web-profile-id setting (sophos_update_policy).
 
 Args: same as sophos_create_web_filtering_profile, plus:
   - profile_id (string): Web filtering profile ID.`,
@@ -245,10 +239,6 @@ Args: same as sophos_create_web_filtering_profile, plus:
           .array(siteListActionSchema)
           .optional()
           .describe("Site list actions"),
-        consumers: z
-          .array(consumerSchema)
-          .optional()
-          .describe("Web control policies consuming this profile"),
         tenant_id: tenantIdSchema,
       },
       annotations: {
@@ -357,7 +347,10 @@ Args:
       const data = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
         "/web-filters/v1/profiles/metadata",
-        // The metadata endpoint rejects requests without an Accept-Language header.
+        // Accept-Language must be absent or a bare language tag such as "en" or "fr"
+        // (labels come back in that language). "*", "en-US" and lists get a 400
+        // "Invalid format of argument" (measured 13/10/2026), and Node's fetch sends
+        // "*" when no header is set, so "en" is sent explicitly.
         { headers: { "Accept-Language": "en" } }
       );
       return jsonResult(data);
