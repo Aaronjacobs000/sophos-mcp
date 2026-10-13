@@ -2,7 +2,7 @@
  * Registers every tool module the way src/index.ts does, connects a client
  * over an in-memory transport and lists the tools. No credentials and no
  * network: registration never calls Sophos. Proves the server still exposes
- * the 289 Classic tools plus the 21 Fusion case tools and the Fusion
+ * the 283 Classic tools plus the 21 Fusion case tools and the Fusion
  * detection search, and that the descriptions carry the measured warnings.
  */
 
@@ -103,14 +103,14 @@ async function listAllTools() {
   return { modules, tools };
 }
 
-test("tools/list exposes the 289 Classic tools plus the 22 Fusion tools", async () => {
+test("tools/list exposes the 283 Classic tools plus the 22 Fusion tools", async () => {
   const { modules, tools } = await listAllTools();
   const names = new Set(tools.map((t) => t.name));
 
   assert.ok(modules.includes("fusion-cases"), "fusion-cases is imported by src/index.ts");
   assert.ok(modules.includes("fusion-detections"), "fusion-detections is imported by src/index.ts");
-  assert.equal(tools.length, 311);
-  assert.equal(names.size, 311, "tool names are unique");
+  assert.equal(tools.length, 305);
+  assert.equal(names.size, 305, "tool names are unique");
 
   for (const name of CLASSIC_CASE_TOOLS) assert.ok(names.has(name), `${name} still registered`);
   for (const name of CLASSIC_DETECTION_TOOLS) assert.ok(names.has(name), `${name} still registered`);

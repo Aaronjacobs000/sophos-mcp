@@ -11,7 +11,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { SophosClient } from "../dist/client/sophos-client.js";
-import { registerEmailTools } from "../dist/tools/email.js";
+import { registerMobileTools } from "../dist/tools/mobile.js";
 
 const TENANT = "00000000-0000-4000-8000-000000000001";
 const HOST = "https://api-au01.central.sophos.com";
@@ -112,15 +112,15 @@ test("the refusal reaches the model as a tool error and nothing is deleted", asy
   const h = harness();
   try {
     const server = new McpServer({ name: "test", version: "0.0.0" });
-    registerEmailTools(server, h.client, h.tenantResolver);
+    registerMobileTools(server, h.client, h.tenantResolver);
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await server.connect(serverTransport);
     const client = new Client({ name: "test-client", version: "0.0.0" });
     await client.connect(clientTransport);
 
     const result = await client.callTool({
-      name: "sophos_delete_mailbox",
-      arguments: { mailbox_id: "../../../endpoint/v1/endpoints/659240aa-797e-42cf-bb82-cca43c4e80d8" },
+      name: "sophos_delete_mobile_device",
+      arguments: { device_id: "../../../endpoint/v1/endpoints/659240aa-797e-42cf-bb82-cca43c4e80d8" },
     });
     assert.equal(result.isError, true);
     assert.match(result.content[0].text, /Refused request path/);

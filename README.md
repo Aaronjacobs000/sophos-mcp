@@ -5,7 +5,7 @@
 > Sophos. It calls the public Sophos APIs using credentials you supply. Use it at your own
 > risk, and raise problems as issues on this repository rather than with Sophos support.
 
-MCP (Model Context Protocol) server for the Sophos Fusion and Sophos Central APIs. Supports partner, organisation, and single-tenant credential types with automatic region routing. **311 tools** covering 22 Sophos API namespaces: the Sophos Central REST APIs plus the Sophos Fusion GraphQL APIs (`sophos_fusion_*`). Install it as a Claude Desktop extension (`.mcpb`), run it with npx, or host it yourself over streamable HTTP.
+MCP (Model Context Protocol) server for the Sophos Fusion and Sophos Central APIs. Supports partner, organisation, and single-tenant credential types with automatic region routing. **305 tools** covering 22 Sophos API namespaces: the Sophos Central REST APIs plus the Sophos Fusion GraphQL APIs (`sophos_fusion_*`). Install it as a Claude Desktop extension (`.mcpb`), run it with npx, or host it yourself over streamable HTTP.
 
 The npm package, the `.mcpb` bundle and the binaries keep the `sophos-central-mcp-server` name so existing installs update in place.
 
@@ -168,7 +168,7 @@ The script:
 npm test
 ```
 
-Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, the policy assignment and web profile writes (body shapes, refusals, target lookups and read-back) against an in-memory policy store, the no-retry rule for a POST or mutation after a 5xx, the read-modify-write and PATCH update tools, a registration check that lists all 311 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
+Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, the policy assignment and web profile writes (body shapes, refusals, target lookups and read-back) against an in-memory policy store, the no-retry rule for a POST or mutation after a 5xx, the read-modify-write and PATCH update tools, the request shapes of the tools checked against the published specs, a registration check that lists all 305 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
 
 To exercise the Fusion tools against a live tenant, put credentials in `.env` (or export them) and run:
 
@@ -196,7 +196,7 @@ It spawns the built server over stdio and calls the tools through an MCP client,
 - **One-click install**: Ships as a Claude Desktop extension (`.mcpb`) with credentials held in the OS secure store
 - **Two API generations**: the Sophos Central REST APIs and the Sophos Fusion GraphQL APIs on one credential, with `sophos_fusion_*` tools for the GraphQL side
 - **Migration aware**: the Classic case and detection tools refuse a tenant that has moved to Sophos Fusion and name the `sophos_fusion_*` tool to use instead
-- **Full API coverage**: 311 tools across endpoints, alerts, policies, firewalls, web filtering, licensing, audit events, email, mobile, XDR, cases, SIEM, and more
+- **Full API coverage**: 305 tools across endpoints, alerts, policies, firewalls, web filtering, licensing, audit events, email, mobile, XDR, cases, SIEM, and more
 
 ## Screenshots
 
@@ -249,15 +249,13 @@ Sophos is moving tenants to Fusion over the coming months (the [upgrade centre](
 
 Two Fusion case writes, `createCase` and `addEvidenceToCase`, fail 74% of the time with `not allowed` on `partnerPreferences` from `investigations-v2`. It is an intermittent downstream fault, not authorisation: the identical call succeeds on retry, and `updateCase` does not carry the fault at all. Measured on a live tenant 22/09/2026: 111 faults in 150 calls, drifting from 60% to 85% across four samples six minutes apart. The client retries a call whose first error path is `partnerPreferences`, and only that, up to 20 times with a short backoff, which leaves about 1 call in 410 failing at the measured rate and about 1 in 26 at the worst rate observed; an error naming the operation in its path is a real input or permission error and surfaces at once.
 
-### Partner & Organisation (18 tools)
+### Partner & Organisation (17 tools)
 
 > These tools are only available with **partner or organisation-level** credentials. They operate across all managed tenants.
 
 | Tool | Description |
 |------|-------------|
 | `sophos_list_tenants` | List all managed tenants with IDs, names, and data regions |
-| `sophos_list_account_health` | Bulk health scores for all tenants, ranked worst-first |
-| `sophos_partner_gap_analysis` | Security gap and upsell opportunity report across all tenants |
 | `sophos_create_tenant` | Create a new managed tenant |
 | `sophos_get_managed_tenant` | Get managed tenant details |
 | `sophos_list_partner_roles` | List partner-level roles |
@@ -273,6 +271,7 @@ Two Fusion case writes, `createCase` and `addEvidenceToCase`, fail 74% of the ti
 | `sophos_add_partner_admin_role_assignment` | Add role assignment to admin |
 | `sophos_delete_partner_admin_role_assignment` | Remove role assignment |
 | `sophos_get_billing_usage` | Get billing usage for a specific month |
+| `sophos_get_billing_summary` | Billing usage for a month, totalled per customer |
 
 ### Alerts (4 tools)
 
@@ -306,12 +305,11 @@ Two Fusion case writes, `createCase` and `addEvidenceToCase`, fail 74% of the ti
 | `sophos_bulk_isolate_endpoints` | Bulk isolate/release multiple endpoints |
 | `sophos_get_endpoint_isolation_status` | Get endpoint isolation status |
 
-### Endpoint Settings (30 tools)
+### Endpoint Settings (26 tools)
 
 | Tool | Description |
 |------|-------------|
 | `sophos_list_installer_downloads` | List available installer packages |
-| `sophos_get_installer_download` | Get specific installer download link |
 | `sophos_list_blocked_addresses` | List blocked network addresses |
 | `sophos_add_blocked_address` | Add a blocked network address |
 | `sophos_delete_blocked_address` | Delete a blocked address |
@@ -323,7 +321,6 @@ Two Fusion case writes, `createCase` and `addEvidenceToCase`, fail 74% of the ti
 | `sophos_get_tls_decryption_settings` | Get TLS decryption settings |
 | `sophos_update_tls_decryption_settings` | Update TLS decryption settings |
 | `sophos_get_global_tamper_protection` | Get global tamper protection settings |
-| `sophos_update_global_tamper_protection` | Update global tamper protection |
 | `sophos_list_detected_exploits` | List detected exploits |
 | `sophos_get_detected_exploit` | Get exploit detail |
 | `sophos_list_exploit_mitigation_categories` | List exploit mitigation categories |
@@ -338,17 +335,14 @@ Two Fusion case writes, `createCase` and `addEvidenceToCase`, fail 74% of the ti
 | `sophos_list_isolation_exclusions` | List isolation exclusions |
 | `sophos_add_isolation_exclusion` | Add isolation exclusion |
 | `sophos_delete_isolation_exclusion` | Delete isolation exclusion |
-| `sophos_get_lockdown_settings` | Get server lockdown settings |
-| `sophos_update_lockdown_settings` | Update server lockdown settings |
 
-### Endpoint Migrations (7 tools)
+### Endpoint Migrations (6 tools)
 
 | Tool | Description |
 |------|-------------|
 | `sophos_list_migrations` | List endpoint migration jobs |
 | `sophos_get_migration` | Get migration job details |
 | `sophos_create_migration` | Create a new migration job |
-| `sophos_delete_migration` | Delete a migration job |
 | `sophos_list_migration_endpoints` | List endpoints in a migration |
 | `sophos_list_recommended_packages` | List recommended software packages |
 | `sophos_list_static_packages` | List static software packages |
@@ -403,7 +397,7 @@ Web profiles: setting `endpoint.web-control.web-profile-id` also sends `filter-b
 | `sophos_list_account_health` | Bulk health scores for all tenants (partner/org only) |
 | `sophos_partner_gap_analysis` | Gap analysis across all tenants (partner/org only) |
 
-### Directory Users & Groups (17 tools)
+### Directory Users & Groups (16 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -420,12 +414,11 @@ Web profiles: setting `endpoint.web-control.web-profile-id` also sends `filter-b
 | `sophos_list_user_group_members` | List members of a user group |
 | `sophos_add_users_to_group` | Add users to a group |
 | `sophos_remove_user_from_group` | Remove a user from a group |
-| `sophos_list_user_group_endpoints` | List endpoints in a user group |
 | `sophos_list_user_group_policies` | List policies assigned to a user group |
 | `sophos_list_admins` | List admin accounts and roles |
 | `sophos_list_roles` | List available admin roles |
 
-### Admin Management (13 tools)
+### Admin Management (12 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -441,7 +434,6 @@ Web profiles: setting `endpoint.web-control.web-profile-id` also sends `filter-b
 | `sophos_update_role` | Update a role |
 | `sophos_delete_role` | Delete a role |
 | `sophos_list_permission_sets` | List available permission sets |
-| `sophos_reset_admin_password` | Reset an admin's password |
 
 ### Cases (9 tools)
 
@@ -658,11 +650,12 @@ for about 3 minutes to cover that window.
 | `sophos_update_dns_location` | Update a DNS location |
 | `sophos_delete_dns_location` | Delete a DNS location |
 
-### Cloud Security (5 tools)
+### Cloud Security (6 tools)
 
 | Tool | Description |
 |------|-------------|
 | `sophos_list_cloud_security_profiles` | List cloud security profiles |
+| `sophos_list_cloud_security_default_contents` | List the content versions a new profile can use |
 | `sophos_get_cloud_security_profile` | Get profile detail |
 | `sophos_create_cloud_security_profile` | Create a runtime detection profile or a new version of one |
 | `sophos_update_cloud_security_profile` | Rename a profile |
