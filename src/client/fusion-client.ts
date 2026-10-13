@@ -11,7 +11,8 @@
  * 200 with an `errors` array beside `data`. A 200 is not success until the
  * body has been read. Transport failures (expired token, 429, 5xx) use the
  * usual non-2xx status and the standard Sophos error object, and those are
- * retried the same way SophosClient retries them. GraphQL-layer errors are
+ * retried the same way SophosClient retries them: 429 always, 5xx and network
+ * failures for queries only, never for a mutation. GraphQL-layer errors are
  * not retried, with one measured exception: the intermittent
  * partnerPreferences fault on the case write path, which is keyed on the
  * error path and bounded (see FusionGraphQLError.isTransientPartnerPreferences).
@@ -160,8 +161,9 @@ export class FusionClient {
       body: JSON.stringify({ query: document, variables }),
     };
 
+    const mutation = isMutation(document);
     for (let attempt = 1; ; attempt++) {
-      const body = await this.executeWithRetry<GraphQLResponseBody<T>>(fetchOptions);
+      const body = await this.executeWithRetry<GraphQLResponseBody<T>>(fetchOptions, mutation);
       try {
         return interpretGraphQLBody<T>(body);
       } catch (error) {
@@ -216,7 +218,12 @@ export class FusionClient {
     }
   }
 
-  private async executeWithRetry<T>(options: globalThis.RequestInit): Promise<T> {
+  /**
+   * Transport retries: 429 always; 5xx, timeouts and network errors only for
+   * a query. A mutation that failed that way may already have taken effect
+   * (a case created, evidence attached), so it is not repeated.
+   */
+  private async executeWithRetry<T>(options: globalThis.RequestInit, mutation = false): Promise<T> {
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= this.retries; attempt++) {
@@ -286,6 +293,12 @@ export class FusionClient {
           throw lastError;
         }
 
+        if (mutation) {
+          throw new Error(
+            `${lastError.message}. Not retried: the mutation may already have taken effect, so check whether it did before repeating it.`
+          );
+        }
+
         if (attempt < this.retries) {
           // Full-jitter exponential backoff, as the Sophos rate-limit guidance recommends
           const cap = this.backoffBaseMs * Math.pow(2, attempt);
@@ -351,4 +364,9 @@ export function formatGraphQLError(error: GraphQLErrorEntry): string {
     parts.push(`[${code}]`);
   }
   return parts.join(" ");
+}
+
+/** True when the document's operation is a mutation (leading comments skipped). */
+export function isMutation(document: string): boolean {
+  return /^(?:\s|#[^\n]*\n)*mutation\b/.test(document);
 }

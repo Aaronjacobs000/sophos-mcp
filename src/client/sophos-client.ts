@@ -209,6 +209,16 @@ export class SophosClient {
           throw lastError;
         }
 
+        // A POST creates or acts. After a 5xx, a timeout or a dropped connection
+        // it may already have taken effect, so repeating it could create a
+        // duplicate or run an action twice. Only 429 (refused before processing)
+        // is retried for a POST, above.
+        if (options.method === "POST") {
+          throw new Error(
+            `${lastError.message}. Not retried: a POST may already have taken effect, so check whether it did before repeating it.`
+          );
+        }
+
         if (attempt < retries) {
           const backoff = Math.pow(2, attempt) * 1000;
           console.error(

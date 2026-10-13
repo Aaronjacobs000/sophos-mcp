@@ -132,3 +132,70 @@ test("the refusal reaches the model as a tool error and nothing is deleted", asy
     h.restore();
   }
 });
+
+/** A SophosClient whose fetch answers `status` and whose backoff does not wait. */
+function retryHarness(status, { headers = {} } = {}) {
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), method: init?.method ?? "GET" });
+    const s = typeof status === "function" ? status(calls.length) : status;
+    return new Response(JSON.stringify(s === 200 ? { ok: true } : { error: "internalServerError", message: "Error processing data" }), {
+      status: s,
+      headers: { "Content-Type": "application/json", ...headers },
+    });
+  };
+  const tenantResolver = { resolveApiHost: async () => HOST, resolveTenantId: (id) => id ?? TENANT };
+  const client = new SophosClient({ getToken: async () => "fake-token" }, tenantResolver);
+  client.sleep = async () => {};
+  return { client, calls, restore: () => (globalThis.fetch = realFetch) };
+}
+
+test("a POST that gets a 5xx is not retried and says why", async () => {
+  const h = retryHarness(500);
+  try {
+    await assert.rejects(
+      () => h.client.tenantRequest(TENANT, "/endpoint/v1/policies", { method: "POST", body: { name: "x" } }),
+      /Sophos API error 500: internalServerError - Error processing data.*\. Not retried: a POST may already have taken effect/
+    );
+    assert.equal(h.calls.length, 1);
+  } finally {
+    h.restore();
+  }
+});
+
+test("a POST whose connection fails is not retried", async () => {
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    calls.push(1);
+    throw new TypeError("fetch failed");
+  };
+  try {
+    const client = new SophosClient({ getToken: async () => "t" }, { resolveApiHost: async () => HOST, resolveTenantId: (id) => id });
+    client.sleep = async () => {};
+    await assert.rejects(() => client.tenantRequest(TENANT, "/endpoint/v1/policies", { method: "POST", body: {} }), /fetch failed\. Not retried/);
+    assert.equal(calls.length, 1);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("a POST is still retried after a 429, and GET, PATCH and DELETE still retry a 5xx", async () => {
+  const limited = retryHarness((n) => (n === 1 ? 429 : 200), { headers: { "Retry-After": "0" } });
+  try {
+    await limited.client.tenantRequest(TENANT, "/endpoint/v1/policies", { method: "POST", body: {} });
+    assert.equal(limited.calls.length, 2);
+  } finally {
+    limited.restore();
+  }
+  for (const method of ["GET", "PATCH", "DELETE"]) {
+    const h = retryHarness((n) => (n < 3 ? 503 : 200));
+    try {
+      await h.client.tenantRequest(TENANT, "/endpoint/v1/policies/x", { method, ...(method === "PATCH" ? { body: {} } : {}) });
+      assert.equal(h.calls.length, 3, method);
+    } finally {
+      h.restore();
+    }
+  }
+});

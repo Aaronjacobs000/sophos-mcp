@@ -11,6 +11,7 @@ import {
   FusionGraphQLError,
   formatGraphQLError,
   interpretGraphQLBody,
+  isMutation,
 } from "../dist/client/fusion-client.js";
 
 const tokenManager = { getToken: async () => "test-token" };
@@ -371,4 +372,43 @@ test("putPresigned reports a failed upload with the HTTP status", async () => {
     /Case file upload failed with HTTP 403: denied/
   );
   assert.equal(calls.length, 1, "no retry on the presigned PUT");
+});
+
+test("a mutation that gets a 5xx is not retried, because it may already have taken effect", async () => {
+  const calls = stubFetch(() => json("upstream down", { status: 502 }));
+  await assert.rejects(
+    () => makeClient().query("tenant-1", "mutation FusionCreateCase($input: CreateCaseInput!) { createCase(input: $input) { id } }"),
+    /Sophos Fusion API error 502: upstream down\. Not retried: the mutation may already have taken effect/
+  );
+  assert.equal(calls.length, 1);
+});
+
+test("a mutation that times out is not retried either", async () => {
+  const calls = stubFetch(
+    (_attempt, init) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener("abort", () => reject(new DOMException("The operation was aborted", "AbortError")));
+      })
+  );
+  await assert.rejects(() => makeClient({ timeoutMs: 5 }).query("tenant-1", "mutation { createCase }"), /timed out after 5ms\. Not retried/);
+  assert.equal(calls.length, 1);
+});
+
+test("a mutation is still retried after a 429", async () => {
+  const calls = stubFetch((attempt) =>
+    attempt === 1
+      ? json({ error: "TooManyRequests" }, { status: 429, headers: { "Retry-After": "0" } })
+      : json({ data: { createCase: { id: "c" } } })
+  );
+  const result = await makeClient().query("tenant-1", "mutation { createCase }");
+  assert.deepEqual(result.data, { createCase: { id: "c" } });
+  assert.equal(calls.length, 2);
+});
+
+test("isMutation reads the operation type past whitespace and comments", () => {
+  assert.equal(isMutation("mutation X { a }"), true);
+  assert.equal(isMutation("\n  # create\n  mutation X { a }"), true);
+  assert.equal(isMutation("query X { mutationCount }"), false);
+  assert.equal(isMutation("{ a }"), false);
+  assert.equal(isMutation("mutationX"), false);
 });
