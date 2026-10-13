@@ -71,6 +71,41 @@ function buildProfileBody(args: {
   return body;
 }
 
+type ProfileArgs = Omit<Parameters<typeof buildProfileBody>[0], "name"> & { name?: string };
+
+/**
+ * The body for a profile PUT that keeps every stored field the caller did not
+ * pass. PUT replaces the whole profile, so an omitted field would be cleared.
+ * preset and the two action lists move as one unit: Sophos refuses a preset
+ * beside category actions (400), so passing any of them replaces all three.
+ */
+export function mergeProfile(
+  stored: Record<string, unknown>,
+  args: ProfileArgs
+): { body: Record<string, unknown>; kept: string[] } {
+  const kept: string[] = [];
+  const merged: ProfileArgs & { name: string } = { ...args, name: args.name ?? (stored.name as string) };
+  if (args.name === undefined) kept.push("name");
+  const keep = <K extends keyof ProfileArgs>(key: K, storedKey: string) => {
+    if (args[key] === undefined && stored[storedKey] !== undefined && stored[storedKey] !== null) {
+      (merged as Record<string, unknown>)[key] = stored[storedKey];
+      kept.push(storedKey);
+    }
+  };
+  keep("description", "description");
+  keep("filter_by_category", "filterByCategory");
+  keep("filter_by_site_list", "filterBySiteList");
+  keep("site_list_actions", "siteListActions");
+  const categoryPassed =
+    args.preset !== undefined || args.category_group_actions !== undefined || args.category_actions !== undefined;
+  if (!categoryPassed) {
+    keep("preset", "preset");
+    keep("category_group_actions", "categoryGroupActions");
+    keep("category_actions", "categoryActions");
+  }
+  return { body: buildProfileBody(merged), kept };
+}
+
 export function registerWebFilteringTools(
   server: McpServer,
   client: SophosClient,
@@ -208,18 +243,31 @@ Args:
     "sophos_update_web_filtering_profile",
     {
       title: "Update Web Filtering Profile",
-      description: `Update (replace) a web filtering profile.
+      description: `Update a web filtering profile.
 
-PUT semantics: the supplied fields replace the stored profile, so fetch the
-profile first and send the complete desired state. consumers is not sent:
-Sophos ignores it on a profile write, and policies link to a profile through
-their own web-profile-id setting (sophos_update_policy).
+Sophos replaces the whole profile on update (PUT): a field left out of the
+request is cleared (measured 13/10/2026). This tool reads the profile first and
+sends it back with your changes, so fields you leave out keep their values.
+preset, category_group_actions and category_actions are one unit, because
+Sophos refuses a preset beside category actions: pass any of them and they
+replace the stored category settings; pass none and the stored ones are kept.
+An array you pass replaces the stored list whole.
 
-Args: same as sophos_create_web_filtering_profile, plus:
-  - profile_id (string): Web filtering profile ID.`,
+consumers is not sent: Sophos ignores it on a profile write, and policies link
+to a profile through their own web-profile-id setting (sophos_update_policy).
+
+Args:
+  - profile_id (string): Web filtering profile ID.
+  - name, description, filter_by_category, preset, category_group_actions,
+    category_actions, filter_by_site_list, site_list_actions (all optional):
+    as in sophos_create_web_filtering_profile.
+  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
+
+Returns:
+  The updated profile and kept_from_stored, the fields carried over unchanged.`,
       inputSchema: {
         profile_id: z.string().describe("Web filtering profile ID"),
-        name: z.string().describe("Profile name"),
+        name: z.string().optional().describe("Profile name"),
         description: z.string().optional().describe("Profile description"),
         filter_by_category: z.boolean().optional().describe("Enable category filtering"),
         preset: z.string().optional().describe("Category preset name"),
@@ -243,19 +291,21 @@ Args: same as sophos_create_web_filtering_profile, plus:
       },
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: true,
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ profile_id, tenant_id, ...profileArgs }) => {
+    withErrorHandling(async ({ profile_id, tenant_id, ...args }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const data = await client.tenantRequest<Record<string, unknown>>(
-        resolvedTenantId,
-        `/web-filters/v1/profiles/${profile_id}`,
-        { method: "PUT", body: buildProfileBody(profileArgs) }
-      );
-      return jsonResult({ status: "updated", profile: data });
+      const path = `/web-filters/v1/profiles/${profile_id}`;
+      const stored = await client.tenantRequest<Record<string, unknown>>(resolvedTenantId, path);
+      const { body, kept } = mergeProfile(stored, args);
+      const data = await client.tenantRequest<Record<string, unknown>>(resolvedTenantId, path, {
+        method: "PUT",
+        body,
+      });
+      return jsonResult({ status: "updated", kept_from_stored: kept, profile: data });
     })
   );
 
@@ -480,41 +530,59 @@ Args:
     "sophos_update_site_list",
     {
       title: "Update Web Filtering Site List",
-      description: `Update (replace) a site list.
+      description: `Update a site list's name, description or sites.
 
-PUT semantics: name and sites replace the stored list, so fetch it first
-and send the complete desired state.
+Sophos replaces the whole list on update (PUT): a description left out is
+cleared (measured 13/10/2026). This tool reads the list first and sends it back
+with your changes, so fields you leave out keep their values. sites, when
+passed, replaces every site in the list; to add or remove one site, use
+sophos_add_site or sophos_delete_site. A list holds at most 750 sites.
 
 Args:
   - site_list_id (string): Site list ID.
-  - name (string): Site list name.
-  - sites (array): Complete list of sites.
+  - name (string, optional): Site list name.
+  - sites (array, optional): The complete new list of sites.
   - description (string, optional): Site list description.
-  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
+  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
+
+Returns:
+  The updated site list and kept_from_stored, the fields carried over unchanged.`,
       inputSchema: {
         site_list_id: z.string().describe("Site list ID"),
-        name: z.string().describe("Site list name"),
-        sites: z.array(z.string()).describe("Complete list of sites"),
+        name: z.string().optional().describe("Site list name"),
+        sites: z.array(z.string()).optional().describe("The complete new list of sites"),
         description: z.string().optional().describe("Site list description"),
         tenant_id: tenantIdSchema,
       },
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: true,
         openWorldHint: true,
       },
     },
     withErrorHandling(async ({ site_list_id, name, sites, description, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = { name, sites };
-      if (description !== undefined) body.description = description;
-      const data = await client.tenantRequest<Record<string, unknown>>(
-        resolvedTenantId,
-        `/web-filters/v1/site-lists/${site_list_id}`,
-        { method: "PUT", body }
-      );
-      return jsonResult({ status: "updated", site_list: data });
+      const path = `/web-filters/v1/site-lists/${site_list_id}`;
+      const stored = await client.tenantRequest<Record<string, unknown>>(resolvedTenantId, path);
+      const body: Record<string, unknown> = {};
+      const kept: string[] = [];
+      for (const [key, value] of [
+        ["name", name],
+        ["description", description],
+        ["sites", sites],
+      ] as const) {
+        if (value !== undefined) body[key] = value;
+        else if (stored[key] !== undefined && stored[key] !== null) {
+          body[key] = stored[key];
+          kept.push(key);
+        }
+      }
+      const data = await client.tenantRequest<Record<string, unknown>>(resolvedTenantId, path, {
+        method: "PUT",
+        body,
+      });
+      return jsonResult({ status: "updated", kept_from_stored: kept, site_list: data });
     })
   );
 
