@@ -3,7 +3,7 @@
  *        sophos_list_admin_role_assignments, sophos_add_admin_role_assignment,
  *        sophos_delete_admin_role_assignment, sophos_get_admin_role_assignment,
  *        sophos_create_role, sophos_get_role, sophos_update_role, sophos_delete_role,
- *        sophos_list_permission_sets, sophos_reset_admin_password
+ *        sophos_list_permission_sets
  * Interact with the Sophos Common API for admin and role management.
  */
 
@@ -63,29 +63,21 @@ Returns:
     "sophos_create_admin",
     {
       title: "Create Sophos Admin",
-      description: `Create a new administrator account in a Sophos Central tenant.
+      description: `Make an existing directory user an administrator of a Sophos Central tenant.
+
+The API creates a tenant admin from a directory user (sophos_list_users gives the
+ID) with exactly one role (sophos_list_roles gives role IDs).
 
 Args:
-  - first_name (string): Admin's first name.
-  - last_name (string): Admin's last name.
-  - email (string): Admin's email address.
-  - role_assignments (array, optional): Array of role assignment objects with roleId.
+  - user_id (string): Directory user ID.
+  - role_id (string): Role to assign.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
   The created admin record.`,
       inputSchema: {
-        first_name: z.string().describe("Admin's first name"),
-        last_name: z.string().describe("Admin's last name"),
-        email: z.string().email().describe("Admin's email address"),
-        role_assignments: z
-          .array(
-            z.object({
-              roleId: z.string().uuid().describe("Role ID to assign"),
-            })
-          )
-          .optional()
-          .describe("Role assignments for the new admin"),
+        user_id: z.string().uuid().describe("Directory user ID"),
+        role_id: z.string().uuid().describe("Role to assign"),
         tenant_id: z
           .string()
           .uuid()
@@ -100,15 +92,10 @@ Returns:
       },
     },
     withErrorHandling(
-      async ({ first_name, last_name, email, role_assignments, tenant_id }) => {
+      async ({ user_id, role_id, tenant_id }) => {
         const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
 
-        const body: Record<string, unknown> = {
-          firstName: first_name,
-          lastName: last_name,
-          email,
-        };
-        if (role_assignments?.length) body.roleAssignments = role_assignments;
+        const body = { userId: user_id, roleAssignments: [{ roleId: role_id }] };
 
         const data = await client.tenantRequest<Record<string, unknown>>(
           resolvedTenantId,
@@ -341,19 +328,22 @@ Returns:
 
 Args:
   - name (string): Role name.
+  - principal_type (string): "user" (for admins) or "service" (for API credentials).
+  - permission_sets (array): Permission set IDs (sophos_list_permission_sets). A
+    user role needs at least one set of type base and one of type product.
   - description (string, optional): Role description.
-  - permission_sets (array, optional): Array of permission set IDs to include.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
   The created role.`,
       inputSchema: {
         name: z.string().describe("Role name"),
-        description: z.string().optional().describe("Role description"),
+        principal_type: z.enum(["user", "service"]).describe("Who the role is for"),
         permission_sets: z
           .array(z.string())
-          .optional()
+          .min(1)
           .describe("Permission set IDs to include in the role"),
+        description: z.string().optional().describe("Role description"),
         tenant_id: z
           .string()
           .uuid()
@@ -367,12 +357,11 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ name, description, permission_sets, tenant_id }) => {
+    withErrorHandling(async ({ name, principal_type, permission_sets, description, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
 
-      const body: Record<string, unknown> = { name };
+      const body: Record<string, unknown> = { name, principalType: principal_type, permissionSets: permission_sets };
       if (description) body.description = description;
-      if (permission_sets?.length) body.permissionSets = permission_sets;
 
       const data = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
@@ -433,7 +422,8 @@ Args:
   - role_id (string): Role ID to update.
   - name (string, optional): New role name.
   - description (string, optional): New role description.
-  - permission_sets (array, optional): Updated permission set IDs.
+  - permission_sets (array, optional): The complete new list of permission set IDs
+    (replaces the current list; measured 13/10/2026).
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         role_id: z.string().uuid().describe("Role ID to update"),
@@ -569,47 +559,4 @@ Returns:
     })
   );
 
-  // --- Reset Admin Password ---
-  server.registerTool(
-    "sophos_reset_admin_password",
-    {
-      title: "Reset Sophos Admin Password",
-      description: `Trigger a password reset for an administrator. The admin will receive
-a password reset email.
-
-Args:
-  - admin_id (string): Admin ID.
-  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
-
-Returns:
-  Confirmation that the password reset has been initiated.`,
-      inputSchema: {
-        admin_id: z.string().uuid().describe("Admin ID"),
-        tenant_id: z
-          .string()
-          .uuid()
-          .optional()
-          .describe("Tenant ID. Required for partner/org callers."),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: true,
-      },
-    },
-    withErrorHandling(async ({ admin_id, tenant_id }) => {
-      const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      await client.tenantRequest(
-        resolvedTenantId,
-        `/common/v1/admins/${admin_id}/reset-password`,
-        { method: "POST", body: {} }
-      );
-      return jsonResult({
-        status: "initiated",
-        admin_id,
-        message: `Password reset initiated for admin ${admin_id}. The admin will receive a reset email.`,
-      });
-    })
-  );
 }

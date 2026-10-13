@@ -4,8 +4,7 @@
  *        sophos_list_user_groups, sophos_get_user_group,
  *        sophos_create_user_group, sophos_update_user_group, sophos_delete_user_group,
  *        sophos_list_user_group_members, sophos_add_users_to_group,
- *        sophos_remove_user_from_group, sophos_list_user_group_endpoints,
- *        sophos_list_user_group_policies
+ *        sophos_remove_user_from_group, sophos_list_user_group_policies
  * Interact with the Sophos Common API for directory and admin management.
  */
 
@@ -207,34 +206,20 @@ Args:
       title: "List Sophos Admin Roles",
       description: `List available admin roles in a Sophos Central tenant.
 
-Returns all role definitions that can be assigned to admins. Useful for
-understanding what permissions are available before assigning roles.
+Returns all role definitions that can be assigned to admins, in one response.
 
 Args:
-  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
-  - limit (number, optional): Max results per page (default 50).
-  - page (number, optional): Page number (default 1).`,
+  - type (string, optional): "predefined" or "custom".
+  - principal_type (string, optional): "user" or "service".
+  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
+        type: z.enum(["predefined", "custom"]).optional().describe("Role type"),
+        principal_type: z.enum(["user", "service"]).optional().describe("Principal type"),
         tenant_id: z
           .string()
           .uuid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(100)
-          .optional()
-          .default(DEFAULT_PAGE_SIZE)
-          .describe("Max results per page (default 50)"),
-        page: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .default(1)
-          .describe("Page number (default 1)"),
       },
       annotations: {
         readOnlyHint: true,
@@ -243,24 +228,19 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ tenant_id, limit, page }) => {
+    withErrorHandling(async ({ type, principal_type, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const params: Record<string, string> = {};
+      if (type) params.type = type;
+      if (principal_type) params.principalType = principal_type;
 
-      const params: Record<string, string> = {
-        pageSize: String(limit),
-        page: String(page),
-      };
-
-      const data = await client.tenantRequest<
-        { items?: Record<string, unknown>[]; pages?: { current?: number; total?: number; items?: number } }
-      >(resolvedTenantId, "/common/v1/roles", { params });
-
+      const data = await client.tenantRequest<{ items?: Record<string, unknown>[] }>(
+        resolvedTenantId,
+        "/common/v1/roles",
+        { params }
+      );
       const items = data.items ?? [];
-      return jsonResult({
-        total: data.pages?.total ?? data.pages?.items ?? items.length,
-        page: data.pages?.current ?? page,
-        roles: items,
-      });
+      return jsonResult({ total: items.length, roles: items });
     })
   );
 
@@ -916,95 +896,23 @@ Args:
     })
   );
 
-  // --- List User Group Endpoints ---
-  server.registerTool(
-    "sophos_list_user_group_endpoints",
-    {
-      title: "List Endpoints in Sophos User Group",
-      description: `List endpoints (devices) associated with a specific directory user group.
-
-Returns devices belonging to users in this group.
-
-Args:
-  - group_id (string): User group ID.
-  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
-  - limit (number, optional): Max results per page (default 50).
-  - page (number, optional): Page number (default 1).
-
-Returns:
-  Paginated list of endpoints in the user group.`,
-      inputSchema: {
-        group_id: z.string().uuid().describe("User group ID"),
-        tenant_id: z
-          .string()
-          .uuid()
-          .optional()
-          .describe("Tenant ID. Required for partner/org callers."),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(100)
-          .optional()
-          .default(DEFAULT_PAGE_SIZE)
-          .describe("Max results per page (default 50)"),
-        page: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .default(1)
-          .describe("Page number (default 1)"),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: true,
-      },
-    },
-    withErrorHandling(async ({ group_id, tenant_id, limit, page }) => {
-      const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-
-      const params: Record<string, string> = {
-        pageSize: String(limit),
-        page: String(page),
-      };
-
-      const data = await client.tenantRequest<
-        SophosPagedResponse<Record<string, unknown>>
-      >(
-        resolvedTenantId,
-        `/common/v1/directory/user-groups/${group_id}/endpoints`,
-        { params }
-      );
-
-      const items = data.items ?? [];
-      return jsonResult({
-        total: data.pages?.total ?? data.pages?.items ?? items.length,
-        page: data.pages?.current ?? page,
-        endpoints: items,
-      });
-    })
-  );
-
   // --- List User Group Policies ---
   server.registerTool(
     "sophos_list_user_group_policies",
     {
       title: "List Policies for Sophos User Group",
-      description: `List policies assigned to a specific directory user group.
+      description: `List the endpoint policies assigned to a directory user group.
 
-Returns policies that are applied at the user group level.
+There is no API for this directly, so the tool reads every endpoint policy and
+keeps the ones whose assignment includes the group. The policy list can lag a
+change by about 25 seconds.
 
 Args:
   - group_id (string): User group ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
-  - limit (number, optional): Max results per page (default 50).
-  - page (number, optional): Page number (default 1).
 
 Returns:
-  Paginated list of policies assigned to the user group.`,
+  The policies that name the group: id, name, type, enabled, priority.`,
       inputSchema: {
         group_id: z.string().uuid().describe("User group ID"),
         tenant_id: z
@@ -1012,21 +920,6 @@ Returns:
           .uuid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(100)
-          .optional()
-          .default(DEFAULT_PAGE_SIZE)
-          .describe("Max results per page (default 50)"),
-        page: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .default(1)
-          .describe("Page number (default 1)"),
       },
       annotations: {
         readOnlyHint: true,
@@ -1035,28 +928,25 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ group_id, tenant_id, limit, page }) => {
+    withErrorHandling(async ({ group_id, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-
-      const params: Record<string, string> = {
-        pageSize: String(limit),
-        page: String(page),
-      };
-
-      const data = await client.tenantRequest<
-        SophosPagedResponse<Record<string, unknown>>
-      >(
-        resolvedTenantId,
-        `/common/v1/directory/user-groups/${group_id}/policies`,
-        { params }
-      );
-
-      const items = data.items ?? [];
-      return jsonResult({
-        total: data.pages?.total ?? data.pages?.items ?? items.length,
-        page: data.pages?.current ?? page,
-        policies: items,
-      });
+      type Policy = { id: string; name: string; type: string; enabled: boolean; priority: number; appliesTo?: { userGroups?: unknown[] } };
+      const matches: Array<Omit<Policy, "appliesTo">> = [];
+      for (let page = 1; page <= 50; page++) {
+        const data = await client.tenantRequest<SophosPagedResponse<Policy>>(
+          resolvedTenantId,
+          "/endpoint/v1/policies",
+          { params: { page: String(page), pageSize: "100", pageTotal: "true" } }
+        );
+        for (const p of data.items ?? []) {
+          const groups = (p.appliesTo?.userGroups ?? []).map((g) => (typeof g === "string" ? g : (g as { id?: string }).id));
+          if (groups.includes(group_id)) {
+            matches.push({ id: p.id, name: p.name, type: p.type, enabled: p.enabled, priority: p.priority });
+          }
+        }
+        if (!data.pages?.total || page >= data.pages.total) break;
+      }
+      return jsonResult({ group_id, total: matches.length, policies: matches });
     })
   );
 }

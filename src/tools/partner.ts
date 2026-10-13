@@ -19,6 +19,25 @@ import type { TenantResolver } from "../client/tenant-resolver.js";
 import { jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
+const partnerRoleAssignmentSchema = z.object({
+  role_id: z.string().uuid().describe("Role ID"),
+  scope_type: z
+    .enum(["tenant", "allManagedTenants", "self", "tenantGroup"])
+    .describe("What the role applies to"),
+  scope_id: z
+    .string()
+    .uuid()
+    .optional()
+    .describe("Tenant or tenant group ID; not used for allManagedTenants or self"),
+});
+
+function toPartnerRoleAssignment(a: z.infer<typeof partnerRoleAssignmentSchema>) {
+  return {
+    roleId: a.role_id,
+    scope: { type: a.scope_type, ...(a.scope_id ? { id: a.scope_id } : {}) },
+  };
+}
+
 export function registerPartnerTools(
   server: McpServer,
   client: SophosClient,
@@ -32,42 +51,39 @@ export function registerPartnerTools(
     "sophos_create_tenant",
     {
       title: "Create Managed Tenant",
-      description: `Create a new managed tenant under this partner/organization account.
+      description: `Create a new managed tenant under this partner account.
 
-Creates a new Sophos Central tenant that will be managed by the calling
-partner or organization.
+The API needs a billing type and a contact with a phone number and a postal
+address. The name cannot be changed after creation.
 
 Args:
-  - name (string): Display name for the new tenant.
-  - data_geography (string): Data residency geography (e.g. "US", "IE", "DE").
-  - billing_type (string, optional): Billing type (e.g. "trial", "usage").
-  - contact_first_name (string, optional): Primary contact first name.
-  - contact_last_name (string, optional): Primary contact last name.
+  - name (string): Tenant name (permanent).
+  - billing_type (string): "trial", "usage" or "ordered".
+  - data_geography (string, optional): "US", "IE", "DE", "CA", "AU", "JP", "IN", "BR" or "AE".
+  - contact_first_name, contact_last_name, contact_phone (string): Primary contact.
   - contact_email (string, optional): Primary contact email.
+  - address1, city, country_code, postal_code (string): Contact address.
+  - address2, state (string, optional): More of the address.
 
 Returns:
   Created tenant details including id, name, apiHost.`,
       inputSchema: {
-        name: z.string().describe("Display name for the new tenant"),
+        name: z.string().describe("Tenant name (cannot be changed later)"),
+        billing_type: z.enum(["trial", "usage", "ordered"]).describe("Billing type"),
         data_geography: z
-          .string()
-          .describe('Data residency geography (e.g. "US", "IE", "DE")'),
-        billing_type: z
-          .string()
+          .enum(["US", "IE", "DE", "CA", "AU", "JP", "IN", "BR", "AE"])
           .optional()
-          .describe('Billing type (e.g. "trial", "usage")'),
-        contact_first_name: z
-          .string()
-          .optional()
-          .describe("Primary contact first name"),
-        contact_last_name: z
-          .string()
-          .optional()
-          .describe("Primary contact last name"),
-        contact_email: z
-          .string()
-          .optional()
-          .describe("Primary contact email address"),
+          .describe("Data residency geography"),
+        contact_first_name: z.string().describe("Primary contact first name"),
+        contact_last_name: z.string().describe("Primary contact last name"),
+        contact_phone: z.string().describe("Primary contact phone number"),
+        contact_email: z.string().email().optional().describe("Primary contact email address"),
+        address1: z.string().describe("Address line 1"),
+        address2: z.string().optional().describe("Address line 2"),
+        city: z.string().describe("City"),
+        state: z.string().optional().describe("State"),
+        country_code: z.string().describe('Country code, for example "AU"'),
+        postal_code: z.string().describe("Postal code"),
       },
       annotations: {
         readOnlyHint: false,
@@ -76,36 +92,32 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(
-      async ({
-        name,
-        data_geography,
-        billing_type,
-        contact_first_name,
-        contact_last_name,
-        contact_email,
-      }) => {
-        const body: Record<string, unknown> = {
-          name,
-          dataGeography: data_geography,
-        };
-        if (billing_type) body.billingType = billing_type;
-        if (contact_first_name || contact_last_name || contact_email) {
-          body.contact = {
-            ...(contact_first_name ? { firstName: contact_first_name } : {}),
-            ...(contact_last_name ? { lastName: contact_last_name } : {}),
-            ...(contact_email ? { email: contact_email } : {}),
-          };
-        }
+    withErrorHandling(async (args) => {
+      const address: Record<string, unknown> = {
+        address1: args.address1,
+        city: args.city,
+        countryCode: args.country_code,
+        postalCode: args.postal_code,
+      };
+      if (args.address2) address.address2 = args.address2;
+      if (args.state) address.state = args.state;
+      const contact: Record<string, unknown> = {
+        firstName: args.contact_first_name,
+        lastName: args.contact_last_name,
+        phone: args.contact_phone,
+        address,
+      };
+      if (args.contact_email) contact.email = args.contact_email;
+      const body: Record<string, unknown> = { name: args.name, billingType: args.billing_type, contact };
+      if (args.data_geography) body.dataGeography = args.data_geography;
 
-        const data = await client.globalRequest<Record<string, unknown>>(
-          "/partner/v1/tenants",
-          { method: "POST", body }
-        );
+      const data = await client.globalRequest<Record<string, unknown>>(
+        "/partner/v1/tenants",
+        { method: "POST", body }
+      );
 
-        return jsonResult({ status: "created", tenant: data });
-      }
-    )
+      return jsonResult({ status: "created", tenant: data });
+    })
   );
 
   server.registerTool(
@@ -151,31 +163,18 @@ Returns:
       title: "List Partner Roles",
       description: `List partner-level admin roles.
 
-Returns all role definitions available at the partner/organization level.
+Returns all role definitions available at the partner level, in one response.
 These roles can be assigned to partner administrators.
 
 Args:
-  - limit (number, optional): Max results per page (default 50).
-  - page (number, optional): Page number (default 1).
+  - type (string, optional): "predefined" or "custom".
+  - principal_type (string, optional): "user" or "service".
 
 Returns:
-  Paginated list of partner roles.`,
+  The partner roles.`,
       inputSchema: {
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(100)
-          .optional()
-          .default(DEFAULT_PAGE_SIZE)
-          .describe("Max results per page (default 50)"),
-        page: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .default(1)
-          .describe("Page number (default 1)"),
+        type: z.enum(["predefined", "custom"]).optional().describe("Role type"),
+        principal_type: z.enum(["user", "service"]).optional().describe("Principal type"),
       },
       annotations: {
         readOnlyHint: true,
@@ -184,11 +183,10 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ limit, page }) => {
-      const params: Record<string, string> = {
-        pageSize: String(limit),
-        page: String(page),
-      };
+    withErrorHandling(async ({ type, principal_type }) => {
+      const params: Record<string, string> = {};
+      if (type) params.type = type;
+      if (principal_type) params.principalType = principal_type;
 
       const data = await client.globalRequest<{
         items?: Record<string, unknown>[];
@@ -196,11 +194,7 @@ Returns:
       }>("/partner/v1/roles", { params });
 
       const items = data.items ?? [];
-      return jsonResult({
-        total: data.pages?.total ?? data.pages?.items ?? items.length,
-        page: data.pages?.current ?? page,
-        roles: items,
-      });
+      return jsonResult({ total: items.length, roles: items });
     })
   );
 
@@ -245,18 +239,17 @@ Use sophos_list_partner_permission_sets to see available permissions.
 
 Args:
   - name (string): Role name.
+  - principal_type (string): "user" (for admins) or "service" (for API credentials).
+  - permission_sets (string[]): Permission set IDs to include (at least one).
   - description (string, optional): Role description.
-  - permission_sets (string[], optional): Array of permission set IDs to include.
 
 Returns:
   Created role details.`,
       inputSchema: {
         name: z.string().describe("Role name"),
+        principal_type: z.enum(["user", "service"]).describe("Who the role is for"),
+        permission_sets: z.array(z.string()).min(1).describe("Permission set IDs to include"),
         description: z.string().optional().describe("Role description"),
-        permission_sets: z
-          .array(z.string())
-          .optional()
-          .describe("Array of permission set IDs to include"),
       },
       annotations: {
         readOnlyHint: false,
@@ -265,10 +258,9 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ name, description, permission_sets }) => {
-      const body: Record<string, unknown> = { name };
+    withErrorHandling(async ({ name, principal_type, permission_sets, description }) => {
+      const body: Record<string, unknown> = { name, principalType: principal_type, permissionSets: permission_sets };
       if (description) body.description = description;
-      if (permission_sets) body.permissionSets = permission_sets;
 
       const data = await client.globalRequest<Record<string, unknown>>(
         "/partner/v1/roles",
@@ -448,26 +440,31 @@ Returns:
       title: "Create Partner Admin",
       description: `Create a new partner-level administrator.
 
-Creates an admin account at the partner/organization level. The admin
-will receive an invitation email.
+The admin receives an invitation email at the username address.
 
 Args:
+  - username (string): The admin's email address, which is the username.
   - first_name (string): Admin's first name.
   - last_name (string): Admin's last name.
-  - email (string): Admin's email address.
-  - role_assignments (array, optional): Array of role assignment objects,
-    each with a roleId string.
+  - name (string, optional): Full name; first and last name when omitted.
+  - phone, mobile (string, optional): Phone numbers.
+  - role_assignments (array, optional): Each {role_id, scope_type, scope_id?}.
+    scope_type is "tenant", "allManagedTenants", "self" or "tenantGroup";
+    scope_id is the tenant or tenant group ID (not used for allManagedTenants or self).
 
 Returns:
   Created admin details.`,
       inputSchema: {
+        username: z.string().email().describe("Admin email address (the username)"),
         first_name: z.string().describe("Admin's first name"),
         last_name: z.string().describe("Admin's last name"),
-        email: z.string().describe("Admin's email address"),
+        name: z.string().optional().describe("Full name"),
+        phone: z.string().optional().describe("Phone number"),
+        mobile: z.string().optional().describe("Mobile number"),
         role_assignments: z
-          .array(z.object({ roleId: z.string().describe("Role ID") }))
+          .array(partnerRoleAssignmentSchema)
           .optional()
-          .describe("Array of role assignments"),
+          .describe("Role assignments"),
       },
       annotations: {
         readOnlyHint: false,
@@ -476,13 +473,16 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ first_name, last_name, email, role_assignments }) => {
-      const body: Record<string, unknown> = {
+    withErrorHandling(async ({ username, first_name, last_name, name, phone, mobile, role_assignments }) => {
+      const profile: Record<string, unknown> = {
+        name: name ?? `${first_name} ${last_name}`,
         firstName: first_name,
         lastName: last_name,
-        email,
       };
-      if (role_assignments) body.roleAssignments = role_assignments;
+      if (phone) profile.phone = phone;
+      if (mobile) profile.mobile = mobile;
+      const body: Record<string, unknown> = { username, profile };
+      if (role_assignments) body.roleAssignments = role_assignments.map(toPartnerRoleAssignment);
 
       const data = await client.globalRequest<Record<string, unknown>>(
         "/partner/v1/admins",
@@ -573,17 +573,22 @@ Returns:
       title: "Add Partner Admin Role Assignment",
       description: `Add a role assignment to a partner administrator.
 
-Grants the specified role's permissions to the admin.
+Grants the role's permissions to the admin over a scope.
 
 Args:
   - admin_id (string): Admin ID to assign the role to.
   - role_id (string): Role ID to assign.
+  - scope_type (string): "tenant", "allManagedTenants", "self" or "tenantGroup".
+  - scope_id (string, optional): Tenant or tenant group ID; not used for
+    allManagedTenants or self.
 
 Returns:
   Created role assignment details.`,
       inputSchema: {
-        admin_id: z.string().describe("Admin ID to assign the role to"),
-        role_id: z.string().describe("Role ID to assign"),
+        admin_id: z.string().uuid().describe("Admin ID to assign the role to"),
+        role_id: z.string().uuid().describe("Role ID to assign"),
+        scope_type: partnerRoleAssignmentSchema.shape.scope_type,
+        scope_id: partnerRoleAssignmentSchema.shape.scope_id,
       },
       annotations: {
         readOnlyHint: false,
@@ -592,10 +597,10 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ admin_id, role_id }) => {
+    withErrorHandling(async ({ admin_id, role_id, scope_type, scope_id }) => {
       const data = await client.globalRequest<Record<string, unknown>>(
         `/partner/v1/admins/${admin_id}/role-assignments`,
-        { method: "POST", body: { roleId: role_id } }
+        { method: "POST", body: toPartnerRoleAssignment({ role_id, scope_type, scope_id }) }
       );
 
       return jsonResult({ status: "created", assignment: data });
@@ -665,7 +670,7 @@ Args:
   - month (number): The month (1-12).
   - tenant_id (string, optional): Filter results to a specific tenant by accountId.
   - page_size (number, optional): Items per page (default 50).
-  - cursor (string, optional): Pagination cursor from a previous response.
+  - cursor (string, optional): pages.nextKey from the previous response.
 
 Returns:
   Billing usage details for the specified month.`,
@@ -687,7 +692,7 @@ Returns:
         cursor: z
           .string()
           .optional()
-          .describe("Pagination cursor from a previous response"),
+          .describe("pages.nextKey from the previous response"),
       },
       annotations: {
         readOnlyHint: true,
@@ -699,7 +704,7 @@ Returns:
     withErrorHandling(async ({ year, month, tenant_id, page_size, cursor }) => {
       const params: Record<string, string> = { pageTotal: "true" };
       if (page_size) params.pageSize = String(page_size);
-      if (cursor) params.cursor = cursor;
+      if (cursor) params.pageFromKey = cursor;
 
       const data = await client.globalRequest<{
         items?: Array<Record<string, unknown>>;
@@ -788,7 +793,9 @@ Returns:
           pageTotal: "true",
           pageSize: "1000",
         };
-        if (cursor) params.cursor = cursor;
+        // The usage report pages by key; a "cursor" parameter is ignored, which
+        // made every loop re-read the first page and count it again.
+        if (cursor) params.pageFromKey = cursor;
 
         const data = await client.globalRequest<{
           items?: Array<Record<string, unknown>>;
@@ -798,7 +805,8 @@ Returns:
         if (Array.isArray(data.items)) {
           allItems.push(...data.items);
         }
-        cursor = data.pages?.nextKey ?? undefined;
+        const next = data.pages?.nextKey ?? undefined;
+        cursor = next && next !== cursor ? next : undefined;
         pageCount++;
       } while (cursor && pageCount < maxPages);
 
