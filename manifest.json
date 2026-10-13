@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "sophos-central-mcp-server",
   "display_name": "Sophos Fusion (formerly Sophos Central)",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "Unofficial, not a Sophos product. Query and manage Sophos Fusion (formerly Sophos Central) from Claude. 311 tools across 22 API namespaces: endpoints, alerts, policies, firewalls, email, mobile, XDR, cases, SIEM, licensing, Fusion GraphQL cases, and more.",
   "long_description": "**Unofficial project, not from Sophos.** This is a personal project by an individual. It is not an official Sophos product and it is not built, endorsed, supported, or warranted by Sophos. It calls the public Sophos APIs using credentials you supply. Use it at your own risk, and raise problems as issues on the GitHub repository rather than with Sophos support.\n\nConnects Claude to the Sophos Fusion (formerly Sophos Central) APIs so you can list and act on endpoints, alerts, policies, firewalls, email quarantine, mobile devices, XDR Data Lake queries, cases, SIEM feeds, licensing, audit events, and more from a chat. The `sophos_fusion_*` tools use the Sophos Fusion GraphQL APIs (Cases v2 today) beside the Sophos Central REST tools, on the same credential.\n\nWorks with tenant, partner, and organisation API credentials. Partner and organisation credentials unlock the cross-tenant tools (`sophos_list_tenants`, `sophos_list_account_health`, `sophos_partner_gap_analysis`) and every tenant-scoped tool then needs a `tenant_id`. Tenant credentials operate on that tenant only. Regional API hosts are discovered automatically.\n\nWrite actions carry `destructiveHint` annotations so clients can warn before isolating an endpoint, wiping a device, deleting a policy, and similar operations. The full tool list is in the project README.",
   "author": {
@@ -863,15 +863,15 @@
     },
     {
       "name": "sophos_create_cloud_security_profile",
-      "description": "Create a new cloud security profile."
+      "description": "Create a runtime detection profile, or a new version of an existing one (Cloud Security API)."
     },
     {
       "name": "sophos_update_cloud_security_profile",
-      "description": "Update an existing cloud security profile (full replacement via PUT)."
+      "description": "Rename a runtime detection profile (Cloud Security API)."
     },
     {
       "name": "sophos_delete_cloud_security_profile",
-      "description": "Delete a cloud security profile."
+      "description": "Delete a runtime detection profile (Cloud Security API)."
     },
     {
       "name": "sophos_list_wifi_mac_filters",
@@ -959,11 +959,11 @@
     },
     {
       "name": "sophos_get_mobile_auto_enrollment",
-      "description": "Get the auto-enrollment settings for Sophos Mobile."
+      "description": "Get the Intercept X for Mobile auto-enrollment settings."
     },
     {
       "name": "sophos_update_mobile_auto_enrollment",
-      "description": "Update the auto-enrollment settings for Sophos Mobile."
+      "description": "Update the Intercept X for Mobile auto-enrollment settings."
     },
     {
       "name": "sophos_list_mobile_os",
@@ -979,11 +979,11 @@
     },
     {
       "name": "sophos_create_mobile_device",
-      "description": "Enroll a new mobile device in Sophos Mobile."
+      "description": "Create a mobile device in Sophos Mobile."
     },
     {
       "name": "sophos_update_mobile_device",
-      "description": "Update a mobile device's properties in Sophos Mobile."
+      "description": "Update a mobile device in Sophos Mobile."
     },
     {
       "name": "sophos_delete_mobile_device",
@@ -1071,7 +1071,7 @@
     },
     {
       "name": "sophos_get_mobile_app_group",
-      "description": "Get details of a specific mobile app group."
+      "description": "Get details of a specific mobile app group, including its apps (the API's full view)."
     },
     {
       "name": "sophos_create_mobile_app_group",
@@ -1079,7 +1079,7 @@
     },
     {
       "name": "sophos_update_mobile_app_group",
-      "description": "Update a mobile app group in Sophos Mobile."
+      "description": "Update a mobile app group's name or apps in Sophos Mobile (PATCH)."
     },
     {
       "name": "sophos_delete_mobile_app_group",
@@ -1111,7 +1111,7 @@
     },
     {
       "name": "sophos_update_web_filtering_profile",
-      "description": "Update (replace) a web filtering profile."
+      "description": "Update a web filtering profile."
     },
     {
       "name": "sophos_delete_web_filtering_profile",
@@ -1139,7 +1139,7 @@
     },
     {
       "name": "sophos_update_site_list",
-      "description": "Update (replace) a site list."
+      "description": "Update a site list's name, description or sites."
     },
     {
       "name": "sophos_delete_site_list",
