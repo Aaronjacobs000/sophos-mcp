@@ -2,8 +2,8 @@
   "manifest_version": "0.3",
   "name": "sophos-central-mcp-server",
   "display_name": "Sophos Fusion (formerly Sophos Central)",
-  "version": "0.8.2",
-  "description": "Unofficial, not a Sophos product. Query and manage Sophos Fusion (formerly Sophos Central) from Claude. 311 tools across 22 API namespaces: endpoints, alerts, policies, firewalls, email, mobile, XDR, cases, SIEM, licensing, Fusion GraphQL cases, and more.",
+  "version": "0.8.3",
+  "description": "Unofficial, not a Sophos product. Query and manage Sophos Fusion (formerly Sophos Central) from Claude. 305 tools across 22 API namespaces: endpoints, alerts, policies, firewalls, email, mobile, XDR, cases, SIEM, licensing, Fusion GraphQL cases, and more.",
   "long_description": "**Unofficial project, not from Sophos.** This is a personal project by an individual. It is not an official Sophos product and it is not built, endorsed, supported, or warranted by Sophos. It calls the public Sophos APIs using credentials you supply. Use it at your own risk, and raise problems as issues on the GitHub repository rather than with Sophos support.\n\nConnects Claude to the Sophos Fusion (formerly Sophos Central) APIs so you can list and act on endpoints, alerts, policies, firewalls, email quarantine, mobile devices, XDR Data Lake queries, cases, SIEM feeds, licensing, audit events, and more from a chat. The `sophos_fusion_*` tools use the Sophos Fusion GraphQL APIs (Cases v2 today) beside the Sophos Central REST tools, on the same credential.\n\nWorks with tenant, partner, and organisation API credentials. Partner and organisation credentials unlock the cross-tenant tools (`sophos_list_tenants`, `sophos_list_account_health`, `sophos_partner_gap_analysis`) and every tenant-scoped tool then needs a `tenant_id`. Tenant credentials operate on that tenant only. Regional API hosts are discovered automatically.\n\nWrite actions carry `destructiveHint` annotations so clients can warn before isolating an endpoint, wiping a device, deleting a policy, and similar operations. The full tool list is in the project README.",
   "author": {
     "name": "Aaron Jacobs",
@@ -67,7 +67,7 @@
     },
     {
       "name": "sophos_search_alerts",
-      "description": "Search alerts using the advanced search endpoint with structured filters."
+      "description": "Search alerts with several values per filter (POST /common/v1/alerts/search)."
     },
     {
       "name": "sophos_list_endpoints",
@@ -119,7 +119,7 @@
     },
     {
       "name": "sophos_request_forensic_logs",
-      "description": "Request forensic log upload from a specific endpoint."
+      "description": "Request forensic log collection and upload from a specific endpoint."
     },
     {
       "name": "sophos_get_forensic_log_status",
@@ -127,7 +127,7 @@
     },
     {
       "name": "sophos_request_memory_dump",
-      "description": "Request a memory dump from a specific endpoint."
+      "description": "Request a memory dump of a process or the kernel from a specific endpoint."
     },
     {
       "name": "sophos_get_memory_dump_status",
@@ -214,12 +214,8 @@
       "description": "Remove a single user from a directory user group."
     },
     {
-      "name": "sophos_list_user_group_endpoints",
-      "description": "List endpoints (devices) associated with a specific directory user group."
-    },
-    {
       "name": "sophos_list_user_group_policies",
-      "description": "List policies assigned to a specific directory user group."
+      "description": "List the endpoint policies assigned to a directory user group."
     },
     {
       "name": "sophos_list_policies",
@@ -439,7 +435,7 @@
     },
     {
       "name": "sophos_create_admin",
-      "description": "Create a new administrator account in a Sophos Central tenant."
+      "description": "Make an existing directory user an administrator of a Sophos Central tenant."
     },
     {
       "name": "sophos_delete_admin",
@@ -482,10 +478,6 @@
       "description": "List available permission sets that can be assigned to roles."
     },
     {
-      "name": "sophos_reset_admin_password",
-      "description": "Trigger a password reset for an administrator. The admin will receive a password reset email."
-    },
-    {
       "name": "sophos_list_migrations",
       "description": "List endpoint migration jobs for a tenant."
     },
@@ -495,11 +487,7 @@
     },
     {
       "name": "sophos_create_migration",
-      "description": "Create a new endpoint migration job to migrate endpoints between tenants."
-    },
-    {
-      "name": "sophos_delete_migration",
-      "description": "Delete an endpoint migration job."
+      "description": "Create or start an endpoint migration job that moves endpoints between tenants."
     },
     {
       "name": "sophos_list_migration_endpoints",
@@ -507,19 +495,15 @@
     },
     {
       "name": "sophos_list_recommended_packages",
-      "description": "List recommended software packages for endpoint deployment."
+      "description": "List the Sophos recommended software packages for the tenant."
     },
     {
       "name": "sophos_list_static_packages",
-      "description": "List static software packages for endpoint deployment."
+      "description": "List the static (fixed version) software packages available to the tenant."
     },
     {
       "name": "sophos_list_installer_downloads",
       "description": "List available Sophos endpoint installer packages for a tenant."
-    },
-    {
-      "name": "sophos_get_installer_download",
-      "description": "Get a specific installer download link by ID."
     },
     {
       "name": "sophos_list_blocked_addresses",
@@ -527,11 +511,11 @@
     },
     {
       "name": "sophos_add_blocked_address",
-      "description": "Add a blocked network address (IP or domain) across all endpoints."
+      "description": "Block IP addresses or IP ranges that every device in the tenant refuses to communicate with."
     },
     {
       "name": "sophos_delete_blocked_address",
-      "description": "Delete a blocked network address by ID."
+      "description": "Unblock IP addresses or ranges by their blocked-address record IDs."
     },
     {
       "name": "sophos_list_local_sites",
@@ -559,15 +543,11 @@
     },
     {
       "name": "sophos_update_tls_decryption_settings",
-      "description": "Update TLS decryption settings for web control."
+      "description": "Turn SSL/TLS decryption on or off for the web categories that support a setting."
     },
     {
       "name": "sophos_get_global_tamper_protection",
       "description": "Get the global tamper protection settings for a tenant."
-    },
-    {
-      "name": "sophos_update_global_tamper_protection",
-      "description": "Update the global tamper protection setting for a tenant."
     },
     {
       "name": "sophos_list_detected_exploits",
@@ -579,11 +559,11 @@
     },
     {
       "name": "sophos_list_exploit_mitigation_categories",
-      "description": "List exploit mitigation categories."
+      "description": "List exploit mitigation categories (for example java, browser, office) and their settings."
     },
     {
       "name": "sophos_get_exploit_mitigation_category",
-      "description": "Get details of a specific exploit mitigation category by ID."
+      "description": "Get one exploit mitigation category and its settings."
     },
     {
       "name": "sophos_list_exploit_mitigation_apps",
@@ -619,19 +599,11 @@
     },
     {
       "name": "sophos_add_isolation_exclusion",
-      "description": "Add an isolation exclusion so an address remains reachable during endpoint isolation."
+      "description": "Add an isolation exclusion so traffic to or from given addresses or ports keeps flowing while an endpoint is isolated."
     },
     {
       "name": "sophos_delete_isolation_exclusion",
       "description": "Delete an isolation exclusion by ID."
-    },
-    {
-      "name": "sophos_get_lockdown_settings",
-      "description": "Get server lockdown settings for a tenant."
-    },
-    {
-      "name": "sophos_update_lockdown_settings",
-      "description": "Update server lockdown settings for a tenant."
     },
     {
       "name": "sophos_list_firewalls",
@@ -639,7 +611,7 @@
     },
     {
       "name": "sophos_update_firewall",
-      "description": "Update a managed firewall's name or group assignment."
+      "description": "Update a managed firewall's name or location, or move it to a group."
     },
     {
       "name": "sophos_delete_firewall",
@@ -667,15 +639,15 @@
     },
     {
       "name": "sophos_get_firewall_group",
-      "description": "Get full details of a firewall group by ID."
+      "description": "Get a firewall group by ID."
     },
     {
       "name": "sophos_create_firewall_group",
-      "description": "Create a new firewall group for organising managed firewalls."
+      "description": "Create a firewall group, optionally with firewalls in it."
     },
     {
       "name": "sophos_update_firewall_group",
-      "description": "Update an existing firewall group's name or description."
+      "description": "Rename a firewall group, or move firewalls into or out of it."
     },
     {
       "name": "sophos_delete_firewall_group",
@@ -691,11 +663,11 @@
     },
     {
       "name": "sophos_update_threat_feed_settings",
-      "description": "Update the MDR threat feed settings on a managed firewall."
+      "description": "Turn the MDR threat feed on or off on a managed firewall, or change its action."
     },
     {
       "name": "sophos_search_threat_feed_indicators",
-      "description": "Search the MDR threat feed indicators on a managed firewall."
+      "description": "Check whether indicators are in the MDR threat feed on a managed firewall."
     },
     {
       "name": "sophos_get_firewall_transaction",
@@ -719,119 +691,119 @@
     },
     {
       "name": "sophos_search_quarantine",
-      "description": "Search quarantined emails in Sophos Email with optional filters."
+      "description": "Search messages held in Sophos Email quarantine."
     },
     {
       "name": "sophos_preview_quarantine_message",
-      "description": "Preview the content of a quarantined email by message ID."
+      "description": "Preview a quarantined message."
     },
     {
       "name": "sophos_get_quarantine_urls",
-      "description": "Get the URLs found in a quarantined email."
+      "description": "List the URLs found in the body of a quarantined message."
     },
     {
       "name": "sophos_get_quarantine_attachments",
-      "description": "Get attachment information for a quarantined email."
+      "description": "List the attachments of a quarantined message."
     },
     {
       "name": "sophos_release_quarantine_message",
-      "description": "Release a quarantined email to its intended recipient."
+      "description": "Queue quarantined messages for release (up to 50 per call)."
     },
     {
       "name": "sophos_delete_quarantine_message",
-      "description": "Permanently delete a quarantined email."
+      "description": "Delete messages from quarantine (up to 50 per call)."
     },
     {
       "name": "sophos_strip_quarantine_attachments",
-      "description": "Strip attachments from a quarantined email and release the message."
+      "description": "Strip attachments from a quarantined message."
     },
     {
       "name": "sophos_reattach_quarantine_attachments",
-      "description": "Reattach previously stripped attachments to a quarantined email."
+      "description": "Reattach stripped attachments to a quarantined message."
     },
     {
       "name": "sophos_download_quarantine_attachment",
-      "description": "Download a specific attachment from a quarantined email."
+      "description": "Get a download link for attachments of a quarantined message."
     },
     {
       "name": "sophos_search_post_delivery_quarantine",
-      "description": "Search post-delivery quarantined emails in Sophos Email."
+      "description": "Search messages pulled into post-delivery quarantine after delivery."
     },
     {
       "name": "sophos_preview_post_delivery_message",
-      "description": "Preview the content of a post-delivery quarantined email."
+      "description": "Preview a message in post-delivery quarantine."
     },
     {
       "name": "sophos_get_post_delivery_attachments",
-      "description": "Get attachment information for a post-delivery quarantined email."
+      "description": "List the attachments of a message in post-delivery quarantine."
     },
     {
       "name": "sophos_release_post_delivery_message",
-      "description": "Release a post-delivery quarantined email back to the recipient."
+      "description": "Queue messages in post-delivery quarantine for release (up to 50 per call)."
     },
     {
       "name": "sophos_delete_post_delivery_message",
-      "description": "Permanently delete a post-delivery quarantined email."
+      "description": "Delete messages from post-delivery quarantine (up to 50 per call)."
     },
     {
       "name": "sophos_download_post_delivery_attachment",
-      "description": "Download a specific attachment from a post-delivery quarantined email."
+      "description": "Get a download link for attachments of a message in post-delivery quarantine."
     },
     {
       "name": "sophos_clawback_message",
-      "description": "Clawback (recall) a delivered email message from the recipient's mailbox."
+      "description": "Claw back a delivered message from recipients' mailboxes."
     },
     {
       "name": "sophos_get_clawback_status",
-      "description": "Get the status of a clawback (recall) action."
+      "description": "Get the per-recipient status of a message, for example after a clawback."
     },
     {
       "name": "sophos_list_mailboxes",
-      "description": "List mailboxes managed by Sophos Email protection."
+      "description": "List Sophos Email mailboxes, optionally filtered."
     },
     {
       "name": "sophos_create_mailbox",
-      "description": "Create a new mailbox in Sophos Email protection."
+      "description": "Add a mailbox to Sophos Email. The address must be in one of the tenant's email domains."
     },
     {
       "name": "sophos_bulk_create_mailboxes",
-      "description": "Bulk create multiple mailboxes in Sophos Email protection."
+      "description": "Add up to 10 mailboxes in one request."
     },
     {
       "name": "sophos_get_mailbox",
-      "description": "Get full details of a specific mailbox by ID."
+      "description": "Get a mailbox, including its aliases, delegates and policies."
     },
     {
       "name": "sophos_update_mailbox",
-      "description": "Update an existing mailbox in Sophos Email protection."
+      "description": "Rename a mailbox. The name is the only field the API changes."
     },
     {
       "name": "sophos_delete_mailbox",
-      "description": "Delete a mailbox from Sophos Email protection."
+      "description": "Delete a mailbox."
     },
     {
       "name": "sophos_list_mailbox_aliases",
-      "description": "List email aliases for a specific mailbox."
+      "description": "List a mailbox's aliases (read from the mailbox record)."
     },
     {
       "name": "sophos_add_mailbox_alias",
-      "description": "Add an email alias to a mailbox."
+      "description": "Add alias addresses to a mailbox (up to 100 per call)."
     },
     {
       "name": "sophos_delete_mailbox_alias",
-      "description": "Delete an email alias from a mailbox."
+      "description": "Remove alias addresses from a mailbox (up to 100 per call)."
     },
     {
       "name": "sophos_list_mailbox_delegates",
-      "description": "List delegates for a specific mailbox."
+      "description": "List a mailbox's delegates (read from the mailbox record)."
     },
     {
       "name": "sophos_add_mailbox_delegate",
-      "description": "Add a delegate to a mailbox."
+      "description": "Give other mailboxes delegate access to a mailbox (up to 50 per call)."
     },
     {
       "name": "sophos_delete_mailbox_delegate",
-      "description": "Remove a delegate from a mailbox."
+      "description": "Remove delegates from a mailbox (up to 50 per call)."
     },
     {
       "name": "sophos_list_dns_locations",
@@ -843,11 +815,11 @@
     },
     {
       "name": "sophos_create_dns_location",
-      "description": "Create a new DNS protection location."
+      "description": "Create a DNS Protection location (at most 50 per account)."
     },
     {
       "name": "sophos_update_dns_location",
-      "description": "Update an existing DNS protection location."
+      "description": "Update a DNS Protection location."
     },
     {
       "name": "sophos_delete_dns_location",
@@ -856,6 +828,10 @@
     {
       "name": "sophos_list_cloud_security_profiles",
       "description": "List cloud security profiles configured for a tenant."
+    },
+    {
+      "name": "sophos_list_cloud_security_default_contents",
+      "description": "List the default detection contents for runtime detection profiles (Cloud Security API)."
     },
     {
       "name": "sophos_get_cloud_security_profile",
@@ -875,19 +851,19 @@
     },
     {
       "name": "sophos_list_wifi_mac_filters",
-      "description": "List Wi-Fi MAC filtering entries configured for a tenant."
+      "description": "Get the tenant's Wi-Fi MAC filtering list."
     },
     {
       "name": "sophos_add_wifi_mac_filter",
-      "description": "Add a MAC filtering entry to allow or deny a device by MAC address."
+      "description": "Add MAC addresses to the tenant's Wi-Fi MAC filtering list."
     },
     {
       "name": "sophos_delete_wifi_mac_filter",
-      "description": "Delete a Wi-Fi MAC filtering entry."
+      "description": "Remove MAC addresses from the tenant's Wi-Fi MAC filtering list."
     },
     {
       "name": "sophos_create_attestation",
-      "description": "Create a user attestation/sign-off record."
+      "description": "Ask a user to attest to something through Intercept X for Mobile (User Activity Verification API)."
     },
     {
       "name": "sophos_get_attestation",
@@ -895,7 +871,7 @@
     },
     {
       "name": "sophos_create_tenant",
-      "description": "Create a new managed tenant under this partner/organization account."
+      "description": "Create a new managed tenant under this partner account."
     },
     {
       "name": "sophos_get_managed_tenant",
