@@ -168,7 +168,7 @@ The script:
 npm test
 ```
 
-Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, the policy assignment and web profile writes (body shapes, refusals, target lookups and read-back) against an in-memory policy store, the no-retry rule for a POST or mutation after a 5xx, a registration check that lists all 311 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
+Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, the policy assignment and web profile writes (body shapes, refusals, target lookups and read-back) against an in-memory policy store, the no-retry rule for a POST or mutation after a 5xx, the read-modify-write and PATCH update tools, a registration check that lists all 311 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
 
 To exercise the Fusion tools against a live tenant, put credentials in `.env` (or export them) and run:
 
@@ -616,12 +616,12 @@ for about 3 minutes to cover that window.
 | Tool | Description |
 |------|-------------|
 | `sophos_get_mobile_auto_enrollment` | Get auto-enrollment settings |
-| `sophos_update_mobile_auto_enrollment` | Update auto-enrollment settings |
+| `sophos_update_mobile_auto_enrollment` | Update auto-enrollment settings (keeps what you leave out) |
 | `sophos_list_mobile_os` | List supported mobile OS platforms |
 | `sophos_list_mobile_devices` | List mobile devices with filters |
 | `sophos_get_mobile_device` | Get device detail |
-| `sophos_create_mobile_device` | Enroll a new mobile device |
-| `sophos_update_mobile_device` | Update device properties |
+| `sophos_create_mobile_device` | Create a mobile device |
+| `sophos_update_mobile_device` | Update device properties (keeps what you leave out) |
 | `sophos_delete_mobile_device` | Delete/unenroll a device |
 | `sophos_list_mobile_device_properties` | Get device properties |
 | `sophos_get_mobile_device_compliance` | Get compliance status |
@@ -632,7 +632,7 @@ for about 3 minutes to cover that window.
 | `sophos_list_mobile_device_groups` | List device groups |
 | `sophos_get_mobile_device_group` | Get device group detail |
 | `sophos_create_mobile_device_group` | Create a device group |
-| `sophos_update_mobile_device_group` | Update a device group |
+| `sophos_update_mobile_device_group` | Update a device group (keeps what you leave out) |
 | `sophos_delete_mobile_device_group` | Delete a device group |
 | `sophos_sync_mobile_device` | Sync a device |
 | `sophos_request_mobile_device_logs` | Request device logs |
@@ -645,7 +645,7 @@ for about 3 minutes to cover that window.
 | `sophos_list_mobile_app_groups` | List app groups |
 | `sophos_get_mobile_app_group` | Get app group detail |
 | `sophos_create_mobile_app_group` | Create an app group |
-| `sophos_update_mobile_app_group` | Update an app group |
+| `sophos_update_mobile_app_group` | Rename an app group or replace its app list |
 | `sophos_delete_mobile_app_group` | Delete an app group |
 
 ### DNS Protection (5 tools)
@@ -664,8 +664,8 @@ for about 3 minutes to cover that window.
 |------|-------------|
 | `sophos_list_cloud_security_profiles` | List cloud security profiles |
 | `sophos_get_cloud_security_profile` | Get profile detail |
-| `sophos_create_cloud_security_profile` | Create a cloud security profile |
-| `sophos_update_cloud_security_profile` | Update a profile |
+| `sophos_create_cloud_security_profile` | Create a runtime detection profile or a new version of one |
+| `sophos_update_cloud_security_profile` | Rename a profile |
 | `sophos_delete_cloud_security_profile` | Delete a profile |
 
 ### Wi-Fi (3 tools)
@@ -703,14 +703,14 @@ for about 3 minutes to cover that window.
 | `sophos_list_web_filtering_profiles` | List web filtering profiles |
 | `sophos_get_web_filtering_profile` | Get a web filtering profile |
 | `sophos_create_web_filtering_profile` | Create a web filtering profile |
-| `sophos_update_web_filtering_profile` | Update (replace) a web filtering profile |
+| `sophos_update_web_filtering_profile` | Update a web filtering profile (keeps what you leave out) |
 | `sophos_delete_web_filtering_profile` | Delete a web filtering profile |
 | `sophos_clone_web_filtering_profile` | Clone a web filtering profile |
 | `sophos_get_web_filtering_metadata` | Get categories, groups, and presets |
 | `sophos_list_site_lists` | List site lists |
 | `sophos_get_site_list` | Get a site list |
 | `sophos_create_site_list` | Create a site list |
-| `sophos_update_site_list` | Update (replace) a site list |
+| `sophos_update_site_list` | Update a site list (keeps what you leave out) |
 | `sophos_delete_site_list` | Delete a site list |
 | `sophos_clone_site_list` | Clone a site list |
 | `sophos_list_sites` | List the sites in a site list |

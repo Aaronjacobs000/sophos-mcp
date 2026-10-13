@@ -2,7 +2,8 @@
  * Tools: sophos_list_cloud_security_profiles, sophos_get_cloud_security_profile,
  *        sophos_create_cloud_security_profile, sophos_update_cloud_security_profile,
  *        sophos_delete_cloud_security_profile
- * Interact with the Sophos Cloud Security API /cloud-security/v1/
+ * Interact with the Sophos Cloud Security API /cloud-security/v1/ (runtime detection
+ * profiles), shaped by its published spec 1.0.0
  */
 
 import { z } from "zod";
@@ -111,25 +112,28 @@ Args:
     "sophos_create_cloud_security_profile",
     {
       title: "Create Cloud Security Profile",
-      description: `Create a new cloud security profile.
+      description: `Create a runtime detection profile, or a new version of an existing one (Cloud Security API).
+
+content_version and settings are required. Pass profile_id to add a new
+version to that profile instead of creating another. sophos_get_cloud_security_profile
+shows an existing profile's contentVersion and settings to start from.
 
 Args:
-  - name (string): Profile name.
-  - description (string, optional): Profile description.
-  - provider (string, optional): Cloud provider (e.g. "aws", "azure", "gcp").
-  - settings (object, optional): Profile-specific settings.
-  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
+  - content_version (string): Detection content version, for example "5.8.0.8".
+  - settings (object): Profile settings.
+  - name (string, optional): Profile name (1 to 50 characters).
+  - profile_description (string, optional): Profile description.
+  - profile_id (string, optional): Existing profile to add a version to.
+  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
+
+Returns:
+  The profile's id and version.`,
       inputSchema: {
-        name: z.string().describe("Profile name"),
-        description: z.string().optional().describe("Profile description"),
-        provider: z
-          .string()
-          .optional()
-          .describe('Cloud provider (e.g. "aws", "azure", "gcp")'),
-        settings: z
-          .record(z.unknown())
-          .optional()
-          .describe("Profile-specific settings"),
+        content_version: z.string().describe('Detection content version, for example "5.8.0.8"'),
+        settings: z.record(z.unknown()).describe("Profile settings"),
+        name: z.string().min(1).max(50).optional().describe("Profile name"),
+        profile_description: z.string().optional().describe("Profile description"),
+        profile_id: z.string().uuid().optional().describe("Existing profile to add a version to"),
         tenant_id: z
           .string()
           .uuid()
@@ -143,13 +147,12 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ name, description, provider, settings, tenant_id }) => {
+    withErrorHandling(async ({ content_version, settings, name, profile_description, profile_id, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = { name };
-      if (description) body.description = description;
-      if (provider) body.provider = provider;
-      if (settings) body.settings = settings;
-
+      const body: Record<string, unknown> = { contentVersion: content_version, settings };
+      if (name !== undefined) body.name = name;
+      if (profile_description !== undefined) body.profileDescription = profile_description;
+      if (profile_id !== undefined) body.profileId = profile_id;
       const data = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
         "/cloud-security/v1/profiles",
@@ -163,25 +166,21 @@ Args:
   server.registerTool(
     "sophos_update_cloud_security_profile",
     {
-      title: "Update Cloud Security Profile",
-      description: `Update an existing cloud security profile (full replacement via PUT).
+      title: "Rename Cloud Security Profile",
+      description: `Rename a runtime detection profile (Cloud Security API).
+
+The API's update changes only the name; nothing else about the profile is
+touched. To change settings, add a new version with
+sophos_create_cloud_security_profile and profile_id. The name is read back
+after the write.
 
 Args:
-  - profile_id (string): The profile ID to update.
-  - name (string): Updated profile name.
-  - description (string, optional): Updated profile description.
-  - provider (string, optional): Cloud provider.
-  - settings (object, optional): Updated profile settings.
+  - profile_id (string): The profile ID.
+  - name (string): New profile name (1 to 50 characters).
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        profile_id: z.string().describe("Cloud security profile ID to update"),
-        name: z.string().describe("Updated profile name"),
-        description: z.string().optional().describe("Updated profile description"),
-        provider: z.string().optional().describe("Cloud provider"),
-        settings: z
-          .record(z.unknown())
-          .optional()
-          .describe("Updated profile settings"),
+        profile_id: z.string().uuid().describe("Cloud security profile ID to rename"),
+        name: z.string().min(1).max(50).describe("New profile name"),
         tenant_id: z
           .string()
           .uuid()
@@ -195,19 +194,17 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ profile_id, name, description, provider, settings, tenant_id }) => {
+    withErrorHandling(async ({ profile_id, name, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = { name };
-      if (description) body.description = description;
-      if (provider) body.provider = provider;
-      if (settings) body.settings = settings;
-
-      const data = await client.tenantRequest<Record<string, unknown>>(
-        resolvedTenantId,
-        `/cloud-security/v1/profiles/${profile_id}`,
-        { method: "PUT", body }
-      );
-      return jsonResult({ status: "updated", profile: data });
+      const path = `/cloud-security/v1/profiles/${profile_id}`;
+      await client.tenantRequest(resolvedTenantId, path, { method: "PUT", params: { name } });
+      const profile = await client.tenantRequest<Record<string, unknown>>(resolvedTenantId, path);
+      return jsonResult({
+        status: profile.name === name ? "renamed" : "not_renamed",
+        profile_id,
+        name_sent: name,
+        name_stored: profile.name ?? null,
+      });
     })
   );
 
@@ -216,15 +213,16 @@ Args:
     "sophos_delete_cloud_security_profile",
     {
       title: "Delete Cloud Security Profile",
-      description: `Delete a cloud security profile.
+      description: `Delete a runtime detection profile (Cloud Security API).
 
-WARNING: This permanently removes the cloud security profile.
+WARNING: This permanently removes the profile. Sophos may skip a profile it
+cannot delete; the result says whether this one was deleted or skipped.
 
 Args:
   - profile_id (string): The profile ID to delete.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        profile_id: z.string().describe("Cloud security profile ID to delete"),
+        profile_id: z.string().uuid().describe("Cloud security profile ID to delete"),
         tenant_id: z
           .string()
           .uuid()
@@ -240,16 +238,19 @@ Args:
     },
     withErrorHandling(async ({ profile_id, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      await client.tenantRequest(
+      const data = await client.tenantRequest<{ skippedProfiles?: unknown[] }>(
         resolvedTenantId,
-        `/cloud-security/v1/profiles/${profile_id}`,
-        { method: "DELETE" }
+        "/cloud-security/v1/profiles",
+        { method: "DELETE", params: { profileIds: profile_id } }
       );
-      return jsonResult({
-        status: "deleted",
-        profile_id,
-        message: `Cloud security profile ${profile_id} deleted.`,
-      });
+      const skipped = (data?.skippedProfiles ?? []).filter((s) =>
+        JSON.stringify(s).includes(profile_id)
+      );
+      return jsonResult(
+        skipped.length
+          ? { status: "skipped", profile_id, skipped }
+          : { status: "deleted", profile_id, message: `Cloud security profile ${profile_id} deleted.` }
+      );
     })
   );
 

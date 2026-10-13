@@ -24,6 +24,39 @@ import type { TenantResolver } from "../client/tenant-resolver.js";
 import { jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
+// Field names and enums follow the Sophos Mobile API spec (mobile-v1 1.0.13).
+const ownershipTypeSchema = z.enum(["corporate", "employee"]);
+const platformSchema = z.enum(["iOS", "macOS", "android", "chrome", "windows"]);
+const logLevelSchema = z.enum(["error", "warn", "info", "debug", "trace"]);
+const appSchema = z.object({
+  name: z.string().describe("App name"),
+  identifier: z.string().describe("App identifier (bundle ID or package name)"),
+  link: z.string().optional().describe("Link to the app"),
+});
+const iosAutoEnrollmentSchema = z
+  .object({
+    enabled: z.boolean().describe("Assign this group to iOS devices that auto-enroll"),
+    install_smc_app: z.boolean().optional().describe("Install the Sophos Mobile Control app through MDM during enrollment"),
+  })
+  .describe("iOS auto-enrollment settings for the group");
+
+function toIosAutoEnrollment(
+  value: { enabled: boolean; install_smc_app?: boolean } | undefined
+): Record<string, unknown> | undefined {
+  return value === undefined ? undefined : compact({ enabled: value.enabled, installSmcApp: value.install_smc_app });
+}
+
+/** The id of a {id, name} reference the API returns, if there is one. */
+function idOf(value: unknown): string | undefined {
+  const id = value && typeof value === "object" ? (value as { id?: unknown }).id : undefined;
+  return typeof id === "string" ? id : undefined;
+}
+
+/** Drops undefined and null, so a value the API left empty is not sent back. */
+function compact(object: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(object).filter(([, v]) => v !== undefined && v !== null));
+}
+
 export function registerMobileTools(
   server: McpServer,
   client: SophosClient,
@@ -38,7 +71,11 @@ export function registerMobileTools(
     "sophos_get_mobile_auto_enrollment",
     {
       title: "Get Mobile Auto-Enrollment Settings",
-      description: `Get the auto-enrollment settings for Sophos Mobile.
+      description: `Get the Intercept X for Mobile auto-enrollment settings.
+
+Returns the device group, ownership type, Android and iOS policies and the
+connection code. Sophos answers 404 ixmAutoEnrollmentNotConfigured when
+auto-enrollment is not set up for the tenant.
 
 Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
@@ -63,7 +100,7 @@ Returns:
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
-        "/mobile/v1/static-setup-data/ixm-auto-enrollment"
+        "/mobile/v1/settings/ixm-auto-enrollment"
       );
       return jsonResult(data);
     })
@@ -74,50 +111,59 @@ Returns:
     "sophos_update_mobile_auto_enrollment",
     {
       title: "Update Mobile Auto-Enrollment Settings",
-      description: `Update the auto-enrollment settings for Sophos Mobile.
+      description: `Update the Intercept X for Mobile auto-enrollment settings.
+
+Sophos replaces the whole setting on update (PUT), so the tool reads the
+current setting first and sends it back with your changes: anything you leave
+out keeps its value. rotate_connection_code true issues a new connection code,
+and the old one stops working. Auto-enrollment must already be set up; Sophos
+answers 404 ixmAutoEnrollmentNotConfigured otherwise.
 
 Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
-  - enabled (boolean, optional): Enable or disable auto-enrollment.
-  - settings (object, optional): Additional auto-enrollment settings.
+  - device_group_id (string, optional): Device group for auto-enrolled devices.
+  - ownership_type (string, optional): "corporate" or "employee".
+  - android_policy_id (string, optional): Android security policy ID.
+  - ios_policy_id (string, optional): iOS security policy ID.
+  - rotate_connection_code (boolean, optional): Issue a new connection code.
 
 Returns:
-  Updated auto-enrollment configuration.`,
+  What was sent and the updated configuration.`,
       inputSchema: {
         tenant_id: z
           .string()
           .uuid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
-        enabled: z
-          .boolean()
-          .optional()
-          .describe("Enable or disable auto-enrollment"),
-        settings: z
-          .record(z.unknown())
-          .optional()
-          .describe("Additional auto-enrollment settings"),
+        device_group_id: z.string().uuid().optional().describe("Device group for auto-enrolled devices"),
+        ownership_type: ownershipTypeSchema.optional().describe("Ownership type of auto-enrolled devices"),
+        android_policy_id: z.string().uuid().optional().describe("Android security policy ID"),
+        ios_policy_id: z.string().uuid().optional().describe("iOS security policy ID"),
+        rotate_connection_code: z.boolean().optional().describe("Issue a new connection code; the old one stops working"),
       },
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
+        destructiveHint: true,
+        idempotentHint: false,
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ tenant_id, enabled, settings }) => {
-      const tenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = {};
-      if (enabled !== undefined) body.enabled = enabled;
-      if (settings !== undefined) body.settings = settings;
-
-      const data = await client.tenantRequest<Record<string, unknown>>(
-        tenantId,
-        "/mobile/v1/static-setup-data/ixm-auto-enrollment",
-        { method: "PUT", body }
-      );
-      return jsonResult(data);
-    })
+    withErrorHandling(
+      async ({ tenant_id, device_group_id, ownership_type, android_policy_id, ios_policy_id, rotate_connection_code }) => {
+        const tenantId = tenantResolver.resolveTenantId(tenant_id);
+        const path = "/mobile/v1/settings/ixm-auto-enrollment";
+        const current = await client.tenantRequest<Record<string, unknown>>(tenantId, path);
+        const body = compact({
+          deviceGroupId: device_group_id ?? idOf(current.deviceGroup),
+          ownershipType: ownership_type ?? current.ownershipType,
+          androidPolicyId: android_policy_id ?? idOf(current.androidPolicy),
+          iosPolicyId: ios_policy_id ?? idOf(current.iosPolicy),
+          rotateConnectionCode: rotate_connection_code,
+        });
+        const data = await client.tenantRequest<Record<string, unknown>>(tenantId, path, { method: "PUT", body });
+        return jsonResult({ status: "updated", sent: body, settings: data });
+      }
+    )
   );
 
   // =====================================================================
@@ -258,7 +304,8 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
-  Complete device details including OS, compliance, and enrollment status.`,
+  Complete device details (the API's full view) including OS, compliance,
+  ownership, device group and enrollment status.`,
       inputSchema: {
         device_id: z.string().describe("Mobile device ID"),
         tenant_id: z
@@ -278,7 +325,8 @@ Returns:
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
-        `/mobile/v1/devices/${device_id}`
+        `/mobile/v1/devices/${device_id}`,
+        { params: { view: "full" } }
       );
       return jsonResult(data);
     })
@@ -289,16 +337,22 @@ Returns:
     "sophos_create_mobile_device",
     {
       title: "Create Mobile Device",
-      description: `Enroll a new mobile device in Sophos Mobile.
+      description: `Create a mobile device in Sophos Mobile.
 
 Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
   - name (string): Device name.
-  - os_type (string): Operating system type (e.g. "android", "ios").
-  - owner (string, optional): Device owner identifier.
+  - platform (string): "iOS", "macOS", "android", "chrome" or "windows".
+  - ownership_type (string): "corporate" or "employee".
+  - group_id (string, optional): Device group ID.
+  - description (string, optional): Device description.
+  - phone_number (string, optional): Phone number of the assigned user.
+  - email (string, optional): Email address for the device when no user is assigned.
+  - assigned_person_id (string, optional): ID of the user assigned to the device.
+  - log_level (string, optional): "error", "warn", "info", "debug" or "trace".
 
 Returns:
-  The newly created device record.`,
+  The newly created device.`,
       inputSchema: {
         tenant_id: z
           .string()
@@ -306,8 +360,14 @@ Returns:
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         name: z.string().describe("Device name"),
-        os_type: z.string().describe('Operating system type (e.g. "android", "ios")'),
-        owner: z.string().optional().describe("Device owner identifier"),
+        platform: platformSchema.describe("Device platform"),
+        ownership_type: ownershipTypeSchema.describe("Ownership type"),
+        group_id: z.string().uuid().optional().describe("Device group ID"),
+        description: z.string().optional().describe("Device description"),
+        phone_number: z.string().optional().describe("Phone number of the assigned user"),
+        email: z.string().optional().describe("Email address for the device when no user is assigned"),
+        assigned_person_id: z.string().uuid().optional().describe("ID of the user assigned to the device"),
+        log_level: logLevelSchema.optional().describe("Sophos Mobile app log level"),
       },
       annotations: {
         readOnlyHint: false,
@@ -316,11 +376,19 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ tenant_id, name, os_type, owner }) => {
+    withErrorHandling(async ({ tenant_id, ...args }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = { name, osType: os_type };
-      if (owner) body.owner = owner;
-
+      const body = compact({
+        name: args.name,
+        platform: args.platform,
+        ownershipType: args.ownership_type,
+        groupId: args.group_id,
+        description: args.description,
+        phoneNumber: args.phone_number,
+        email: args.email,
+        assignedPersonId: args.assigned_person_id,
+        logLevel: args.log_level,
+      });
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
         "/mobile/v1/devices",
@@ -335,16 +403,26 @@ Returns:
     "sophos_update_mobile_device",
     {
       title: "Update Mobile Device",
-      description: `Update a mobile device's properties in Sophos Mobile.
+      description: `Update a mobile device in Sophos Mobile.
+
+Sophos replaces the whole device record on update (PUT, with name, ownership
+type and group required), so the tool reads the device first (full view) and
+sends it back with your changes: fields you leave out keep their values.
 
 Args:
   - device_id (string): The mobile device ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
   - name (string, optional): New device name.
-  - group_id (string, optional): Device group ID to assign.
+  - group_id (string, optional): Device group ID to move it to.
+  - ownership_type (string, optional): "corporate" or "employee".
+  - description (string, optional): Device description.
+  - phone_number (string, optional): Phone number of the assigned user.
+  - email (string, optional): Email address for the device when no user is assigned.
+  - assigned_person_id (string, optional): ID of the user assigned to the device.
+  - log_level (string, optional): "error", "warn", "info", "debug" or "trace".
 
 Returns:
-  The updated device record.`,
+  What was sent and the updated device record.`,
       inputSchema: {
         device_id: z.string().describe("Mobile device ID"),
         tenant_id: z
@@ -353,27 +431,41 @@ Returns:
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         name: z.string().optional().describe("New device name"),
-        group_id: z.string().optional().describe("Device group ID to assign"),
+        group_id: z.string().uuid().optional().describe("Device group ID to move it to"),
+        ownership_type: ownershipTypeSchema.optional().describe("Ownership type"),
+        description: z.string().optional().describe("Device description"),
+        phone_number: z.string().optional().describe("Phone number of the assigned user"),
+        email: z.string().optional().describe("Email address for the device when no user is assigned"),
+        assigned_person_id: z.string().uuid().optional().describe("ID of the user assigned to the device"),
+        log_level: logLevelSchema.optional().describe("Sophos Mobile app log level"),
       },
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: true,
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ device_id, tenant_id, name, group_id }) => {
+    withErrorHandling(async ({ device_id, tenant_id, ...args }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = {};
-      if (name !== undefined) body.name = name;
-      if (group_id !== undefined) body.groupId = group_id;
-
-      const data = await client.tenantRequest<Record<string, unknown>>(
-        tenantId,
-        `/mobile/v1/devices/${device_id}`,
-        { method: "PUT", body }
-      );
-      return jsonResult(data);
+      const path = `/mobile/v1/devices/${device_id}`;
+      const current = await client.tenantRequest<Record<string, unknown>>(tenantId, path, {
+        params: { view: "full" },
+      });
+      const assignedPersonId = args.assigned_person_id ?? idOf(current.assignedPerson);
+      const body = compact({
+        name: args.name ?? current.name,
+        description: args.description ?? current.description,
+        phoneNumber: args.phone_number ?? current.phoneNumber,
+        // email is for a device with no assigned user, so the stored one is kept only then
+        email: args.email ?? (assignedPersonId ? undefined : current.email),
+        assignedPersonId,
+        ownershipType: args.ownership_type ?? current.ownershipType,
+        logLevel: args.log_level ?? current.logLevel,
+        groupId: args.group_id ?? idOf(current.deviceGroup),
+      });
+      const data = await client.tenantRequest<Record<string, unknown>>(tenantId, path, { method: "PUT", body });
+      return jsonResult({ status: "updated", sent: body, device: data });
     })
   );
 
@@ -723,12 +815,16 @@ Returns:
       title: "Get Mobile Device Group",
       description: `Get details of a specific mobile device group.
 
+Returns the API's full view, including the employee and corporate compliance
+policy IDs, which sophos_create_mobile_device_group needs.
+
 Args:
   - group_id (string): The device group ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
-  Device group details including name, description, and member count.`,
+  Device group details including name, description, compliance policies and
+  iOS auto-enrollment settings.`,
       inputSchema: {
         group_id: z.string().describe("Device group ID"),
         tenant_id: z
@@ -748,7 +844,8 @@ Returns:
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
-        `/mobile/v1/device-groups/${group_id}`
+        `/mobile/v1/device-groups/${group_id}`,
+        { params: { view: "full" } }
       );
       return jsonResult(data);
     })
@@ -761,10 +858,16 @@ Returns:
       title: "Create Mobile Device Group",
       description: `Create a new mobile device group in Sophos Mobile.
 
+Both compliance policy IDs are required. sophos_get_mobile_device_group shows
+the ones an existing group uses.
+
 Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
   - name (string): Group name.
+  - employee_compliance_policy_id (string): Compliance policy for devices the user owns.
+  - corporate_compliance_policy_id (string): Compliance policy for devices the organization owns.
   - description (string, optional): Group description.
+  - ios_auto_enrollment (object, optional): {enabled, install_smc_app}.
 
 Returns:
   The newly created device group.`,
@@ -775,7 +878,10 @@ Returns:
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         name: z.string().describe("Group name"),
+        employee_compliance_policy_id: z.string().uuid().describe("Compliance policy for devices the user owns"),
+        corporate_compliance_policy_id: z.string().uuid().describe("Compliance policy for devices the organization owns"),
         description: z.string().optional().describe("Group description"),
+        ios_auto_enrollment: iosAutoEnrollmentSchema.optional(),
       },
       annotations: {
         readOnlyHint: false,
@@ -784,11 +890,15 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ tenant_id, name, description }) => {
+    withErrorHandling(async ({ tenant_id, ...args }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = { name };
-      if (description) body.description = description;
-
+      const body = compact({
+        name: args.name,
+        description: args.description,
+        employeeCompliancePolicyId: args.employee_compliance_policy_id,
+        corporateCompliancePolicyId: args.corporate_compliance_policy_id,
+        iosAutoEnrollment: toIosAutoEnrollment(args.ios_auto_enrollment),
+      });
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
         "/mobile/v1/device-groups",
@@ -805,14 +915,21 @@ Returns:
       title: "Update Mobile Device Group",
       description: `Update a mobile device group in Sophos Mobile.
 
+Sophos replaces the whole group on update (PUT, with name and both compliance
+policy IDs required), so the tool reads the group first (full view) and sends
+it back with your changes: fields you leave out keep their values.
+
 Args:
   - group_id (string): The device group ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
   - name (string, optional): New group name.
   - description (string, optional): New group description.
+  - employee_compliance_policy_id (string, optional): Compliance policy for devices the user owns.
+  - corporate_compliance_policy_id (string, optional): Compliance policy for devices the organization owns.
+  - ios_auto_enrollment (object, optional): {enabled, install_smc_app}.
 
 Returns:
-  The updated device group.`,
+  What was sent and the updated device group.`,
       inputSchema: {
         group_id: z.string().describe("Device group ID"),
         tenant_id: z
@@ -822,26 +939,35 @@ Returns:
           .describe("Tenant ID. Required for partner/org callers."),
         name: z.string().optional().describe("New group name"),
         description: z.string().optional().describe("New group description"),
+        employee_compliance_policy_id: z.string().uuid().optional().describe("Compliance policy for devices the user owns"),
+        corporate_compliance_policy_id: z.string().uuid().optional().describe("Compliance policy for devices the organization owns"),
+        ios_auto_enrollment: iosAutoEnrollmentSchema.optional(),
       },
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: true,
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ group_id, tenant_id, name, description }) => {
+    withErrorHandling(async ({ group_id, tenant_id, ...args }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = {};
-      if (name !== undefined) body.name = name;
-      if (description !== undefined) body.description = description;
-
-      const data = await client.tenantRequest<Record<string, unknown>>(
-        tenantId,
-        `/mobile/v1/device-groups/${group_id}`,
-        { method: "PUT", body }
-      );
-      return jsonResult(data);
+      const path = `/mobile/v1/device-groups/${group_id}`;
+      const current = await client.tenantRequest<Record<string, unknown>>(tenantId, path, {
+        params: { view: "full" },
+      });
+      const storedIos = current.iosAutoEnrollment as { enabled?: boolean; installSmcApp?: boolean } | undefined;
+      const body = compact({
+        name: args.name ?? current.name,
+        description: args.description ?? current.description,
+        employeeCompliancePolicyId: args.employee_compliance_policy_id ?? idOf(current.employeeCompliancePolicy),
+        corporateCompliancePolicyId: args.corporate_compliance_policy_id ?? idOf(current.corporateCompliancePolicy),
+        iosAutoEnrollment:
+          toIosAutoEnrollment(args.ios_auto_enrollment) ??
+          (storedIos?.enabled === undefined ? undefined : compact({ enabled: storedIos.enabled, installSmcApp: storedIos.installSmcApp })),
+      });
+      const data = await client.tenantRequest<Record<string, unknown>>(tenantId, path, { method: "PUT", body });
+      return jsonResult({ status: "updated", sent: body, group: data });
     })
   );
 
@@ -1292,7 +1418,7 @@ Returns:
     "sophos_get_mobile_app_group",
     {
       title: "Get Mobile App Group",
-      description: `Get details of a specific mobile app group.
+      description: `Get details of a specific mobile app group, including its apps (the API's full view).
 
 Args:
   - group_id (string): The app group ID.
@@ -1319,7 +1445,8 @@ Returns:
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
-        `/mobile/v1/app-groups/${group_id}`
+        `/mobile/v1/app-groups/${group_id}`,
+        { params: { view: "full" } }
       );
       return jsonResult(data);
     })
@@ -1335,8 +1462,8 @@ Returns:
 Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
   - name (string): App group name.
-  - type (string, optional): App group type.
-  - apps (array, optional): List of apps with name and identifier.
+  - platform (string): "iOS", "macOS", "android", "chrome" or "windows".
+  - apps (array): Apps in the group, each {name, identifier, link?}.
 
 Returns:
   The newly created app group.`,
@@ -1347,16 +1474,8 @@ Returns:
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         name: z.string().describe("App group name"),
-        type: z.string().optional().describe("App group type"),
-        apps: z
-          .array(
-            z.object({
-              name: z.string().describe("App name"),
-              identifier: z.string().describe("App identifier (bundle ID or package name)"),
-            })
-          )
-          .optional()
-          .describe("List of apps to include in the group"),
+        platform: platformSchema.describe("Device platform the group is for"),
+        apps: z.array(appSchema).describe("Apps in the group"),
       },
       annotations: {
         readOnlyHint: false,
@@ -1365,16 +1484,12 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ tenant_id, name, type, apps }) => {
+    withErrorHandling(async ({ tenant_id, name, platform, apps }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = { name };
-      if (type !== undefined) body.type = type;
-      if (apps !== undefined) body.apps = apps;
-
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
         "/mobile/v1/app-groups",
-        { method: "POST", body }
+        { method: "POST", body: { name, platform, apps } }
       );
       return jsonResult(data);
     })
@@ -1385,14 +1500,16 @@ Returns:
     "sophos_update_mobile_app_group",
     {
       title: "Update Mobile App Group",
-      description: `Update a mobile app group in Sophos Mobile.
+      description: `Update a mobile app group's name or apps in Sophos Mobile (PATCH).
+
+Fields you leave out keep their values. apps replaces the group's whole app
+list, so include every app that should stay. The platform cannot be changed.
 
 Args:
   - group_id (string): The app group ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
   - name (string, optional): New app group name.
-  - type (string, optional): New app group type.
-  - apps (array, optional): Updated list of apps with name and identifier.
+  - apps (array, optional): The complete new app list, each {name, identifier, link?}.
 
 Returns:
   The updated app group.`,
@@ -1404,35 +1521,25 @@ Returns:
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         name: z.string().optional().describe("New app group name"),
-        type: z.string().optional().describe("New app group type"),
-        apps: z
-          .array(
-            z.object({
-              name: z.string().describe("App name"),
-              identifier: z.string().describe("App identifier (bundle ID or package name)"),
-            })
-          )
-          .optional()
-          .describe("Updated list of apps"),
+        apps: z.array(appSchema).optional().describe("The complete new app list"),
       },
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: true,
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ group_id, tenant_id, name, type, apps }) => {
+    withErrorHandling(async ({ group_id, tenant_id, name, apps }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = {};
-      if (name !== undefined) body.name = name;
-      if (type !== undefined) body.type = type;
-      if (apps !== undefined) body.apps = apps;
-
+      const body = compact({ name, apps });
+      if (Object.keys(body).length === 0) {
+        throw new Error("Pass name, apps or both. Nothing was sent.");
+      }
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
         `/mobile/v1/app-groups/${group_id}`,
-        { method: "PUT", body }
+        { method: "PATCH", body }
       );
       return jsonResult(data);
     })
