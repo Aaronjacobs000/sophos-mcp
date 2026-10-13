@@ -269,7 +269,7 @@ Args:
     },
     withErrorHandling(async ({ run_id, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      await client.tenantRequest(resolvedTenantId, `/xdr-query/v1/queries/runs/${run_id}`, { method: "DELETE" });
+      await client.tenantRequest(resolvedTenantId, `/xdr-query/v1/queries/runs/${run_id}/cancel`, { method: "POST", body: {} });
       return jsonResult({ status: "cancelled", run_id, message: `XDR query run ${run_id} cancelled.` });
     })
   );

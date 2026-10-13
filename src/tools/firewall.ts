@@ -121,21 +121,27 @@ Args:
     "sophos_update_firewall",
     {
       title: "Update Sophos Firewall",
-      description: `Update a managed firewall's name or group assignment.
+      description: `Update a managed firewall's name or location, or move it to a group.
+
+The firewall API changes name and geolocation; a group move goes through the
+group (PATCH /firewall-groups/{id} with assignFirewalls).
 
 Args:
   - firewall_id (string): The firewall ID to update.
-  - name (string, optional): New firewall name.
-  - group_id (string, optional): New group ID to assign the firewall to.
+  - name (string, optional): New firewall name (up to 40 characters).
+  - latitude, longitude (string, optional): New geolocation; give both.
+  - group_id (string, optional): Group to move the firewall into.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         firewall_id: z.string().uuid().describe("Firewall ID to update"),
-        name: z.string().optional().describe("New firewall name"),
+        name: z.string().max(40).optional().describe("New firewall name"),
+        latitude: z.string().optional().describe("Latitude"),
+        longitude: z.string().optional().describe("Longitude"),
         group_id: z
           .string()
           .uuid()
           .optional()
-          .describe("New group ID to assign the firewall to"),
+          .describe("Group to move the firewall into"),
         tenant_id: z
           .string()
           .uuid()
@@ -149,25 +155,37 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ firewall_id, name, group_id, tenant_id }) => {
+    withErrorHandling(async ({ firewall_id, name, latitude, longitude, group_id, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-
+      if ((latitude === undefined) !== (longitude === undefined)) {
+        throw new Error("Give both latitude and longitude, or neither. Nothing was sent.");
+      }
       const body: Record<string, unknown> = {};
       if (name !== undefined) body.name = name;
-      if (group_id !== undefined) body.groupId = group_id;
+      if (latitude !== undefined) body.geoLocation = { latitude, longitude };
 
-      if (Object.keys(body).length === 0) {
+      if (Object.keys(body).length === 0 && !group_id) {
         return jsonResult({
-          error: "No fields to update. Provide at least one of: name, group_id.",
+          error: "No fields to update. Provide at least one of: name, latitude and longitude, group_id.",
         });
       }
 
-      const data = await client.tenantRequest<Record<string, unknown>>(
-        resolvedTenantId,
-        `/firewall/v1/firewalls/${firewall_id}`,
-        { method: "PATCH", body }
-      );
-      return jsonResult({ status: "updated", firewall: data });
+      const result: Record<string, unknown> = { status: "updated" };
+      if (Object.keys(body).length > 0) {
+        result.firewall = await client.tenantRequest<Record<string, unknown>>(
+          resolvedTenantId,
+          `/firewall/v1/firewalls/${firewall_id}`,
+          { method: "PATCH", body }
+        );
+      }
+      if (group_id) {
+        result.group = await client.tenantRequest<Record<string, unknown>>(
+          resolvedTenantId,
+          `/firewall/v1/firewall-groups/${group_id}`,
+          { method: "PATCH", body: { assignFirewalls: [firewall_id] } }
+        );
+      }
+      return jsonResult(result);
     })
   );
 
@@ -521,9 +539,10 @@ Args:
     "sophos_get_firewall_group",
     {
       title: "Get Sophos Firewall Group Detail",
-      description: `Get full details of a firewall group by ID.
+      description: `Get a firewall group by ID.
 
-Returns group information including name, description, and member firewalls.
+The API has no single-group read, so the tool pages through the group list
+(with child groups) and returns the match.
 
 Args:
   - group_id (string): The firewall group ID.
@@ -545,11 +564,18 @@ Args:
     },
     withErrorHandling(async ({ group_id, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const data = await client.tenantRequest<Record<string, unknown>>(
-        resolvedTenantId,
-        `/firewall/v1/firewall-groups/${group_id}`
-      );
-      return jsonResult(data);
+      for (let page = 1; page <= 50; page++) {
+        const data = await client.tenantRequest<{
+          items?: Array<Record<string, unknown> & { id?: string }>;
+          pages?: { total?: number };
+        }>(resolvedTenantId, "/firewall/v1/firewall-groups", {
+          params: { page: String(page), pageSize: "100", pageTotal: "true", recurseSubgroups: "true" },
+        });
+        const match = (data.items ?? []).find((g) => g.id === group_id);
+        if (match) return jsonResult(match);
+        if (!data.items?.length || !data.pages?.total || page >= data.pages.total) break;
+      }
+      throw new Error(`Firewall group ${group_id} was not found.`);
     })
   );
 
@@ -558,18 +584,20 @@ Args:
     "sophos_create_firewall_group",
     {
       title: "Create Sophos Firewall Group",
-      description: `Create a new firewall group for organising managed firewalls.
+      description: `Create a firewall group, optionally with firewalls in it.
 
 Args:
-  - name (string): Group name.
-  - description (string, optional): Group description.
+  - name (string): Group name (up to 40 characters).
+  - assign_firewalls (array, optional): Firewall IDs to put in the group.
+  - parent_group_id (string, optional): Parent group, for a child group.
+  - config_import_source_firewall_id (string, optional): Firewall whose configuration
+    the group imports.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        name: z.string().describe("Firewall group name"),
-        description: z
-          .string()
-          .optional()
-          .describe("Firewall group description"),
+        name: z.string().max(40).describe("Firewall group name"),
+        assign_firewalls: z.array(z.string().uuid()).optional().default([]).describe("Firewall IDs to put in the group"),
+        parent_group_id: z.string().uuid().optional().describe("Parent group ID"),
+        config_import_source_firewall_id: z.string().uuid().optional().describe("Firewall to import configuration from"),
         tenant_id: z
           .string()
           .uuid()
@@ -583,11 +611,12 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ name, description, tenant_id }) => {
+    withErrorHandling(async ({ name, assign_firewalls, parent_group_id, config_import_source_firewall_id, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
 
-      const body: Record<string, unknown> = { name };
-      if (description) body.description = description;
+      const body: Record<string, unknown> = { name, assignFirewalls: assign_firewalls };
+      if (parent_group_id) body.parentGroupId = parent_group_id;
+      if (config_import_source_firewall_id) body.configImportSourceFirewallId = config_import_source_firewall_id;
 
       const data = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
@@ -603,17 +632,19 @@ Args:
     "sophos_update_firewall_group",
     {
       title: "Update Sophos Firewall Group",
-      description: `Update an existing firewall group's name or description.
+      description: `Rename a firewall group, or move firewalls into or out of it.
 
 Args:
   - group_id (string): Group ID to update.
-  - name (string, optional): New group name.
-  - description (string, optional): New group description.
+  - name (string, optional): New group name (up to 40 characters).
+  - assign_firewalls (array, optional): Firewall IDs to add to the group.
+  - unassign_firewalls (array, optional): Firewall IDs to remove from the group.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         group_id: z.string().uuid().describe("Firewall group ID to update"),
-        name: z.string().optional().describe("New group name"),
-        description: z.string().optional().describe("New group description"),
+        name: z.string().max(40).optional().describe("New group name"),
+        assign_firewalls: z.array(z.string().uuid()).optional().describe("Firewall IDs to add"),
+        unassign_firewalls: z.array(z.string().uuid()).optional().describe("Firewall IDs to remove"),
         tenant_id: z
           .string()
           .uuid()
@@ -627,16 +658,17 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ group_id, name, description, tenant_id }) => {
+    withErrorHandling(async ({ group_id, name, assign_firewalls, unassign_firewalls, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
 
       const body: Record<string, unknown> = {};
       if (name !== undefined) body.name = name;
-      if (description !== undefined) body.description = description;
+      if (assign_firewalls?.length) body.assignFirewalls = assign_firewalls;
+      if (unassign_firewalls?.length) body.unassignFirewalls = unassign_firewalls;
 
       if (Object.keys(body).length === 0) {
         return jsonResult({
-          error: "No fields to update. Provide at least one of: name, description.",
+          error: "No fields to update. Provide at least one of: name, assign_firewalls, unassign_firewalls.",
         });
       }
 
@@ -776,20 +808,20 @@ Args:
     "sophos_update_threat_feed_settings",
     {
       title: "Update MDR Threat Feed Settings",
-      description: `Update the MDR threat feed settings on a managed firewall.
+      description: `Turn the MDR threat feed on or off on a managed firewall, or change its action.
 
 Asynchronous: returns a transaction ID. Poll it with
 sophos_get_firewall_transaction.
 
 Args:
   - firewall_id (string): The firewall ID.
-  - settings (object): Settings object to update (passed directly to the API).
+  - enabled (boolean, optional): Whether the MDR threat feed is on.
+  - action (string, optional): "logOnly" or "logAndDrop".
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         firewall_id: z.string().uuid().describe("Firewall ID"),
-        settings: z
-          .record(z.unknown())
-          .describe("Settings object to update"),
+        enabled: z.boolean().optional().describe("Whether the MDR threat feed is on"),
+        action: z.enum(["logOnly", "logAndDrop"]).optional().describe("What the firewall does with matches"),
         tenant_id: z
           .string()
           .uuid()
@@ -803,12 +835,18 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ firewall_id, settings, tenant_id }) => {
+    withErrorHandling(async ({ firewall_id, enabled, action, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const body: Record<string, unknown> = {};
+      if (enabled !== undefined) body.enabled = enabled;
+      if (action !== undefined) body.action = action;
+      if (Object.keys(body).length === 0) {
+        throw new Error("Pass enabled, action or both. Nothing was sent.");
+      }
       const data = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
         `/firewall/v1/firewall-config/firewalls/${firewall_id}/mdr-threat-feed/settings`,
-        { method: "PATCH", body: settings }
+        { method: "PATCH", body }
       );
       return jsonResult({
         status: "update_submitted",
@@ -825,7 +863,7 @@ Args:
     "sophos_search_threat_feed_indicators",
     {
       title: "Search MDR Threat Feed Indicators",
-      description: `Search the MDR threat feed indicators on a managed firewall.
+      description: `Check whether indicators are in the MDR threat feed on a managed firewall.
 
 Asynchronous: returns a transaction ID. Poll it with
 sophos_get_firewall_transaction; the finished transaction carries the
@@ -833,19 +871,11 @@ matching indicators.
 
 Args:
   - firewall_id (string): The firewall ID.
-  - filter (object, optional): Filter criteria object.
-  - sort (array, optional): Sort criteria array.
+  - indicator_values (array): Up to 100 indicator values (IP addresses, domains or URLs).
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         firewall_id: z.string().uuid().describe("Firewall ID"),
-        filter: z
-          .record(z.unknown())
-          .optional()
-          .describe("Filter criteria object"),
-        sort: z
-          .array(z.unknown())
-          .optional()
-          .describe("Sort criteria array"),
+        indicator_values: z.array(z.string()).min(1).max(100).describe("Indicator values to look up"),
         tenant_id: z
           .string()
           .uuid()
@@ -859,17 +889,12 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ firewall_id, filter, sort, tenant_id }) => {
+    withErrorHandling(async ({ firewall_id, indicator_values, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-
-      const body: Record<string, unknown> = {};
-      if (filter) body.filter = filter;
-      if (sort) body.sort = sort;
-
       const data = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
         `/firewall/v1/firewall-config/firewalls/${firewall_id}/mdr-threat-feed/indicators/search`,
-        { method: "POST", body }
+        { method: "POST", body: { indicatorValues: indicator_values } }
       );
       return jsonResult(data);
     })

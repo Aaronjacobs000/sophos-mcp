@@ -1,6 +1,6 @@
 /**
  * Tools: sophos_create_attestation, sophos_get_attestation
- * Interact with the Sophos User Activity API /user-activity/v1/
+ * Interact with the Sophos User Activity Verification API /user-activity-verification/v1/
  */
 
 import { z } from "zod";
@@ -19,23 +19,37 @@ export function registerUserActivityTools(
     "sophos_create_attestation",
     {
       title: "Create User Attestation",
-      description: `Create a user attestation/sign-off record.
+      description: `Ask a user to attest to something through Intercept X for Mobile (User Activity Verification API).
+
+The user sees the title and question in the app and picks an answer; read the
+result with sophos_get_attestation. Without options the answers are yes and no.
 
 Args:
-  - type (string): Attestation type.
-  - user_id (string, optional): User ID associated with the attestation.
-  - details (object, optional): Additional attestation details.
+  - user_id (string): The user to ask.
+  - title (string): Title shown to the user (up to 100 characters).
+  - question (string): The question (up to 500 characters).
+  - options (array, optional): Up to 5 answers, each {key, text, action?}. key is
+    returned when chosen; action is a URI the app opens.
+  - reference (string, optional): Your own reference, returned with the attestation.
+  - timeout_in_seconds (number, optional): Expiry, 60 to 86400 seconds.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        type: z.string().describe("Attestation type"),
-        user_id: z
-          .string()
+        user_id: z.string().uuid().describe("User ID"),
+        title: z.string().max(100).describe("Title shown to the user"),
+        question: z.string().max(500).describe("The question"),
+        options: z
+          .array(
+            z.object({
+              key: z.string().max(36).describe("Returned when the user picks this answer"),
+              text: z.string().max(100).describe("Answer text"),
+              action: z.string().max(2048).optional().describe("URI the app opens for this answer"),
+            })
+          )
+          .max(5)
           .optional()
-          .describe("User ID associated with the attestation"),
-        details: z
-          .record(z.unknown())
-          .optional()
-          .describe("Additional attestation details"),
+          .describe("Up to 5 answers; yes and no when omitted"),
+        reference: z.string().max(256).optional().describe("Your own reference"),
+        timeout_in_seconds: z.number().int().min(60).max(86400).optional().describe("Expiry in seconds"),
         tenant_id: z
           .string()
           .uuid()
@@ -49,15 +63,26 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ type, user_id, details, tenant_id }) => {
+    withErrorHandling(async ({ user_id, title, question, options, reference, timeout_in_seconds, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = { type };
-      if (user_id) body.userId = user_id;
-      if (details) body.details = details;
+      const body: Record<string, unknown> = {
+        userId: user_id,
+        title: { text: title },
+        question: { text: question },
+      };
+      if (options) {
+        body.options = options.map((o) => ({
+          key: o.key,
+          value: { text: o.text },
+          ...(o.action !== undefined ? { action: o.action } : {}),
+        }));
+      }
+      if (reference !== undefined) body.reference = reference;
+      if (timeout_in_seconds !== undefined) body.timeoutInSeconds = timeout_in_seconds;
 
       const data = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
-        "/user-activity/v1/attestations",
+        "/user-activity-verification/v1/attestations",
         { method: "POST", body }
       );
       return jsonResult({ status: "created", attestation: data });
@@ -93,7 +118,7 @@ Args:
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
       const data = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
-        `/user-activity/v1/attestations/${attestation_id}`
+        `/user-activity-verification/v1/attestations/${attestation_id}`
       );
       return jsonResult(data);
     })

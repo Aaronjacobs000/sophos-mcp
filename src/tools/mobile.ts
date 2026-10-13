@@ -217,14 +217,14 @@ Returns:
       title: "List Mobile Devices",
       description: `List mobile devices managed by Sophos Mobile.
 
-Supports filtering by search term, OS type, and compliance status.
+Supports filtering by search term, platform and compliance.
 Uses page-based pagination.
 
 Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
   - search (string, optional): Search term to filter devices.
-  - os_type (string, optional): Filter by OS type (e.g. "android", "ios").
-  - compliance_status (string, optional): Filter by compliance status.
+  - platform (string, optional): "iOS", "macOS", "android", "chrome" or "windows".
+  - compliant (boolean, optional): Only compliant (true) or non-compliant (false) devices.
   - page (number, optional): Page number (default 1).
   - page_size (number, optional): Results per page (1-100, default 50).
 
@@ -240,14 +240,8 @@ Returns:
           .string()
           .optional()
           .describe("Search term to filter devices"),
-        os_type: z
-          .string()
-          .optional()
-          .describe('Filter by OS type (e.g. "android", "ios")'),
-        compliance_status: z
-          .string()
-          .optional()
-          .describe("Filter by compliance status"),
+        platform: platformSchema.optional().describe("Device platform"),
+        compliant: z.boolean().optional().describe("Compliant (true) or non-compliant (false)"),
         page: z
           .number()
           .int()
@@ -272,15 +266,15 @@ Returns:
       },
     },
     withErrorHandling(
-      async ({ tenant_id, search, os_type, compliance_status, page, page_size }) => {
+      async ({ tenant_id, search, platform, compliant, page, page_size }) => {
         const tenantId = tenantResolver.resolveTenantId(tenant_id);
         const params: Record<string, string> = {
           page: String(page),
           pageSize: String(page_size),
         };
         if (search) params.search = search;
-        if (os_type) params.osType = os_type;
-        if (compliance_status) params.complianceStatus = compliance_status;
+        if (platform) params.platform = platform;
+        if (compliant !== undefined) params.compliant = String(compliant);
 
         const data = await client.tenantRequest<Record<string, unknown>>(
           tenantId,
@@ -1182,7 +1176,7 @@ Returns:
 Args:
   - device_id (string): The mobile device ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
-  - message (string): The message text to send to the device.
+  - message (string): The message text (up to 500 characters).
 
 Returns:
   Confirmation that message was sent.`,
@@ -1193,7 +1187,7 @@ Returns:
           .uuid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
-        message: z.string().describe("Message text to send to the device"),
+        message: z.string().max(500).describe("Message text to send to the device"),
       },
       annotations: {
         readOnlyHint: false,
@@ -1207,7 +1201,7 @@ Returns:
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
         "/mobile/v1/actions/send-message",
-        { method: "POST", body: { endpoints: [device_id], message } }
+        { method: "POST", body: { endpoints: [device_id], arguments: { message } } }
       );
       return jsonResult(data ?? { actionInitiated: true });
     })
@@ -1225,12 +1219,15 @@ Use sophos_get_mobile_device_location to retrieve the result.
 
 Args:
   - device_id (string): The mobile device ID.
+  - reason (string): Why the device is being located; Sophos Mobile writes it to its
+    privacy log (up to 255 characters).
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
   Confirmation that locate request was sent.`,
       inputSchema: {
         device_id: z.string().describe("Mobile device ID"),
+        reason: z.string().max(255).describe("Why the device is being located (privacy log)"),
         tenant_id: z
           .string()
           .uuid()
@@ -1244,12 +1241,12 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ device_id, tenant_id }) => {
+    withErrorHandling(async ({ device_id, reason, tenant_id }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
         "/mobile/v1/actions/locate",
-        { method: "POST", body: { endpoints: [device_id] } }
+        { method: "POST", body: { endpoints: [device_id], arguments: { reason } } }
       );
       return jsonResult(data ?? { actionInitiated: true });
     })
@@ -1267,8 +1264,9 @@ This sends a lock command to the device, preventing access until unlocked.
 Args:
   - device_id (string): The mobile device ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
-  - message (string, optional): Lock screen message to display.
-  - pin (string, optional): PIN code to unlock the device.
+  - message (string, optional): Lock screen message (Android and iOS, up to 500 characters).
+  - pin (string, optional): Six-digit lock code; required for Macs only.
+  - phone_number (string, optional): Phone number shown on a locked iPhone.
 
 Returns:
   Confirmation that lock command was sent.`,
@@ -1279,8 +1277,9 @@ Returns:
           .uuid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
-        message: z.string().optional().describe("Lock screen message to display"),
-        pin: z.string().optional().describe("PIN code to unlock the device"),
+        message: z.string().max(500).optional().describe("Lock screen message (Android and iOS)"),
+        pin: z.string().regex(/^[0-9]{6}$/, "Six digits").optional().describe("Six-digit lock code (Macs)"),
+        phone_number: z.string().max(50).regex(/^\+?\d*$/, "Digits with an optional leading +").optional().describe("Phone number shown on a locked iPhone"),
       },
       annotations: {
         readOnlyHint: false,
@@ -1289,16 +1288,17 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ device_id, tenant_id, message, pin }) => {
+    withErrorHandling(async ({ device_id, tenant_id, message, pin, phone_number }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = {};
-      if (message !== undefined) body.message = message;
-      if (pin !== undefined) body.pin = pin;
+      const args: Record<string, unknown> = {};
+      if (message !== undefined) args.lockScreenMessage = message;
+      if (pin !== undefined) args.lockCode = pin;
+      if (phone_number !== undefined) args.phoneNumber = phone_number;
 
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
         "/mobile/v1/actions/lock",
-        { method: "POST", body: { endpoints: [device_id], ...body } }
+        { method: "POST", body: { endpoints: [device_id], arguments: args } }
       );
       return jsonResult(data ?? { actionInitiated: true });
     })
@@ -1317,7 +1317,9 @@ Use with extreme caution. The device will be factory-reset.
 Args:
   - device_id (string): The mobile device ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
-  - reason (string, optional): Reason for wiping the device.
+  - wipe_code (string, optional): Six-digit code; required for Macs only.
+  - preserve_data_plan (boolean, optional): Keep data plans such as eSIM (iOS only).
+  - disallow_proximity_setup (boolean, optional): Block proximity setup after the wipe (iOS only).
 
 Returns:
   Confirmation that wipe command was sent.`,
@@ -1328,7 +1330,9 @@ Returns:
           .uuid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
-        reason: z.string().optional().describe("Reason for wiping the device"),
+        wipe_code: z.string().regex(/^[0-9]{6}$/, "Six digits").optional().describe("Six-digit wipe code (Macs)"),
+        preserve_data_plan: z.boolean().optional().describe("Keep data plans such as eSIM (iOS)"),
+        disallow_proximity_setup: z.boolean().optional().describe("Block proximity setup after the wipe (iOS)"),
       },
       annotations: {
         readOnlyHint: false,
@@ -1337,15 +1341,17 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ device_id, tenant_id, reason }) => {
+    withErrorHandling(async ({ device_id, tenant_id, wipe_code, preserve_data_plan, disallow_proximity_setup }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = {};
-      if (reason !== undefined) body.reason = reason;
+      const args: Record<string, unknown> = {};
+      if (wipe_code !== undefined) args.wipeCode = wipe_code;
+      if (preserve_data_plan !== undefined) args.preserveDataPlan = preserve_data_plan;
+      if (disallow_proximity_setup !== undefined) args.disallowProximitySetup = disallow_proximity_setup;
 
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
         "/mobile/v1/actions/wipe",
-        { method: "POST", body: { endpoints: [device_id], ...body } }
+        { method: "POST", body: { endpoints: [device_id], arguments: args } }
       );
       return jsonResult(data ?? { actionInitiated: true });
     })

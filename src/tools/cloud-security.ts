@@ -1,5 +1,6 @@
 /**
- * Tools: sophos_list_cloud_security_profiles, sophos_get_cloud_security_profile,
+ * Tools: sophos_list_cloud_security_profiles, sophos_list_cloud_security_default_contents,
+ *        sophos_get_cloud_security_profile,
  *        sophos_create_cloud_security_profile, sophos_update_cloud_security_profile,
  *        sophos_delete_cloud_security_profile
  * Interact with the Sophos Cloud Security API /cloud-security/v1/ (runtime detection
@@ -72,6 +73,43 @@ Returns:
     })
   );
 
+  // --- List Cloud Security Default Contents ---
+  server.registerTool(
+    "sophos_list_cloud_security_default_contents",
+    {
+      title: "List Cloud Security Default Contents",
+      description: `List the default detection contents for runtime detection profiles (Cloud Security API).
+
+Each item has an id and a version. Pass a version as content_version to
+sophos_create_cloud_security_profile.
+
+Args:
+  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
+      inputSchema: {
+        tenant_id: z
+          .string()
+          .uuid()
+          .optional()
+          .describe("Tenant ID. Required for partner/org callers."),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    withErrorHandling(async ({ tenant_id }) => {
+      const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const data = await client.tenantRequest<{ items?: Array<{ id: string; version: string }> }>(
+        resolvedTenantId,
+        "/cloud-security/v1/profiles/default-contents"
+      );
+      const items = data.items ?? [];
+      return jsonResult({ total: items.length, contents: items });
+    })
+  );
+
   // --- Get Cloud Security Profile ---
   server.registerTool(
     "sophos_get_cloud_security_profile",
@@ -114,13 +152,16 @@ Args:
       title: "Create Cloud Security Profile",
       description: `Create a runtime detection profile, or a new version of an existing one (Cloud Security API).
 
-content_version and settings are required. Pass profile_id to add a new
-version to that profile instead of creating another. sophos_get_cloud_security_profile
-shows an existing profile's contentVersion and settings to start from.
+content_version and settings are required. sophos_list_cloud_security_default_contents
+lists the content versions. Pass profile_id to add a new version to that profile
+instead of creating another. sophos_get_cloud_security_profile shows an existing
+profile's contentVersion and settings to start from.
 
 Args:
   - content_version (string): Detection content version, for example "5.8.0.8".
-  - settings (object): Profile settings.
+  - settings (object): Overrides of the default content: {rules?: [{name, enabled}],
+    lists?: [{name, operations: [{behavior: "add"|"remove", list: [items]}]}]}.
+    {} or empty arrays keep the defaults.
   - name (string, optional): Profile name (1 to 50 characters).
   - profile_description (string, optional): Profile description.
   - profile_id (string, optional): Existing profile to add a version to.
@@ -130,7 +171,30 @@ Returns:
   The profile's id and version.`,
       inputSchema: {
         content_version: z.string().describe('Detection content version, for example "5.8.0.8"'),
-        settings: z.record(z.unknown()).describe("Profile settings"),
+        settings: z
+          .object({
+            rules: z
+              .array(z.object({ name: z.string().describe("Rule name"), enabled: z.boolean().describe("Whether the rule is on") }))
+              .optional()
+              .describe("Rule overrides"),
+            lists: z
+              .array(
+                z.object({
+                  name: z.string().describe("Allow or block list name"),
+                  operations: z
+                    .array(
+                      z.object({
+                        behavior: z.enum(["add", "remove"]).describe("Add or remove the items"),
+                        list: z.array(z.string()).describe("Items"),
+                      })
+                    )
+                    .describe("Changes to the list"),
+                })
+              )
+              .optional()
+              .describe("Allow and block list overrides"),
+          })
+          .describe("Overrides of the default content settings"),
         name: z.string().min(1).max(50).optional().describe("Profile name"),
         profile_description: z.string().optional().describe("Profile description"),
         profile_id: z.string().uuid().optional().describe("Existing profile to add a version to"),

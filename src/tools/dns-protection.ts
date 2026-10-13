@@ -111,23 +111,24 @@ Args:
     "sophos_create_dns_location",
     {
       title: "Create DNS Protection Location",
-      description: `Create a new DNS protection location.
+      description: `Create a DNS Protection location (at most 50 per account).
+
+A location is identified by its public IP addresses or domain names; together
+at most 100.
 
 Args:
-  - name (string): Location name.
-  - ip_addresses (string[], optional): IP addresses for the location.
-  - networks (string[], optional): Network CIDR ranges for the location.
+  - name (string): Location name (letters, digits, spaces, hyphens, underscores; up to 100).
+  - ip_addresses (string[], optional): Public IPv4 or IPv6 addresses.
+  - domain_names (string[], optional): Domain names.
+  - description (string, optional): Up to 250 characters.
+  - policy_id (string, optional): DNS Protection policy to apply.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        name: z.string().describe("Location name"),
-        ip_addresses: z
-          .array(z.string())
-          .optional()
-          .describe("IP addresses for the location"),
-        networks: z
-          .array(z.string())
-          .optional()
-          .describe("Network CIDR ranges for the location"),
+        name: z.string().min(1).max(100).regex(/^[a-zA-Z0-9\-_ ]+$/, "Letters, digits, spaces, hyphens and underscores only").describe("Location name"),
+        ip_addresses: z.array(z.string()).max(100).optional().describe("Public IP addresses"),
+        domain_names: z.array(z.string()).max(100).optional().describe("Domain names"),
+        description: z.string().max(250).optional().describe("Location description"),
+        policy_id: z.string().uuid().optional().describe("DNS Protection policy ID"),
         tenant_id: z
           .string()
           .uuid()
@@ -141,11 +142,13 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ name, ip_addresses, networks, tenant_id }) => {
+    withErrorHandling(async ({ name, ip_addresses, domain_names, description, policy_id, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
       const body: Record<string, unknown> = { name };
       if (ip_addresses) body.ipAddresses = ip_addresses;
-      if (networks) body.networks = networks;
+      if (domain_names) body.domainNames = domain_names;
+      if (description !== undefined) body.description = description;
+      if (policy_id) body.policyId = policy_id;
 
       const data = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
@@ -161,25 +164,31 @@ Args:
     "sophos_update_dns_location",
     {
       title: "Update DNS Protection Location",
-      description: `Update an existing DNS protection location.
+      description: `Update a DNS Protection location.
+
+ip_addresses and domain_names replace the stored lists. To change a few
+entries without restating the rest, use the add_* and remove_* arguments
+instead (one form per list).
 
 Args:
   - location_id (string): The location ID to update.
-  - name (string, optional): Updated location name.
-  - ip_addresses (string[], optional): Updated IP addresses.
-  - networks (string[], optional): Updated network CIDR ranges.
+  - name (string, optional): New name.
+  - description (string, optional): New description.
+  - ip_addresses (string[], optional): The complete new IP address list.
+  - add_ip_addresses, remove_ip_addresses (string[], optional): IPs to add or remove.
+  - domain_names (string[], optional): The complete new domain name list.
+  - add_domain_names, remove_domain_names (string[], optional): Domains to add or remove.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        location_id: z.string().describe("DNS location ID to update"),
-        name: z.string().optional().describe("Updated location name"),
-        ip_addresses: z
-          .array(z.string())
-          .optional()
-          .describe("Updated IP addresses"),
-        networks: z
-          .array(z.string())
-          .optional()
-          .describe("Updated network CIDR ranges"),
+        location_id: z.string().uuid().describe("DNS location ID to update"),
+        name: z.string().min(1).max(100).regex(/^[a-zA-Z0-9\-_ ]+$/, "Letters, digits, spaces, hyphens and underscores only").optional().describe("New location name"),
+        description: z.string().max(250).optional().describe("New description"),
+        ip_addresses: z.array(z.string()).max(100).optional().describe("The complete new IP address list"),
+        add_ip_addresses: z.array(z.string()).max(100).optional().describe("IP addresses to add"),
+        remove_ip_addresses: z.array(z.string()).max(100).optional().describe("IP addresses to remove"),
+        domain_names: z.array(z.string()).max(100).optional().describe("The complete new domain name list"),
+        add_domain_names: z.array(z.string()).max(100).optional().describe("Domain names to add"),
+        remove_domain_names: z.array(z.string()).max(100).optional().describe("Domain names to remove"),
         tenant_id: z
           .string()
           .uuid()
@@ -188,21 +197,35 @@ Args:
       },
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: true,
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ location_id, name, ip_addresses, networks, tenant_id }) => {
-      const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+    withErrorHandling(async (args) => {
+      const resolvedTenantId = tenantResolver.resolveTenantId(args.tenant_id);
+      const list = (full: string[] | undefined, add: string[] | undefined, remove: string[] | undefined, what: string) => {
+        if (full && (add || remove)) {
+          throw new Error(`Pass ${what} or add_${what}/remove_${what}, not both. Nothing was sent.`);
+        }
+        if (full) return full;
+        if (add || remove) return { ...(add ? { add } : {}), ...(remove ? { remove } : {}) };
+        return undefined;
+      };
       const body: Record<string, unknown> = {};
-      if (name) body.name = name;
-      if (ip_addresses) body.ipAddresses = ip_addresses;
-      if (networks) body.networks = networks;
+      if (args.name !== undefined) body.name = args.name;
+      if (args.description !== undefined) body.description = args.description;
+      const ips = list(args.ip_addresses, args.add_ip_addresses, args.remove_ip_addresses, "ip_addresses");
+      if (ips) body.ipAddresses = ips;
+      const domains = list(args.domain_names, args.add_domain_names, args.remove_domain_names, "domain_names");
+      if (domains) body.domainNames = domains;
+      if (Object.keys(body).length === 0) {
+        throw new Error("No fields to update. Nothing was sent.");
+      }
 
       const data = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
-        `/dns-protection/v2/locations/${location_id}`,
+        `/dns-protection/v2/locations/${args.location_id}`,
         { method: "PATCH", body }
       );
       return jsonResult({ status: "updated", location: data });
