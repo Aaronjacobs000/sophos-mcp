@@ -140,24 +140,26 @@ Supported exclusion types and their value formats:
   - "web": Website address (e.g. "example.com")
   - "pua": PUA application name
   - "amsi": AMSI protection exclusion
-  - "exploitMitigation": Exploit mitigation exclusion
+  - "detectedExploit": A detected exploit, by its ID
+  - also "posixPath", "virtualPath", "behavioral", "journalHashingProcess", "journalHashingPath"
 
 Args:
   - type (string): Exclusion type.
   - value (string): The value to exclude (path, process, website, etc.)
-  - scan_mode (string, optional): "onDemandAndOnAccess" (default) or "onDemand" or "onAccess".
-  - description (string, optional): Description of why this exclusion exists.
-  - comment (string, optional): Additional notes.
+  - scan_mode (string, optional): "onDemandAndOnAccess", "onDemand" or "onAccess". Sophos
+    picks the default by type.
+  - comment (string, optional): Why this exclusion exists (up to 100 characters).
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        type: z.string().describe('Exclusion type: "path", "process", "web", "pua", "amsi", "exploitMitigation"'),
+        type: z
+          .enum(["path", "posixPath", "virtualPath", "process", "web", "pua", "detectedExploit", "amsi", "behavioral", "journalHashingProcess", "journalHashingPath"])
+          .describe("Exclusion type"),
         value: z.string().describe("Value to exclude"),
         scan_mode: z
-          .string()
+          .enum(["onDemandAndOnAccess", "onDemand", "onAccess"])
           .optional()
-          .describe('Scan mode: "onDemandAndOnAccess" (default), "onDemand", "onAccess"'),
-        description: z.string().optional().describe("Why this exclusion exists"),
-        comment: z.string().optional().describe("Additional notes"),
+          .describe("Scan mode; Sophos picks the default by type"),
+        comment: z.string().max(100).optional().describe("Why this exclusion exists"),
         tenant_id: z
           .string()
           .uuid()
@@ -171,12 +173,11 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ type, value, scan_mode, description, comment, tenant_id }) => {
+    withErrorHandling(async ({ type, value, scan_mode, comment, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
 
       const body: Record<string, unknown> = { type, value };
       if (scan_mode) body.scanMode = scan_mode;
-      if (description) body.description = description;
       if (comment) body.comment = comment;
 
       const created = await client.tenantRequest<SophosScanningExclusion>(
@@ -300,17 +301,17 @@ WARNING: Allowing items bypasses security detections. Only allow items you
 have verified as safe. Commonly used after PUA or false positive detections.
 
 Args:
-  - type (string): Item type: "sha256", "path", "certificateSigner".
+  - type (string): Item type: "sha256", "path", "posixPath" or "certificateSigner".
   - properties (object): Item properties. Must include one of:
     - sha256: SHA-256 hash of the file
     - path: File path
     - certificateSigner: Certificate signer name
-  - comment (string, optional): Reason for allowing.
+  - comment (string): Reason for allowing (required by the API).
   - origin_endpoint_id (string, optional): Endpoint where item was first detected.
   - origin_person_id (string, optional): Person associated with the detection.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        type: z.string().describe('Item type: "sha256", "path", "certificateSigner"'),
+        type: z.enum(["sha256", "path", "posixPath", "certificateSigner"]).describe("Item type"),
         properties: z
           .object({
             sha256: z.string().optional().describe("SHA-256 hash"),
@@ -319,9 +320,9 @@ Args:
             certificateSigner: z.string().optional().describe("Certificate signer"),
           })
           .describe("Item identification properties"),
-        comment: z.string().optional().describe("Reason for allowing"),
-        origin_endpoint_id: z.string().optional().describe("Source endpoint ID"),
-        origin_person_id: z.string().optional().describe("Source person ID"),
+        comment: z.string().describe("Reason for allowing"),
+        origin_endpoint_id: z.string().uuid().optional().describe("Source endpoint ID"),
+        origin_person_id: z.string().uuid().optional().describe("Source person ID"),
         tenant_id: z
           .string()
           .uuid()
@@ -339,8 +340,7 @@ Args:
       async ({ type, properties, comment, origin_endpoint_id, origin_person_id, tenant_id }) => {
         const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
 
-        const body: Record<string, unknown> = { type, properties };
-        if (comment) body.comment = comment;
+        const body: Record<string, unknown> = { type, properties, comment };
         if (origin_endpoint_id) body.originEndpointId = origin_endpoint_id;
         if (origin_person_id) body.originPersonId = origin_person_id;
 
@@ -468,12 +468,12 @@ Args:
 This blocks the item across all endpoints in the tenant.
 
 Args:
-  - type (string): Item type: "sha256", "path", "certificateSigner".
+  - type (string): "sha256", the only type the API blocks by.
   - properties (object): Item identification properties (same as allowed items).
-  - comment (string, optional): Reason for blocking.
+  - comment (string): Reason for blocking (required by the API).
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        type: z.string().describe('Item type: "sha256", "path", "certificateSigner"'),
+        type: z.enum(["sha256"]).default("sha256").describe("Item type: sha256"),
         properties: z
           .object({
             sha256: z.string().optional().describe("SHA-256 hash"),
@@ -482,7 +482,7 @@ Args:
             certificateSigner: z.string().optional().describe("Certificate signer"),
           })
           .describe("Item identification properties"),
-        comment: z.string().optional().describe("Reason for blocking"),
+        comment: z.string().describe("Reason for blocking"),
         tenant_id: z
           .string()
           .uuid()
@@ -499,8 +499,7 @@ Args:
     withErrorHandling(async ({ type, properties, comment, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
 
-      const body: Record<string, unknown> = { type, properties };
-      if (comment) body.comment = comment;
+      const body: Record<string, unknown> = { type, properties, comment };
 
       const created = await client.tenantRequest<SophosAllowedBlockedItem>(
         resolvedTenantId,

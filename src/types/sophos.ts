@@ -77,11 +77,13 @@ export interface SophosAlert {
 
 export interface SophosAlertPage {
   pages: {
-    current: number;
+    current?: number;
     size: number;
-    total: number;
+    total?: number;
     maxSize: number;
     items?: number;
+    fromKey?: string;
+    nextKey?: string;
   };
   items: SophosAlert[];
 }

@@ -38,7 +38,6 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
   - health_status (string, optional): Filter by health: "good", "suspicious", "bad", "unknown".
   - hostname_contains (string, optional): Filter by hostname substring.
-  - os_platform (string, optional): Filter by OS: "windows", "macOS", "linux".
   - type (string, optional): Filter by type: "computer", "server".
   - tamper_protection (boolean, optional): Filter by tamper protection status.
   - isolation_status (string, optional): Filter by isolation: "isolated", "notIsolated".
@@ -62,10 +61,6 @@ Returns:
           .string()
           .optional()
           .describe("Filter by hostname substring"),
-        os_platform: z
-          .string()
-          .optional()
-          .describe('Filter by OS: "windows", "macOS", "linux"'),
         type: z
           .string()
           .optional()
@@ -107,7 +102,6 @@ Returns:
         tenant_id,
         health_status,
         hostname_contains,
-        os_platform,
         type,
         tamper_protection,
         isolation_status,
@@ -124,7 +118,6 @@ Returns:
         if (cursor) params.pageFromKey = cursor;
         if (health_status) params.healthStatus = health_status;
         if (hostname_contains) params.hostnameContains = hostname_contains;
-        if (os_platform) params.osPlatform = os_platform;
         if (type) params.type = type;
         if (tamper_protection !== undefined)
           params.tamperProtectionEnabled = String(tamper_protection);
@@ -384,13 +377,14 @@ WARNING: This permanently removes the endpoint records. The devices will need
 to be re-registered if you want to manage them again.
 
 Args:
-  - ids (string[]): Array of endpoint IDs to delete.
+  - ids (string[]): Endpoint IDs to delete (1 to 1000).
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         ids: z
           .array(z.string().uuid())
           .min(1)
-          .describe("Array of endpoint IDs to delete"),
+          .max(1000)
+          .describe("Endpoint IDs to delete"),
         tenant_id: z
           .string()
           .uuid()
@@ -409,7 +403,7 @@ Args:
       const data = await client.tenantRequest(
         resolvedTenantId,
         "/endpoint/v1/endpoints/delete",
-        { method: "POST", body: { ids } }
+        { method: "POST", body: { endpointIds: ids } }
       );
       return jsonResult(data);
     })
@@ -628,14 +622,18 @@ Args:
     "sophos_request_forensic_logs",
     {
       title: "Request Forensic Log Upload",
-      description: `Request forensic log upload from a specific endpoint.
+      description: `Request forensic log collection and upload from a specific endpoint.
 
-This initiates the collection and upload of forensic logs from the endpoint.
 The request runs asynchronously; use sophos_get_forensic_log_status to track progress.
 
 Args:
   - endpoint_id (string): The endpoint ID.
-  - reason (string, optional): Reason for requesting forensic logs.
+  - expires (string): How long the request stays valid, as an ISO 8601 duration of
+    5 minutes to 7 days in days, hours, minutes and seconds only, for example "PT1H".
+  - mode (string, optional): "standard" (default), "fast" (reduced set), "full",
+    or "none" (only the extra paths).
+  - paths (array, optional): Up to 50 extra file paths to include.
+  - password (string, optional): Password for AES-256 ZIP encryption of the upload.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
@@ -645,10 +643,17 @@ Returns:
           .string()
           .uuid()
           .describe("Endpoint ID to request forensic logs from"),
-        reason: z
+        expires: z
           .string()
+          .regex(/^P(?!$)(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+S)?)?$/, 'An ISO 8601 duration in days, hours, minutes and seconds, for example "PT1H"')
+          .describe('How long the request stays valid, for example "PT1H"'),
+        mode: z
+          .enum(["standard", "fast", "full", "none"])
           .optional()
-          .describe("Reason for requesting forensic logs"),
+          .default("standard")
+          .describe("Collection mode"),
+        paths: z.array(z.string()).max(50).optional().describe("Extra file paths to include"),
+        password: z.string().optional().describe("Password to encrypt the upload"),
         tenant_id: z
           .string()
           .uuid()
@@ -662,10 +667,11 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ endpoint_id, reason, tenant_id }) => {
+    withErrorHandling(async ({ endpoint_id, expires, mode, paths, password, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = {};
-      if (reason) body.reason = reason;
+      const body: Record<string, unknown> = { mode, expires };
+      if (paths) body.paths = paths;
+      if (password !== undefined) body.password = password;
 
       const data = await client.tenantRequest(
         resolvedTenantId,
@@ -724,14 +730,19 @@ Args:
     "sophos_request_memory_dump",
     {
       title: "Request Memory Dump",
-      description: `Request a memory dump from a specific endpoint.
+      description: `Request a memory dump of a process or the kernel from a specific endpoint.
 
-This initiates collection of a memory dump from the endpoint. Optionally target
-a specific process. Use sophos_get_memory_dump_status to track progress.
+The dump is uploaded to the customer's configured Amazon S3 bucket. Use
+sophos_get_memory_dump_status to track progress.
 
 Args:
   - endpoint_id (string): The endpoint ID.
-  - process_id (string, optional): Target a specific process by ID.
+  - mode (string): "process" or "kernel".
+  - expires (string): How long the request stays valid, as an ISO 8601 duration of
+    5 minutes to 7 days in days, hours, minutes and seconds only, for example "PT1H".
+  - pid (number, optional): Process ID. For mode "process", give pid or image_name.
+  - image_name (string, optional): Process image name, used when pid is not given.
+  - password (string, optional): Password for AES-256 ZIP encryption of the upload.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
@@ -741,10 +752,14 @@ Returns:
           .string()
           .uuid()
           .describe("Endpoint ID to request memory dump from"),
-        process_id: z
+        mode: z.enum(["process", "kernel"]).describe("Process or kernel memory dump"),
+        expires: z
           .string()
-          .optional()
-          .describe("Process ID to target for memory dump"),
+          .regex(/^P(?!$)(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+S)?)?$/, 'An ISO 8601 duration in days, hours, minutes and seconds, for example "PT1H"')
+          .describe('How long the request stays valid, for example "PT1H"'),
+        pid: z.number().int().min(0).optional().describe("Process ID"),
+        image_name: z.string().optional().describe("Process image name"),
+        password: z.string().optional().describe("Password to encrypt the upload"),
         tenant_id: z
           .string()
           .uuid()
@@ -758,10 +773,15 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ endpoint_id, process_id, tenant_id }) => {
+    withErrorHandling(async ({ endpoint_id, mode, expires, pid, image_name, password, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = {};
-      if (process_id) body.processId = process_id;
+      if (mode === "process" && pid === undefined && !image_name) {
+        throw new Error('mode "process" needs pid or image_name. Nothing was sent.');
+      }
+      const body: Record<string, unknown> = { mode, expires };
+      if (pid !== undefined) body.pid = pid;
+      if (image_name) body.imageName = image_name;
+      if (password !== undefined) body.password = password;
 
       const data = await client.tenantRequest(
         resolvedTenantId,

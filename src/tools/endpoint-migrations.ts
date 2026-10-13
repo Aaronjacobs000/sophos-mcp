@@ -1,6 +1,6 @@
 /**
  * Tools: sophos_list_migrations, sophos_get_migration, sophos_create_migration,
- *        sophos_delete_migration, sophos_list_migration_endpoints,
+ *        sophos_list_migration_endpoints,
  *        sophos_list_recommended_packages, sophos_list_static_packages
  * Interact with the Sophos Endpoint Migration and Software Package APIs.
  */
@@ -123,45 +123,39 @@ Returns:
     "sophos_create_migration",
     {
       title: "Create Sophos Migration Job",
-      description: `Create a new endpoint migration job to migrate endpoints between tenants.
+      description: `Create or start an endpoint migration job that moves endpoints between tenants.
 
-This tool handles BOTH sides of a device migration:
+A migration takes two calls, one on each tenant:
 
-1. RECEIVER (destination tenant): Call with name, from_tenant (source tenant UUID),
-   and endpoints (the device UUIDs to migrate). The response includes a "token"
-   field — pass this to the sender.
+1. side "receiving", on the destination tenant: from_tenant (the source tenant's
+   ID) and endpoints (the device IDs). POST /endpoint/v1/migrations. The response
+   has the job id and a "token".
+2. side "sending", on the source tenant: migration_id (that same job id), token
+   and endpoints. PUT /endpoint/v1/migrations/{id}. This starts the move; it does
+   not create a second job.
 
-2. SENDER (source tenant): Call with name, from_tenant (destination tenant UUID),
-   endpoints (same device UUIDs), and token (the value from the receiver response).
+Track progress with sophos_list_migration_endpoints on either tenant.
 
 Args:
-  - name (string): Name for the migration job.
-  - from_tenant (string, required): The OTHER tenant's UUID — for a receiver this
-    is the source tenant; for a sender this is the destination tenant.
-  - endpoints (array, required): Array of endpoint UUIDs to migrate.
-  - token (string, optional): Handshake token from the receiver job response.
-    Omit when creating the receiver; required when creating the sender.
+  - side (string): "receiving" or "sending".
+  - endpoints (array): Endpoint IDs to migrate (1 to 1000).
+  - from_tenant (string): Receiving side only: the source tenant's ID.
+  - migration_id (string): Sending side only: the job id from the receiving side.
+  - token (string): Sending side only: the token from the receiving side.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
-  The created migration job details including a "token" field (on receiver jobs).`,
+  The migration job; on the receiving side it includes the "token".`,
       inputSchema: {
-        name: z.string().describe("Migration job name"),
-        from_tenant: z
-          .string()
-          .uuid()
-          .describe(
-            "The other tenant's UUID. For a receiver: the source tenant ID. For a sender: the destination tenant ID."
-          ),
+        side: z.enum(["receiving", "sending"]).describe("Which tenant this call is on"),
         endpoints: z
           .array(z.string().uuid())
-          .describe("Endpoint UUIDs to include in the migration"),
-        token: z
-          .string()
-          .optional()
-          .describe(
-            "Handshake token from the receiver job response. Omit when creating the receiver; required when creating the sender."
-          ),
+          .min(1)
+          .max(1000)
+          .describe("Endpoint IDs to migrate"),
+        from_tenant: z.string().uuid().optional().describe("Receiving side: the source tenant's ID"),
+        migration_id: z.string().uuid().optional().describe("Sending side: the job id from the receiving side"),
+        token: z.string().optional().describe("Sending side: the token from the receiving side"),
         tenant_id: z
           .string()
           .uuid()
@@ -175,65 +169,26 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(
-      async ({ name, from_tenant, endpoints, token, tenant_id }) => {
-        const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-
-        const body: Record<string, unknown> = {
-          name,
-          fromTenant: from_tenant,
-          endpoints,
-        };
-        if (token) body.token = token;
-
+    withErrorHandling(async ({ side, endpoints, from_tenant, migration_id, token, tenant_id }) => {
+      const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      if (side === "receiving") {
+        if (!from_tenant) throw new Error('side "receiving" needs from_tenant (the source tenant ID). Nothing was sent.');
         const data = await client.tenantRequest<Record<string, unknown>>(
           resolvedTenantId,
           "/endpoint/v1/migrations",
-          { method: "POST", body }
+          { method: "POST", body: { fromTenant: from_tenant, endpoints } }
         );
-
         return jsonResult({ status: "created", migration: data });
       }
-    )
-  );
-
-  // --- Delete Migration ---
-  server.registerTool(
-    "sophos_delete_migration",
-    {
-      title: "Delete Sophos Migration Job",
-      description: `Delete an endpoint migration job.
-
-Args:
-  - migration_id (string): The migration job ID to delete.
-  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
-      inputSchema: {
-        migration_id: z.string().uuid().describe("Migration job ID to delete"),
-        tenant_id: z
-          .string()
-          .uuid()
-          .optional()
-          .describe("Tenant ID. Required for partner/org callers."),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: true,
-        openWorldHint: true,
-      },
-    },
-    withErrorHandling(async ({ migration_id, tenant_id }) => {
-      const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      await client.tenantRequest(
+      if (!migration_id || !token) {
+        throw new Error('side "sending" needs migration_id and token from the receiving side. Nothing was sent.');
+      }
+      const data = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
         `/endpoint/v1/migrations/${migration_id}`,
-        { method: "DELETE" }
+        { method: "PUT", body: { token, endpoints } }
       );
-      return jsonResult({
-        status: "deleted",
-        migration_id,
-        message: `Migration job ${migration_id} deleted.`,
-      });
+      return jsonResult({ status: "started", migration: data });
     })
   );
 
@@ -304,38 +259,18 @@ Returns:
     "sophos_list_recommended_packages",
     {
       title: "List Sophos Recommended Packages",
-      description: `List recommended software packages for endpoint deployment.
+      description: `List the Sophos recommended software packages for the tenant.
 
-Returns the recommended installer packages for deploying Sophos endpoint protection.
+The API returns every package in one response.
 
 Args:
-  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
-  - limit (number, optional): Max results per page (default 50).
-  - page (number, optional): Page number (default 1).
-
-Returns:
-  Paginated list of recommended software packages.`,
+  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         tenant_id: z
           .string()
           .uuid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(100)
-          .optional()
-          .default(DEFAULT_PAGE_SIZE)
-          .describe("Max results per page (default 50)"),
-        page: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .default(1)
-          .describe("Page number (default 1)"),
       },
       annotations: {
         readOnlyHint: true,
@@ -344,22 +279,14 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ tenant_id, limit, page }) => {
+    withErrorHandling(async ({ tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-
-      const data = await client.tenantRequest<
-        Record<string, unknown>
-      >(resolvedTenantId, "/endpoint/v1/software/packages/recommended", {
-        params: { pageSize: String(limit), page: String(page) },
-      });
-
-      const items = (data as { items?: Record<string, unknown>[] }).items ?? [];
-      const pages = (data as { pages?: { total?: number; current?: number; items?: number } }).pages;
-      return jsonResult({
-        total: pages?.total ?? pages?.items ?? items.length,
-        page: pages?.current ?? page,
-        packages: items,
-      });
+      const data = await client.tenantRequest<{ items?: Record<string, unknown>[] }>(
+        resolvedTenantId,
+        "/endpoint/v1/software/packages/recommended"
+      );
+      const items = data.items ?? [];
+      return jsonResult({ total: items.length, packages: items });
     })
   );
 
@@ -368,38 +295,24 @@ Returns:
     "sophos_list_static_packages",
     {
       title: "List Sophos Static Packages",
-      description: `List static software packages for endpoint deployment.
+      description: `List the static (fixed version) software packages available to the tenant.
 
-Returns static installer packages available for deploying Sophos endpoint protection.
+The API returns every matching package in one response.
 
 Args:
-  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
-  - limit (number, optional): Max results per page (default 50).
-  - page (number, optional): Page number (default 1).
-
-Returns:
-  Paginated list of static software packages.`,
+  - endpoint_type (string, optional): "computer" or "server".
+  - platform (string, optional): "windows", "linux" or "macOS".
+  - type (string, optional): "fixed", "special" or "lts".
+  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
+        endpoint_type: z.enum(["computer", "server"]).optional().describe("Endpoint type"),
+        platform: z.enum(["windows", "linux", "macOS"]).optional().describe("Platform"),
+        type: z.enum(["fixed", "special", "lts"]).optional().describe("Package type"),
         tenant_id: z
           .string()
           .uuid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(100)
-          .optional()
-          .default(DEFAULT_PAGE_SIZE)
-          .describe("Max results per page (default 50)"),
-        page: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .default(1)
-          .describe("Page number (default 1)"),
       },
       annotations: {
         readOnlyHint: true,
@@ -408,22 +321,19 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ tenant_id, limit, page }) => {
+    withErrorHandling(async ({ endpoint_type, platform, type, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-
-      const data = await client.tenantRequest<
-        Record<string, unknown>
-      >(resolvedTenantId, "/endpoint/v1/software/packages/static", {
-        params: { pageSize: String(limit), page: String(page) },
-      });
-
-      const items = (data as { items?: Record<string, unknown>[] }).items ?? [];
-      const pages = (data as { pages?: { total?: number; current?: number; items?: number } }).pages;
-      return jsonResult({
-        total: pages?.total ?? pages?.items ?? items.length,
-        page: pages?.current ?? page,
-        packages: items,
-      });
+      const params: Record<string, string> = {};
+      if (endpoint_type) params.endpointType = endpoint_type;
+      if (platform) params.platform = platform;
+      if (type) params.type = type;
+      const data = await client.tenantRequest<{ items?: Record<string, unknown>[] }>(
+        resolvedTenantId,
+        "/endpoint/v1/software/packages/static",
+        { params }
+      );
+      const items = data.items ?? [];
+      return jsonResult({ total: items.length, packages: items });
     })
   );
 }

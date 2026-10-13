@@ -1,9 +1,9 @@
 /**
- * Tools: Endpoint Settings — installer downloads, blocked addresses, web control,
+ * Tools: Endpoint Settings: installer downloads, blocked addresses, web control,
  *        tamper protection, exploit mitigation, IPS/isolation exclusions,
- *        peripheral control, event journal, update management, lockdown, MTR.
+ *        peripheral control, event journal, update management, MTR.
  *
- * 38 tools covering the Sophos Central /endpoint/v1/settings/* and /endpoint/v1/downloads APIs.
+ * 26 tools covering the Sophos Central /endpoint/v1/settings/* and /endpoint/v1/downloads APIs.
  */
 
 import { z } from "zod";
@@ -55,43 +55,6 @@ Returns:
       const data = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
         "/endpoint/v1/downloads",
-        {}
-      );
-      return jsonResult(data);
-    })
-  );
-
-  server.registerTool(
-    "sophos_get_installer_download",
-    {
-      title: "Get Sophos Installer Download",
-      description: `Get a specific installer download link by ID.
-
-Returns the download URL and metadata for a particular installer package.
-
-Args:
-  - download_id (string): The installer download ID.
-  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
-      inputSchema: {
-        download_id: z.string().uuid().describe("Installer download ID"),
-        tenant_id: z
-          .string()
-          .uuid()
-          .optional()
-          .describe("Tenant ID. Required for partner/org callers."),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: true,
-      },
-    },
-    withErrorHandling(async ({ download_id, tenant_id }) => {
-      const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const data = await client.tenantRequest<Record<string, unknown>>(
-        resolvedTenantId,
-        `/endpoint/v1/downloads/${download_id}`,
         {}
       );
       return jsonResult(data);
@@ -165,17 +128,19 @@ Returns:
     "sophos_add_blocked_address",
     {
       title: "Add Sophos Blocked Network Address",
-      description: `Add a blocked network address (IP or domain) across all endpoints.
+      description: `Block IP addresses or IP ranges that every device in the tenant refuses to communicate with.
+
+IP addresses and ranges only (IPv4 or IPv6; a range as CIDR). Up to 100 per call.
 
 Args:
-  - type (string): Address type: "ip" or "domain".
-  - value (string): The IP address or domain to block.
-  - comment (string, optional): Reason for blocking.
+  - addresses (array): IP addresses or ranges to block.
+  - comment (string, optional): Reason for blocking (up to 250 characters), applied to each.
+  - expire_in_days (number, optional): Unblock after this many days (1 to 365).
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        type: z.string().describe('Address type: "ip" or "domain"'),
-        value: z.string().describe("IP address or domain to block"),
-        comment: z.string().optional().describe("Reason for blocking"),
+        addresses: z.array(z.string()).min(1).max(100).describe("IP addresses or CIDR ranges to block"),
+        comment: z.string().max(250).optional().describe("Reason for blocking"),
+        expire_in_days: z.number().int().min(1).max(365).optional().describe("Unblock after this many days"),
         tenant_id: z
           .string()
           .uuid()
@@ -189,17 +154,19 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ type, value, comment, tenant_id }) => {
+    withErrorHandling(async ({ addresses, comment, expire_in_days, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = { type, value };
-      if (comment) body.comment = comment;
-
+      const items = addresses.map((item) => ({
+        item,
+        ...(comment !== undefined ? { comment } : {}),
+        ...(expire_in_days !== undefined ? { expireInDays: expire_in_days } : {}),
+      }));
       const created = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
-        "/endpoint/v1/settings/blocked-addresses",
-        { method: "POST", body }
+        "/endpoint/v1/settings/blocked-addresses/bulk",
+        { method: "POST", body: { items } }
       );
-      return jsonResult({ status: "created", address: created });
+      return jsonResult({ status: "created", result: created });
     })
   );
 
@@ -207,13 +174,15 @@ Args:
     "sophos_delete_blocked_address",
     {
       title: "Delete Sophos Blocked Network Address",
-      description: `Delete a blocked network address by ID.
+      description: `Unblock IP addresses or ranges by their blocked-address record IDs.
+
+sophos_list_blocked_addresses gives the IDs.
 
 Args:
-  - address_id (string): Blocked address ID to delete.
+  - address_ids (array): Blocked address record IDs to remove.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        address_id: z.string().uuid().describe("Blocked address ID to delete"),
+        address_ids: z.array(z.string().uuid()).min(1).describe("Blocked address record IDs to remove"),
         tenant_id: z
           .string()
           .uuid()
@@ -227,18 +196,14 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ address_id, tenant_id }) => {
+    withErrorHandling(async ({ address_ids, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      await client.tenantRequest(
+      const data = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
-        `/endpoint/v1/settings/blocked-addresses/${address_id}`,
-        { method: "DELETE" }
+        "/endpoint/v1/settings/blocked-addresses/bulk/delete",
+        { method: "POST", body: { ids: address_ids } }
       );
-      return jsonResult({
-        status: "deleted",
-        address_id,
-        message: `Blocked address ${address_id} deleted.`,
-      });
+      return jsonResult({ status: "deleted", address_ids, result: data });
     })
   );
 
@@ -527,20 +492,26 @@ Args:
     "sophos_update_tls_decryption_settings",
     {
       title: "Update Sophos TLS Decryption Settings",
-      description: `Update TLS decryption settings for web control.
+      description: `Turn SSL/TLS decryption on or off for the web categories that support a setting.
 
-Enable/disable TLS decryption and configure rules for which traffic is decrypted.
+The API takes up to five categories by ID: 10, 14, 20, 27 and 54 (see
+sophos_get_tls_decryption_settings for their names). Categories you leave out
+keep their setting.
 
 Args:
-  - enabled (boolean, optional): Whether TLS decryption is enabled.
-  - rules (array, optional): Array of TLS decryption rules.
+  - categories (array): Each {id, decryption_enabled}.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        enabled: z.boolean().optional().describe("Whether TLS decryption is enabled"),
-        rules: z
-          .array(z.record(z.unknown()))
-          .optional()
-          .describe("Array of TLS decryption rules"),
+        categories: z
+          .array(
+            z.object({
+              id: z.union([z.literal(10), z.literal(14), z.literal(20), z.literal(27), z.literal(54)]).describe("Web category ID"),
+              decryption_enabled: z.boolean().describe("Decrypt websites in this category"),
+            })
+          )
+          .min(1)
+          .max(5)
+          .describe("Categories to change"),
         tenant_id: z
           .string()
           .uuid()
@@ -554,16 +525,15 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ enabled, rules, tenant_id }) => {
+    withErrorHandling(async ({ categories, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = {};
-      if (enabled !== undefined) body.enabled = enabled;
-      if (rules !== undefined) body.rules = rules;
-
       const updated = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
         "/endpoint/v1/settings/web-control/tls-decryption",
-        { method: "PATCH", body }
+        {
+          method: "PATCH",
+          body: { categories: categories.map((c) => ({ id: c.id, decryptionEnabled: c.decryption_enabled })) },
+        }
       );
       return jsonResult({ status: "updated", settings: updated });
     })
@@ -605,44 +575,6 @@ Args:
         {}
       );
       return jsonResult(data);
-    })
-  );
-
-  server.registerTool(
-    "sophos_update_global_tamper_protection",
-    {
-      title: "Update Sophos Global Tamper Protection",
-      description: `Update the global tamper protection setting for a tenant.
-
-WARNING: Disabling tamper protection makes endpoints vulnerable to malware that
-attempts to disable or uninstall Sophos protection.
-
-Args:
-  - enabled (boolean): Whether tamper protection should be enabled.
-  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
-      inputSchema: {
-        enabled: z.boolean().describe("Whether tamper protection should be enabled"),
-        tenant_id: z
-          .string()
-          .uuid()
-          .optional()
-          .describe("Tenant ID. Required for partner/org callers."),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: true,
-      },
-    },
-    withErrorHandling(async ({ enabled, tenant_id }) => {
-      const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const updated = await client.tenantRequest<Record<string, unknown>>(
-        resolvedTenantId,
-        "/endpoint/v1/settings/tamper-protection",
-        { method: "POST", body: { enabled } }
-      );
-      return jsonResult({ status: "updated", settings: updated });
     })
   );
 
@@ -754,38 +686,18 @@ Args:
     "sophos_list_exploit_mitigation_categories",
     {
       title: "List Sophos Exploit Mitigation Categories",
-      description: `List exploit mitigation categories.
+      description: `List exploit mitigation categories (for example java, browser, office) and their settings.
 
-Returns the categories used to classify exploit mitigation techniques and applications.
+The API returns every category in one response.
 
 Args:
-  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
-  - limit (number, optional): Max results per page (default 50).
-  - page (number, optional): Page number (default 1).
-
-Returns:
-  Paginated list of exploit mitigation categories.`,
+  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         tenant_id: z
           .string()
           .uuid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(100)
-          .optional()
-          .default(DEFAULT_PAGE_SIZE)
-          .describe("Max results per page (default 50)"),
-        page: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .default(1)
-          .describe("Page number (default 1)"),
       },
       annotations: {
         readOnlyHint: true,
@@ -794,20 +706,13 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ tenant_id, limit, page }) => {
+    withErrorHandling(async ({ tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const data = await client.tenantRequest<
-        SophosPagedResponse<Record<string, unknown>>
-      >(
+      const data = await client.tenantRequest<{ items?: Record<string, unknown>[] }>(
         resolvedTenantId,
-        "/endpoint/v1/settings/exploit-mitigation/categories",
-        { params: { pageSize: String(limit), page: String(page) } }
+        "/endpoint/v1/settings/exploit-mitigation/categories"
       );
-      return jsonResult({
-        total: data.pages?.total ?? data.pages?.items ?? data.items.length,
-        page: data.pages?.current ?? page,
-        items: data.items,
-      });
+      return jsonResult({ total: data.items?.length ?? 0, items: data.items ?? [] });
     })
   );
 
@@ -815,13 +720,16 @@ Returns:
     "sophos_get_exploit_mitigation_category",
     {
       title: "Get Sophos Exploit Mitigation Category",
-      description: `Get details of a specific exploit mitigation category by ID.
+      description: `Get one exploit mitigation category and its settings.
+
+Category IDs are names such as "java" or "browser", as
+sophos_list_exploit_mitigation_categories returns them.
 
 Args:
-  - category_id (string): Exploit mitigation category ID.
+  - category_id (string): Category ID, for example "java".
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        category_id: z.string().uuid().describe("Exploit mitigation category ID"),
+        category_id: z.string().regex(/^[A-Za-z0-9_-]+$/, "A category ID such as java").describe('Category ID, for example "java"'),
         tenant_id: z
           .string()
           .uuid()
@@ -839,8 +747,7 @@ Args:
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
       const data = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
-        `/endpoint/v1/settings/exploit-mitigation/categories/${category_id}`,
-        {}
+        `/endpoint/v1/settings/exploit-mitigation/categories/${category_id}`
       );
       return jsonResult(data);
     })
@@ -1102,17 +1009,21 @@ Returns:
       title: "Add Sophos IPS Exclusion",
       description: `Add an intrusion prevention system (IPS) exclusion.
 
-WARNING: IPS exclusions reduce network protection. Only add exclusions for
-trusted addresses that are causing false positives.
+Each exclusion takes one remote address, one local port and one remote port at
+most, plus a direction.
 
 Args:
-  - direction (string): Traffic direction: "in", "out", or "both".
-  - remoteAddress (string): Remote IP address or CIDR range to exclude.
+  - direction (string): "inbound", "outbound" or "both".
+  - remote_address (string, optional): Remote IP address or range.
+  - local_port (number, optional): Local protected port.
+  - remote_port (number, optional): Remote protected port.
   - comment (string, optional): Reason for the exclusion.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        direction: z.string().describe('Traffic direction: "in", "out", or "both"'),
-        remoteAddress: z.string().describe("Remote IP address or CIDR range to exclude"),
+        direction: z.enum(["inbound", "outbound", "both"]).describe("Traffic direction"),
+        remote_address: z.string().optional().describe("Remote IP address or range"),
+        local_port: z.number().int().min(1).max(65535).optional().describe("Local protected port"),
+        remote_port: z.number().int().min(1).max(65535).optional().describe("Remote protected port"),
         comment: z.string().optional().describe("Reason for the exclusion"),
         tenant_id: z
           .string()
@@ -1127,11 +1038,13 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ direction, remoteAddress, comment, tenant_id }) => {
+    withErrorHandling(async ({ direction, remote_address, local_port, remote_port, comment, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = { direction, remoteAddress };
+      const body: Record<string, unknown> = { direction };
+      if (remote_address) body.remoteAddresses = [remote_address];
+      if (local_port !== undefined) body.localPorts = [local_port];
+      if (remote_port !== undefined) body.remotePorts = [remote_port];
       if (comment) body.comment = comment;
-
       const created = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
         "/endpoint/v1/settings/exclusions/intrusion-prevention",
@@ -1248,19 +1161,20 @@ Returns:
     "sophos_add_isolation_exclusion",
     {
       title: "Add Sophos Isolation Exclusion",
-      description: `Add an isolation exclusion so an address remains reachable during endpoint isolation.
-
-Use this for critical infrastructure (domain controllers, update servers, etc.)
-that must remain accessible even when an endpoint is isolated.
+      description: `Add an isolation exclusion so traffic to or from given addresses or ports keeps flowing while an endpoint is isolated.
 
 Args:
-  - type (string): Address type: "ip" or "domain".
-  - value (string): IP address or domain to allow during isolation.
+  - direction (string): "inbound", "outbound" or "both".
+  - remote_addresses (array, optional): Remote IP addresses or ranges.
+  - local_ports (array, optional): Local ports to allow.
+  - remote_ports (array, optional): Remote ports to allow.
   - comment (string, optional): Reason for the exclusion.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        type: z.string().describe('Address type: "ip" or "domain"'),
-        value: z.string().describe("IP address or domain to allow during isolation"),
+        direction: z.enum(["inbound", "outbound", "both"]).describe("Traffic direction"),
+        remote_addresses: z.array(z.string()).optional().describe("Remote IP addresses or ranges"),
+        local_ports: z.array(z.number().int().min(1).max(65535)).optional().describe("Local ports to allow"),
+        remote_ports: z.array(z.number().int().min(1).max(65535)).optional().describe("Remote ports to allow"),
         comment: z.string().optional().describe("Reason for the exclusion"),
         tenant_id: z
           .string()
@@ -1275,11 +1189,13 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ type, value, comment, tenant_id }) => {
+    withErrorHandling(async ({ direction, remote_addresses, local_ports, remote_ports, comment, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = { type, value };
+      const body: Record<string, unknown> = { direction };
+      if (remote_addresses) body.remoteAddresses = remote_addresses;
+      if (local_ports) body.localPorts = local_ports;
+      if (remote_ports) body.remotePorts = remote_ports;
       if (comment) body.comment = comment;
-
       const created = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
         "/endpoint/v1/settings/exclusions/isolation",
@@ -1329,83 +1245,4 @@ Args:
   );
 
   // =========================================================================
-  // LOCKDOWN SETTINGS
-  // =========================================================================
-
-  server.registerTool(
-    "sophos_get_lockdown_settings",
-    {
-      title: "Get Sophos Server Lockdown Settings",
-      description: `Get server lockdown settings for a tenant.
-
-Returns the current configuration for server lockdown, which prevents unauthorized
-applications from running on locked-down servers.
-
-Args:
-  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
-      inputSchema: {
-        tenant_id: z
-          .string()
-          .uuid()
-          .optional()
-          .describe("Tenant ID. Required for partner/org callers."),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: true,
-      },
-    },
-    withErrorHandling(async ({ tenant_id }) => {
-      const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const data = await client.tenantRequest<Record<string, unknown>>(
-        resolvedTenantId,
-        "/endpoint/v1/settings/lockdown",
-        {}
-      );
-      return jsonResult(data);
-    })
-  );
-
-  server.registerTool(
-    "sophos_update_lockdown_settings",
-    {
-      title: "Update Sophos Server Lockdown Settings",
-      description: `Update server lockdown settings for a tenant.
-
-Modify the server lockdown configuration. Server lockdown prevents unauthorized
-applications from running on locked-down servers.
-
-Args:
-  - settings (object): Lockdown settings object to apply.
-  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
-      inputSchema: {
-        settings: z
-          .record(z.unknown())
-          .describe("Lockdown settings object to apply"),
-        tenant_id: z
-          .string()
-          .uuid()
-          .optional()
-          .describe("Tenant ID. Required for partner/org callers."),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: true,
-      },
-    },
-    withErrorHandling(async ({ settings, tenant_id }) => {
-      const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const updated = await client.tenantRequest<Record<string, unknown>>(
-        resolvedTenantId,
-        "/endpoint/v1/settings/lockdown",
-        { method: "PATCH", body: settings }
-      );
-      return jsonResult({ status: "updated", settings: updated });
-    })
-  );
-
 }

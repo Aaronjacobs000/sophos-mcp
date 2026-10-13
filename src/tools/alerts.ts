@@ -33,10 +33,11 @@ Args:
   - product (string, optional): Filter by product e.g. "endpoint", "server", "firewall", "email".
   - from_date (string, optional): ISO 8601 start date e.g. "2025-01-01T00:00:00Z".
   - limit (number, optional): Max results per page (1-100, default 50).
-  - page (number, optional): Page number (default 1).
+  - page_from_key (string, optional): next_page_from_key from the previous page.
 
 Returns:
-  Paginated list of alerts with: id, severity, category, description, product, raisedAt, managedAgent, allowedActions.`,
+  A page of alerts with: id, severity, category, description, product, raisedAt,
+  managedAgent, allowedActions, and next_page_from_key when there are more.`,
       inputSchema: {
         tenant_id: z
           .string()
@@ -67,13 +68,10 @@ Returns:
           .optional()
           .default(DEFAULT_PAGE_SIZE)
           .describe("Max results per page (default 50)"),
-        page: z
-          .number()
-          .int()
-          .min(1)
+        page_from_key: z
+          .string()
           .optional()
-          .default(1)
-          .describe("Page number (default 1)"),
+          .describe("next_page_from_key from the previous page"),
       },
       annotations: {
         readOnlyHint: true,
@@ -83,13 +81,15 @@ Returns:
       },
     },
     withErrorHandling(
-      async ({ tenant_id, severity, category, product, from_date, limit, page }) => {
+      async ({ tenant_id, severity, category, product, from_date, limit, page_from_key }) => {
         const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
 
+        // The alerts API pages by key (pageFromKey); a page number is ignored
         const params: Record<string, string> = {
           pageSize: String(limit),
-          page: String(page),
+          pageTotal: "true",
         };
+        if (page_from_key) params.pageFromKey = page_from_key;
 
         if (severity) params.severity = severity;
         if (category) params.category = category;
@@ -103,10 +103,9 @@ Returns:
         );
 
         return jsonResult({
-          total: data.pages.total ?? data.pages.items ?? data.items.length,
-          page: data.pages.current ?? page,
+          total: data.pages.items ?? data.items.length,
           page_size: data.pages.size,
-          total_pages: data.pages.total,
+          next_page_from_key: data.pages.nextKey ?? null,
           alerts: data.items.map(formatAlert),
         });
       }
@@ -202,38 +201,53 @@ Args:
     "sophos_search_alerts",
     {
       title: "Search Sophos Alerts",
-      description: `Search alerts using the advanced search endpoint with structured filters.
+      description: `Search alerts with several values per filter (POST /common/v1/alerts/search).
 
-Supports filtering by IDs, fields, date ranges, and sorting. Use this for more
-complex alert queries that go beyond the simple list filters.
+Every filter is optional and takes a list. Results page by key: pass the
+previous result's next_page_from_key as page_from_key.
 
 Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
-  - filter (object, optional): Search filters. Values must be arrays e.g. {"category": ["malware"], "severity": ["high", "medium"]}. Supported fields: ids, severity, category, product, from, to.
-  - sort (array, optional): Sort criteria e.g. [{"field": "raisedAt", "direction": "desc"}].
+  - ids (array, optional): Alert IDs.
+  - severity (array, optional): "high", "medium", "low".
+  - category (array, optional): Alert categories, for example "malware", "policy", "runtimeDetections".
+  - product (array, optional): Products, for example "endpoint", "server", "firewall".
+  - group_key (string, optional): Alert group key.
+  - from (string, optional): Raised on or after this time (ISO 8601).
+  - to (string, optional): Raised before this time (ISO 8601).
+  - sort (array, optional): Sort fields, each "field" or "field:asc|desc", for example "raisedAt:desc".
   - limit (number, optional): Max results (default 50).
-  - page (number, optional): Page number (default 1).`,
+  - page_from_key (string, optional): next_page_from_key from the previous page.`,
       inputSchema: {
         tenant_id: z.string().uuid().optional().describe("Tenant ID. Required for partner/org callers."),
-        filter: z.record(z.unknown()).optional().describe("Search filters (ids, severity, category, product, from, to)"),
-        sort: z.array(z.object({
-          field: z.string().describe("Field to sort by"),
-          direction: z.enum(["asc", "desc"]).optional().describe("Sort direction"),
-        })).optional().describe("Sort criteria"),
+        ids: z.array(z.string().uuid()).optional().describe("Alert IDs"),
+        severity: z.array(z.enum(["high", "medium", "low"])).optional().describe("Severities"),
+        category: z.array(z.string()).optional().describe("Alert categories"),
+        product: z.array(z.string()).optional().describe("Products"),
+        group_key: z.string().optional().describe("Alert group key"),
+        from: z.string().optional().describe("Raised on or after this time (ISO 8601)"),
+        to: z.string().optional().describe("Raised before this time (ISO 8601)"),
+        sort: z
+          .array(z.string().regex(/^[^:]+(:(asc|desc))?$/, 'Use "field" or "field:asc|desc"'))
+          .optional()
+          .describe('Sort fields, for example "raisedAt:desc"'),
         limit: z.coerce.number().int().min(1).max(100).optional().default(DEFAULT_PAGE_SIZE).describe("Max results per page (default 50)"),
-        page: z.coerce.number().int().min(1).optional().default(1).describe("Page number (default 1)"),
+        page_from_key: z.string().optional().describe("next_page_from_key from the previous page"),
       },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    withErrorHandling(async ({ tenant_id, filter, sort, limit, page }) => {
+    withErrorHandling(async ({ tenant_id, ids, severity, category, product, group_key, from, to, sort, limit, page_from_key }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
-      const body: Record<string, unknown> = {
-        pageSize: limit,
-        pageTotal: true,
-      };
-      if (filter) body.filter = filter;
+      const body: Record<string, unknown> = { pageSize: limit, pageTotal: true };
+      if (ids) body.ids = ids;
+      if (severity) body.severity = severity;
+      if (category) body.category = category;
+      if (product) body.product = product;
+      if (group_key) body.groupKey = group_key;
+      if (from) body.from = from;
+      if (to) body.to = to;
       if (sort) body.sort = sort;
-      if (page) body.page = page;
+      if (page_from_key) body.pageFromKey = page_from_key;
 
       const data = await client.tenantRequest<SophosAlertPage>(
         resolvedTenantId,
@@ -241,8 +255,8 @@ Args:
         { method: "POST", body }
       );
       return jsonResult({
-        total: data.pages.total ?? data.pages.items ?? data.items.length,
-        page: data.pages.current ?? page,
+        total: data.pages.items ?? data.items.length,
+        next_page_from_key: data.pages.nextKey ?? null,
         alerts: data.items.map(formatAlert),
       });
     })
