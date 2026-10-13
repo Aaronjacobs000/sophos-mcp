@@ -610,6 +610,7 @@ Returns:
       description: `Create a new directory user group in a Sophos Central tenant.
 
 User groups organise users for policy assignment and management.
+Assign a policy to a user group with sophos_set_policy_assignments (user_groups).
 
 Args:
   - name (string): Group name.

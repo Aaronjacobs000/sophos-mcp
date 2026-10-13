@@ -182,6 +182,7 @@ Args:
       description: `Create a new endpoint group.
 
 Groups are used to organise devices and assign policies at the group level.
+Assign a policy to a group with sophos_set_policy_assignments (endpoint_groups).
 
 Args:
   - name (string): Group name.

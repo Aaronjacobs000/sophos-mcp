@@ -5,7 +5,7 @@
 > Sophos. It calls the public Sophos APIs using credentials you supply. Use it at your own
 > risk, and raise problems as issues on this repository rather than with Sophos support.
 
-MCP (Model Context Protocol) server for the Sophos Fusion and Sophos Central APIs. Supports partner, organisation, and single-tenant credential types with automatic region routing. **310 tools** covering 22 Sophos API namespaces: the Sophos Central REST APIs plus the Sophos Fusion GraphQL APIs (`sophos_fusion_*`). Install it as a Claude Desktop extension (`.mcpb`), run it with npx, or host it yourself over streamable HTTP.
+MCP (Model Context Protocol) server for the Sophos Fusion and Sophos Central APIs. Supports partner, organisation, and single-tenant credential types with automatic region routing. **311 tools** covering 22 Sophos API namespaces: the Sophos Central REST APIs plus the Sophos Fusion GraphQL APIs (`sophos_fusion_*`). Install it as a Claude Desktop extension (`.mcpb`), run it with npx, or host it yourself over streamable HTTP.
 
 The npm package, the `.mcpb` bundle and the binaries keep the `sophos-central-mcp-server` name so existing installs update in place.
 
@@ -168,7 +168,7 @@ The script:
 npm test
 ```
 
-Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, a registration check that lists all 310 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
+Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, the policy assignment writes (body shapes, refusals and read-back) against an in-memory policy store, a registration check that lists all 311 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
 
 To exercise the Fusion tools against a live tenant, put credentials in `.env` (or export them) and run:
 
@@ -196,7 +196,7 @@ It spawns the built server over stdio and calls the tools through an MCP client,
 - **One-click install**: Ships as a Claude Desktop extension (`.mcpb`) with credentials held in the OS secure store
 - **Two API generations**: the Sophos Central REST APIs and the Sophos Fusion GraphQL APIs on one credential, with `sophos_fusion_*` tools for the GraphQL side
 - **Migration aware**: the Classic case and detection tools refuse a tenant that has moved to Sophos Fusion and name the `sophos_fusion_*` tool to use instead
-- **Full API coverage**: 310 tools across endpoints, alerts, policies, firewalls, web filtering, licensing, audit events, email, mobile, XDR, cases, SIEM, and more
+- **Full API coverage**: 311 tools across endpoints, alerts, policies, firewalls, web filtering, licensing, audit events, email, mobile, XDR, cases, SIEM, and more
 
 ## Screenshots
 
@@ -353,16 +353,19 @@ Two Fusion case writes, `createCase` and `addEvidenceToCase`, fail 74% of the ti
 | `sophos_list_recommended_packages` | List recommended software packages |
 | `sophos_list_static_packages` | List static software packages |
 
-### Policies (6 tools)
+### Policies (7 tools)
 
 | Tool | Description |
 |------|-------------|
 | `sophos_list_policies` | List endpoint policies with optional type filter |
-| `sophos_get_policy` | Get full policy detail including all settings |
-| `sophos_create_policy` | Create a new endpoint policy |
+| `sophos_get_policy` | Get full policy detail including all settings and assignments |
+| `sophos_create_policy` | Create a new endpoint policy, optionally assigned |
 | `sophos_clone_policy` | Clone an existing policy under a new name |
-| `sophos_update_policy` | Update policy name, enabled state, priority, or settings |
+| `sophos_update_policy` | Update policy name, enabled state, priority, settings, or the whole assignment |
+| `sophos_set_policy_assignments` | Replace, add or remove a policy's users, user groups, endpoints or endpoint groups |
 | `sophos_delete_policy` | Delete a policy |
+
+Assignments take plain ID arrays. A policy applies either to users and user groups (a user policy) or to endpoints and endpoint groups (a device policy), never both; the kind follows which keys you send. Server policies take only endpoints and endpoint groups. Endpoint groups are always sent with an `endpoints` key, because Sophos answers 500 to endpoint groups on their own. Every assignment write is read back by ID and the result shows what Sophos stored. A new policy can take up to about 25 seconds to show in `sophos_list_policies`; `sophos_get_policy` is current at once.
 
 ### Endpoint Groups (7 tools)
 
@@ -806,7 +809,7 @@ src/
 │   ├── health.ts                # Account health, gap analysis
 │   ├── directory.ts             # Users, user groups, group membership
 │   ├── admin-management.ts      # Admin CRUD, roles, permission sets
-│   ├── policies.ts              # Policy CRUD, clone
+│   ├── policies.ts              # Policy CRUD, clone, assignments
 │   ├── groups.ts                # Endpoint group CRUD, membership
 │   ├── exclusions.ts            # Scanning exclusions, allowed/blocked items
 │   ├── cases.ts                 # Investigation cases, detections, MITRE

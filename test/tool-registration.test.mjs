@@ -2,7 +2,7 @@
  * Registers every tool module the way src/index.ts does, connects a client
  * over an in-memory transport and lists the tools. No credentials and no
  * network: registration never calls Sophos. Proves the server still exposes
- * the 288 Classic tools plus the 21 Fusion case tools and the Fusion
+ * the 289 Classic tools plus the 21 Fusion case tools and the Fusion
  * detection search, and that the descriptions carry the measured warnings.
  */
 
@@ -103,14 +103,14 @@ async function listAllTools() {
   return { modules, tools };
 }
 
-test("tools/list exposes the 288 Classic tools plus the 22 Fusion tools", async () => {
+test("tools/list exposes the 289 Classic tools plus the 22 Fusion tools", async () => {
   const { modules, tools } = await listAllTools();
   const names = new Set(tools.map((t) => t.name));
 
   assert.ok(modules.includes("fusion-cases"), "fusion-cases is imported by src/index.ts");
   assert.ok(modules.includes("fusion-detections"), "fusion-detections is imported by src/index.ts");
-  assert.equal(tools.length, 310);
-  assert.equal(names.size, 310, "tool names are unique");
+  assert.equal(tools.length, 311);
+  assert.equal(names.size, 311, "tool names are unique");
 
   for (const name of CLASSIC_CASE_TOOLS) assert.ok(names.has(name), `${name} still registered`);
   for (const name of CLASSIC_DETECTION_TOOLS) assert.ok(names.has(name), `${name} still registered`);
@@ -205,4 +205,29 @@ test("the write tools carry the measured warnings and the guards in their schema
   expect("sophos_fusion_update_case", /refused before any write/);
   expect("sophos_fusion_update_case", /verdict "" clears/);
   expect("sophos_fusion_search_detections", /0 to 1 float/);
+});
+
+test("the policy write tools explain assignment kinds, the endpoint group companion and the listing lag", async () => {
+  const { tools } = await listAllTools();
+  const byName = new Map(tools.map((t) => [t.name, t]));
+  const expect = (name, pattern) => assert.match(byName.get(name).description, pattern, `${name}: ${pattern}`);
+  for (const name of ["sophos_create_policy", "sophos_update_policy", "sophos_set_policy_assignments"]) {
+    const tool = byName.get(name);
+    for (const key of ["users", "user_groups", "endpoints", "endpoint_groups"]) {
+      assert.equal(tool.inputSchema.properties[key]?.type, "array", `${name} takes ${key}`);
+      assert.equal(tool.inputSchema.properties[key].items.format, "uuid", `${name} ${key} are plain IDs`);
+    }
+    expect(name, /kind\s+follows\s+which\s+keys/);
+    expect(name, /endpoint_groups is always\s+sent with an endpoints key/);
+    expect(name, /server-\*/);
+    expect(name, /assignment_stored/);
+    assert.doesNotMatch(tool.description, /[\u2013\u2014]/, `${name} description has no en or em dash`);
+  }
+  expect("sophos_update_policy", /REPLACE the policy's\s+whole\s+assignment/);
+  expect("sophos_create_policy", /up to about 25\s+seconds/);
+  expect("sophos_list_policies", /measured\s+1\.6 to 21\.8 s/);
+  const set = byName.get("sophos_set_policy_assignments");
+  assert.deepEqual(set.inputSchema.properties.mode.enum, ["replace", "add", "remove"]);
+  assert.ok(set.inputSchema.required.includes("mode"), "mode is required");
+  assert.equal(set.annotations.destructiveHint, true, "replace and remove can drop assignments");
 });
