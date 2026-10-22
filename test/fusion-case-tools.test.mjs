@@ -1,7 +1,8 @@
 /**
  * Handler-level tests for sophos_fusion_update_case through a fake Fusion
  * client: the closed-case freeze refuses before any write, the reopen clears
- * the verdict, and the archive ordering. No network.
+ * the verdict, and the archive ordering. Also create and split refusing a
+ * Sophos MDR (PROVIDER) case before any call. No network.
  */
 
 import test from "node:test";
@@ -198,4 +199,84 @@ test("tags are merged with the current list unless replace_tags is set", async (
   assert.match(merged.json.notes.join(" "), /Tags merged/);
   const replaced = await updateCase(caseRecord({ tags: ["a", "b"] }), { tags: ["c"], replace_tags: true });
   assert.deepEqual(replaced.sent, [{ id: CASE_ID, tags: ["c"] }]);
+});
+
+// --- create and split: Sophos MDR (PROVIDER) cases can't be created through the API ---
+
+const PINNED_TYPE = { id: "7f3e2d1c-0b0a-4908-8706-050403020100", name: "threat_hunt", title: "Threat Hunt", managedBy: "PROVIDER" };
+
+/** Calls one tool against a client that records every document it is sent. */
+async function callRecorded(name, args) {
+  const documents = [];
+  const client = {
+    query: async (_tenantId, document) => {
+      documents.push(document);
+      throw new Error(`unexpected document: ${document.slice(0, 40)}`);
+    },
+  };
+  const reference = {
+    ...referenceData,
+    get: async () => ({ types: [PINNED_TYPE], primaryStatuses: [OPEN, CLOSED], primaryVerdicts: [VERDICT], fetchedAt: "" }),
+  };
+  const server = new McpServer({ name: "test", version: "0.0.0" });
+  registerFusionCaseTools(server, client, tenantResolver, reference);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  const mcp = new Client({ name: "test-client", version: "0.0.0" });
+  await mcp.connect(clientTransport);
+  const result = await mcp.callTool({ name, arguments: args });
+  await mcp.close();
+  await server.close();
+  return { isError: Boolean(result.isError), text: result.content.map((c) => c.text ?? "").join("\n"), documents };
+}
+
+const NEW_CASE = { title: "never created", type: "investigation", severity: 4 };
+
+test("create refuses managed_by PROVIDER before any call, pointing to an MDR service request", async () => {
+  const { isError, text, documents } = await callRecorded("sophos_fusion_create_case", { ...NEW_CASE, managed_by: "PROVIDER" });
+  assert.equal(isError, true);
+  assert.match(text, /MDR cases \(managed_by PROVIDER\) can't be created through the Sophos API by design/);
+  assert.match(text, /Raise an MDR service request in Sophos Fusion instead/);
+  assert.match(text, /Nothing was created/);
+  assert.equal(documents.length, 0, "nothing reached the API");
+});
+
+test("split refuses new_managed_by PROVIDER before any call, even unconfirmed", async () => {
+  const { isError, text, documents } = await callRecorded("sophos_fusion_split_case", {
+    case_id: CASE_ID,
+    confirm_split: true,
+    new_title: "never created",
+    new_type: "investigation",
+    new_severity: 4,
+    new_managed_by: "PROVIDER",
+    file_ids: ["f1"],
+  });
+  assert.equal(isError, true);
+  assert.match(text, /new_managed_by PROVIDER/);
+  assert.match(text, /MDR service request/);
+  assert.equal(documents.length, 0, "nothing reached the API");
+
+  const unconfirmed = await callRecorded("sophos_fusion_split_case", {
+    case_id: CASE_ID,
+    confirm_split: false,
+    new_title: "never created",
+    new_type: "investigation",
+    new_severity: 4,
+    new_managed_by: "PROVIDER",
+    file_ids: ["f1"],
+  });
+  assert.match(unconfirmed.text, /MDR service request/);
+});
+
+test("create on a type pinned to PROVIDER points to an MDR service request, not to managed_by PROVIDER", async () => {
+  const { isError, text, documents } = await callRecorded("sophos_fusion_create_case", {
+    ...NEW_CASE,
+    type: PINNED_TYPE.id,
+    managed_by: "CUSTOMER",
+  });
+  assert.equal(isError, true);
+  assert.match(text, /Case type threat_hunt is always managed by PROVIDER/);
+  assert.match(text, /Raise an MDR service request in Sophos Fusion instead/);
+  assert.doesNotMatch(text, /Pass managed_by PROVIDER/);
+  assert.equal(documents.length, 0, "no createCase was sent");
 });

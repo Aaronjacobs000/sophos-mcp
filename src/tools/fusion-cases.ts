@@ -107,7 +107,7 @@ const ID_NOTE =
   "Fusion case UUID or short ID (e.g. 'CSE00001'). Classic IDs like '1-598868' do not resolve here.";
 
 const MANAGED_BY_NOTE =
-  "PROVIDER hands the case to Sophos MDR, CUSTOMER keeps it self managed. Cannot be changed after creation.";
+  "CUSTOMER keeps the case self managed. PROVIDER (Sophos MDR) is refused: MDR cases can't be created through the API by design, so raise an MDR service request in Sophos Fusion instead. Cannot be changed after creation.";
 
 const RN_NOTE = `Six section resource names (e.g. ${RESOURCE_NAME_EXAMPLE}), never bare UUIDs`;
 
@@ -506,9 +506,9 @@ Returns:
     "sophos_fusion_create_case",
     {
       title: "Create Fusion Case",
-      description: `Create a case in Sophos Fusion. managed_by is required and decides who works the case: PROVIDER hands it to Sophos MDR, CUSTOMER keeps it self managed. It cannot be changed after creation, and a case created without it would be unclaimed, so this tool never omits it.
+      description: `Create a self-managed case in Sophos Fusion. managed_by is required and must be CUSTOMER. MDR cases (PROVIDER) can't be created through the API by design, so PROVIDER is refused before any call is made: raise an MDR service request in Sophos Fusion instead. managed_by cannot be changed after creation, and a case created without it would be unclaimed, so this tool never omits it.
 
-Case types health_check and threat_hunt always use PROVIDER; investigation and other leave the choice free. A managed_by that contradicts the type is refused before any call is made. Type and status are resolved from the tenant's reference data (name or UUID). When status is omitted a CUSTOMER case starts in new (or the first open status) and a PROVIDER case starts in awaiting_sophos_assignment when the tenant exposes it. Severity is 2, 4, 6, 8 or 10 (or its label). assignee_id is a Subject ID or an @mention (for example @customer or @sophos), never an email address. key_findings is Markdown and becomes the case's typed key findings document (the REST "overview"). Evidence attached at creation is recorded as genesis evidence; detection_ids and event_ids are six section resource names (sophos_fusion_search_detections returns them), and attaching a detection also attaches its linked asset and events.
+A case type the tenant pins to PROVIDER (health_check and threat_hunt where measured) can't be created here either; investigation and other leave it free, so pass CUSTOMER. A managed_by that contradicts the type is refused before any call is made. Type and status are resolved from the tenant's reference data (name or UUID). When status is omitted the case starts in new (or the first open status). Severity is 2, 4, 6, 8 or 10 (or its label). assignee_id is a Subject ID or an @mention (for example @customer or @sophos), never an email address. key_findings is Markdown and becomes the case's typed key findings document (the REST "overview"). Evidence attached at creation is recorded as genesis evidence; detection_ids and event_ids are six section resource names (sophos_fusion_search_detections returns them), and attaching a detection also attaches its linked asset and events.
 
 The API has an intermittent fault on this call (74% of attempts, measured over 150 calls, "not allowed" on partnerPreferences). The client retries it up to 20 times before giving up; a failure that names createCase in its path is a genuine input error and is not retried.
 
@@ -517,7 +517,7 @@ Args:
   - title (string): Case title, max 256 characters.
   - type (string): Case type name or UUID (see sophos_fusion_list_case_reference_data).
   - severity (number|string): 2 informational, 4 low, 6 medium, 8 high, 10 critical.
-  - managed_by (string): PROVIDER or CUSTOMER. Required, no default, irreversible.
+  - managed_by (string): CUSTOMER. Required, no default, irreversible. PROVIDER is refused.
   - status (string, optional): Initial primary status name or UUID.
   - assignee_id (string, optional): Subject ID or @mention.
   - key_findings (string, optional): Markdown body.
@@ -548,6 +548,7 @@ Returns:
       annotations: WRITE,
     },
     withErrorHandling(async (args) => {
+      assertSelfManaged(args.managed_by);
       const tenantId = tenantResolver.resolveTenantId(args.tenant_id);
       const input = await buildCreateCaseInput(referenceData, tenantId, args);
 
@@ -760,7 +761,7 @@ Returns:
       title: "Split Fusion Case",
       description: `Move some of a Sophos Fusion case's evidence into a new case created by the same call. Destructive and irreversible: the named detections, events, saved searches and files leave the source case, and there is no unsplit and no delete for the new case. Requires confirm_split true.
 
-The new case takes the same inputs as sophos_fusion_create_case, including the required new_managed_by (PROVIDER hands it to Sophos MDR, CUSTOMER keeps it self managed; cannot be changed later). At least one evidence list is required. Detection and event IDs are the source IDs shown by sophos_fusion_get_case_evidence. Evidence reads on both cases can lag for a few seconds after the split.
+The new case takes the same inputs as sophos_fusion_create_case, including the required new_managed_by, which must be CUSTOMER (cannot be changed later). PROVIDER is refused before any call is made: MDR cases can't be created through the API by design, so raise an MDR service request in Sophos Fusion instead. At least one evidence list is required. Detection and event IDs are the source IDs shown by sophos_fusion_get_case_evidence. Evidence reads on both cases can lag for a few seconds after the split.
 
 Args:
   - case_id (string): ${ID_NOTE} The source case.
@@ -793,6 +794,7 @@ Returns:
       annotations: DESTRUCTIVE,
     },
     withErrorHandling(async (args) => {
+      assertSelfManaged(args.new_managed_by, "new_managed_by");
       if (args.confirm_split !== true) {
         throw new Error(
           "sophos_fusion_split_case moves evidence to a new case and cannot be undone. Re-run with confirm_split true to proceed."
@@ -1849,6 +1851,18 @@ interface NewCaseArgs {
   host_ids?: string[];
 }
 
+/**
+ * Sophos MDR (PROVIDER) cases can't be created through the API by design
+ * (AJ, 22/10/2026), so create and split refuse PROVIDER before any call.
+ */
+function assertSelfManaged(managedBy: string, field = "managed_by"): void {
+  if (managedBy === "PROVIDER") {
+    throw new Error(
+      `MDR cases (${field} PROVIDER) can't be created through the Sophos API by design. Raise an MDR service request in Sophos Fusion instead, or create a self-managed case with ${field} CUSTOMER. Nothing was created.`
+    );
+  }
+}
+
 /** CreateCaseInput for createCase and for splitCase's newCase. managedBy is always sent. */
 async function buildCreateCaseInput(
   referenceData: CaseReferenceDataCache,
@@ -1862,6 +1876,11 @@ async function buildCreateCaseInput(
   const typeId = await referenceData.resolveTypeId(tenantId, args.type);
   const { types } = await referenceData.get(tenantId);
   const type = types.find((t) => t.id === typeId);
+  if (type?.managedBy === "PROVIDER") {
+    throw new Error(
+      `Case type ${type.name} is always managed by PROVIDER (Sophos MDR), and MDR cases can't be created through the Sophos API by design. Raise an MDR service request in Sophos Fusion instead, or use a self-managed type (investigation, other).`
+    );
+  }
   if (type?.managedBy && type.managedBy !== args.managed_by) {
     throw new Error(
       `Case type ${type.name} is always managed by ${type.managedBy}; managed_by ${args.managed_by} contradicts it and the API would refuse. Pass managed_by ${type.managedBy}, or use a type that leaves it free (investigation, other).`
