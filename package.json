@@ -1,6 +1,6 @@
 {
   "name": "sophos-central-mcp-server",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "files": [
     "dist",
     "docs"
@@ -42,7 +42,7 @@
   ],
   "license": "MIT",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",

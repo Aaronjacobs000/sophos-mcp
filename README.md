@@ -21,11 +21,11 @@ Every install method needs a Client ID and Client Secret. The same credential au
 - **Partner-level**: In the Sophos Partner Dashboard, create API credentials under **Settings > API Credentials**. The server can query every tenant the partner manages.
 - **Organisation-level**: In Sophos Central Enterprise, use **Global Settings > API Credentials Management**. Same cross-tenant behaviour as partner credentials.
 
-### Node.js 20 or later (npm and self-hosted installs only)
+### Node.js 22 or later (npm and self-hosted installs only)
 
-The `.mcpb` bundle for Claude Desktop does not need Node.js on your machine: Claude Desktop ships its own Node.js runtime and the bundle carries the server and all of its dependencies. Install Node.js 20+ only if you use the Claude Code or self-hosted options.
+The `.mcpb` bundle for Claude Desktop does not need Node.js on your machine: Claude Desktop ships its own Node.js runtime and the bundle carries the server and all of its dependencies. Install Node.js 22+ only if you use the Claude Code or self-hosted options.
 
-If you run the server in HTTP mode, use Node.js 22.23.4, 24.22.1, 26.12.1 or later, which fix the Brotli decoder bug CVE-2026-111497. Node.js 20 gets no fix.
+If you run the server in HTTP mode, use Node.js 22.23.4, 24.22.1, 26.12.1 or later, which fix the Brotli decoder bug CVE-2026-111497.
 
 ## Install
 
