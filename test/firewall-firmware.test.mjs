@@ -112,7 +112,7 @@ test("a time with no offset is refused by the registered schema and nothing is s
     assert.equal(isError, true);
     // The SDK's input validation answers, not the handler ("Error: ...")
     assert.match(text, /^MCP error -32602: Input validation error/);
-    assert.match(text, /"upgrade_at"/);
+    assert.match(text, /firewalls\[0\]\.upgrade_at/);
     assert.match(text, /A time with no offset is ambiguous/);
     assert.equal(h.calls.length, 0, "no request was sent");
   } finally {
