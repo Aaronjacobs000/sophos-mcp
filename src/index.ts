@@ -177,7 +177,8 @@ async function runHTTP(createServer: () => McpServer, config: SophosConfig): Pro
   if (config.httpToken) {
     app.use("/mcp", requireBearerToken(config.httpToken));
   }
-  app.use(express.json());
+  // Parse (and decompress) bodies only on /mcp, after the token check
+  app.use("/mcp", express.json());
 
   // MCP endpoint: stateless streamable HTTP
   app.post("/mcp", async (req, res) => {

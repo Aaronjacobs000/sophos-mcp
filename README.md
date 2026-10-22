@@ -25,6 +25,8 @@ Every install method needs a Client ID and Client Secret. The same credential au
 
 The `.mcpb` bundle for Claude Desktop does not need Node.js on your machine: Claude Desktop ships its own Node.js runtime and the bundle carries the server and all of its dependencies. Install Node.js 20+ only if you use the Claude Code or self-hosted options.
 
+If you run the server in HTTP mode, use Node.js 22.23.4, 24.22.1, 26.12.1 or later, which fix the Brotli decoder bug CVE-2026-111497. Node.js 20 gets no fix.
+
 ## Install
 
 Pick one:
