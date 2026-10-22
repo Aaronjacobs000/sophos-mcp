@@ -160,7 +160,7 @@ test("the write tools carry the measured warnings and the guards in their schema
   const byName = new Map(tools.map((t) => [t.name, t]));
   const expect = (name, pattern) => assert.match(byName.get(name).description, pattern, `${name}: ${pattern}`);
 
-  // managed_by: required, no default, irreversible, unclaimed if omitted, pinned by type
+  // managed_by: required, no default, irreversible, unclaimed if omitted, pinned by type, PROVIDER refused
   const create = byName.get("sophos_fusion_create_case");
   assert.ok(create.inputSchema.required.includes("managed_by"), "create_case requires managed_by");
   assert.equal(create.inputSchema.properties.managed_by.default, undefined, "managed_by has no default");
@@ -168,10 +168,12 @@ test("the write tools carry the measured warnings and the guards in their schema
   for (const key of ["queue", "rule_id", "template_id", "incident_advisor_id"]) {
     assert.equal(create.inputSchema.properties[key], undefined, `${key} is not a create_case argument`);
   }
-  expect("sophos_fusion_create_case", /PROVIDER hands it to Sophos MDR/);
+  expect("sophos_fusion_create_case", /must be CUSTOMER/);
+  expect("sophos_fusion_create_case", /PROVIDER is refused before any call is made: raise an MDR service request/);
   expect("sophos_fusion_create_case", /cannot be changed after creation/);
   expect("sophos_fusion_create_case", /unclaimed/);
-  expect("sophos_fusion_create_case", /health_check and threat_hunt always use PROVIDER/);
+  expect("sophos_fusion_create_case", /pins to PROVIDER \(health_check and threat_hunt where measured\) can't be created here/);
+  expect("sophos_fusion_split_case", /PROVIDER is refused before any call is made/);
 
   // split and merge: destructive, irreversible, confirmation argument
   for (const [name, flag] of [["sophos_fusion_split_case", "confirm_split"], ["sophos_fusion_merge_cases", "confirm_merge"]]) {
