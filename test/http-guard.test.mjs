@@ -30,7 +30,7 @@ async function startApp({ allowedOrigins = [], token } = {}) {
   const app = express();
   app.use(refuseForeignOrigins(allowedOrigins));
   if (token) app.use("/mcp", requireBearerToken(token));
-  app.use(express.json());
+  app.use("/mcp", express.json());
   app.post("/mcp", async (req, res) => {
     const server = createServer();
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });

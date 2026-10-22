@@ -1,7 +1,7 @@
 // Runs the built entry point in HTTP mode against an in-memory Sophos (see
 // fake-sophos-fetch.mjs) and checks runHTTP() in src/index.ts: overlapping tool
-// calls all succeed, and the Origin guard, the MCP_HTTP_TOKEN check and the
-// listen address log are wired in.
+// calls all succeed, the Origin guard, the MCP_HTTP_TOKEN check and the listen
+// address log are wired in, and bodies are parsed only on /mcp after the token.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -104,6 +104,20 @@ test("the HTTP entry point enforces MCP_HTTP_TOKEN and never prints it", async (
     assert.match((await right.json()).result.content[0].text, /"count": 0/);
     assert.equal((await fetch(`http://127.0.0.1:${server.port}/health`)).status, 200);
     assert.doesNotMatch(server.stderr(), new RegExp(token));
+  } finally {
+    server.stop();
+  }
+});
+
+test("the HTTP entry point parses request bodies only on /mcp, after the token check", async () => {
+  const server = await startServer({ MCP_HTTP_TOKEN: "entry-point-test-token-9a2e" });
+  try {
+    // Not valid Brotli: a body parser that ran would fail decompressing it and answer 400
+    const junk = { method: "POST", headers: { "Content-Type": "application/json", "Content-Encoding": "br" }, body: "not brotli" };
+    const other = await fetch(`http://127.0.0.1:${server.port}/other`, junk);
+    assert.equal(other.status, 404);
+    assert.match(await other.text(), /Cannot POST \/other/);
+    assert.equal((await fetch(`http://127.0.0.1:${server.port}/mcp`, junk)).status, 401);
   } finally {
     server.stop();
   }
