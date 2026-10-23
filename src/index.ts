@@ -17,14 +17,20 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import express from "express";
 import type { AddressInfo } from "node:net";
 
-import { loadConfig, type SophosConfig } from "./config/config.js";
+import { loadConfig, MAX_TOOL_INPUT_ELEMENTS, type SophosConfig } from "./config/config.js";
 import { TokenManager } from "./auth/token-manager.js";
 import { TenantResolver } from "./client/tenant-resolver.js";
 import { SophosClient } from "./client/sophos-client.js";
 import { FusionClient } from "./client/fusion-client.js";
 import { CaseReferenceDataCache } from "./fusion/case-reference-data.js";
 import { FusionMigrationGuard } from "./fusion/migration.js";
-import { openListenerWarning, refuseForeignOrigins, requireBearerToken } from "./http-guard.js";
+import {
+  MAX_MCP_MESSAGE_BYTES,
+  openListenerWarning,
+  refuseForeignOrigins,
+  refusePayloadTooLarge,
+  requireBearerToken,
+} from "./http-guard.js";
 
 // Tool registration modules
 import { registerTenantTools } from "./tools/tenants.js";
@@ -87,10 +93,13 @@ async function main(): Promise<void> {
   // Create the MCP server. One McpServer serves one transport at a time, so
   // the stateless HTTP transport builds a fresh one per request; stdio uses one.
   const createServer = (): McpServer => {
-    const server = new McpServer({
-      name: "sophos-central-mcp-server",
-      version: pkgVersion,
-    });
+    const server = new McpServer(
+      {
+        name: "sophos-central-mcp-server",
+        version: pkgVersion,
+      },
+      { maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS }
+    );
 
     // Partner/org-only tools
     if (identity.idType !== "tenant") {
@@ -178,7 +187,8 @@ async function runHTTP(createServer: () => McpServer, config: SophosConfig): Pro
     app.use("/mcp", requireBearerToken(config.httpToken));
   }
   // Parse (and decompress) bodies only on /mcp, after the token check
-  app.use("/mcp", express.json());
+  app.use("/mcp", express.json({ limit: MAX_MCP_MESSAGE_BYTES }));
+  app.use("/mcp", refusePayloadTooLarge);
 
   // MCP endpoint: stateless streamable HTTP
   app.post("/mcp", async (req, res) => {

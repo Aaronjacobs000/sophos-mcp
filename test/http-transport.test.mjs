@@ -1,7 +1,9 @@
 // Runs the built entry point in HTTP mode against an in-memory Sophos (see
 // fake-sophos-fetch.mjs) and checks runHTTP() in src/index.ts: overlapping tool
 // calls all succeed, the Origin guard, the MCP_HTTP_TOKEN check and the listen
-// address log are wired in, and bodies are parsed only on /mcp after the token.
+// address log are wired in, bodies are parsed only on /mcp after the token, up
+// to the same 10 MiB message cap as stdio, and tool arguments are capped by
+// element count (maxToolInputElements).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -56,6 +58,23 @@ function callTool(port, id, headers = {}) {
     headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", ...headers },
     body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "sophos_list_endpoints", arguments: {} } }),
   });
+}
+
+const MAX_MESSAGE_BYTES = 10 * 1024 * 1024; // the SDK's stdio cap, STDIO_DEFAULT_MAX_BUFFER_SIZE
+const CASE_ID = "659240aa-797e-42cf-bb82-cca43c4e80d8";
+
+function postMcp(port, body, headers = {}) {
+  return fetch(`http://127.0.0.1:${port}/mcp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", ...headers },
+    body,
+  });
+}
+
+function uploadBody(fileBytes) {
+  const content_base64 = Buffer.alloc(fileBytes, 0x5a).toString("base64");
+  const args = { case_id: CASE_ID, name: "evidence.bin", content_base64 };
+  return JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "sophos_fusion_upload_case_file", arguments: args } });
 }
 
 test("overlapping tool calls over HTTP all succeed", async () => {
@@ -118,6 +137,64 @@ test("the HTTP entry point parses request bodies only on /mcp, after the token c
     assert.equal(other.status, 404);
     assert.match(await other.text(), /Cannot POST \/other/);
     assert.equal((await fetch(`http://127.0.0.1:${server.port}/mcp`, junk)).status, 401);
+  } finally {
+    server.stop();
+  }
+});
+
+test("an authenticated /mcp call carries a case file up to the stdio message cap", async () => {
+  const token = "entry-point-test-token-3c7d";
+  const server = await startServer({ MCP_HTTP_TOKEN: token });
+  try {
+    // 7.5 MiB less 1 KiB: the description's "about 7.5 MiB" for content_base64
+    const fileBytes = 7.5 * 1024 * 1024 - 1024;
+    const body = uploadBody(fileBytes);
+    assert.ok(body.length > 100 * 1024 && body.length < MAX_MESSAGE_BYTES, `body is ${body.length} bytes`);
+    const res = await postMcp(server.port, body, { Authorization: `Bearer ${token}` });
+    assert.equal(res.status, 200);
+    const result = (await res.json()).result;
+    assert.equal(result.isError, undefined, result.content[0].text);
+    const file = JSON.parse(result.content[0].text);
+    assert.equal(file.upload_bytes, fileBytes);
+    assert.equal(file.size, fileBytes);
+    assert.equal(file.upload_status, "UPLOADED");
+  } finally {
+    server.stop();
+  }
+});
+
+test("a /mcp body over the cap gets a JSON-RPC 413 and the server keeps serving", async () => {
+  const token = "entry-point-test-token-8b41";
+  const server = await startServer({ MCP_HTTP_TOKEN: token });
+  try {
+    const body = uploadBody(8 * 1024 * 1024);
+    assert.ok(body.length > MAX_MESSAGE_BYTES);
+    const res = await postMcp(server.port, body, { Authorization: `Bearer ${token}` });
+    assert.equal(res.status, 413);
+    assert.match(res.headers.get("content-type"), /application\/json/);
+    const text = await res.text();
+    assert.doesNotMatch(text, /PayloadTooLargeError|<html|node_modules/i);
+    const { error } = JSON.parse(text);
+    assert.equal(error.code, -32000);
+    assert.match(error.message, new RegExp(`over the ${MAX_MESSAGE_BYTES} byte limit.*file_path`));
+    const after = await callTool(server.port, 2, { Authorization: `Bearer ${token}` });
+    assert.equal(after.status, 200);
+    assert.match((await after.json()).result.content[0].text, /"count": 0/);
+  } finally {
+    server.stop();
+  }
+});
+
+test("a tool call with more than 1,000,000 argument elements is refused before validation", async () => {
+  const server = await startServer();
+  try {
+    const ids = `[${Array(1_000_001).fill("0").join(",")}]`;
+    const body = `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"sophos_fusion_add_case_evidence","arguments":{"case_id":"${CASE_ID}","detection_ids":${ids}}}}`;
+    const res = await postMcp(server.port, body);
+    assert.equal(res.status, 200);
+    const { result } = await res.json();
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /more than the maximum of 1000000 elements/);
   } finally {
     server.stop();
   }

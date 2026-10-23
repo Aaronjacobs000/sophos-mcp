@@ -1445,15 +1445,15 @@ Returns:
       title: "Upload Fusion Case File",
       description: `Attach a file to a Sophos Fusion case: registers the upload, PUTs the bytes to the presigned URL the API returns, then polls until the file status leaves SCHEDULED (it reached UPLOADED within about 3 seconds in testing).
 
-Supply exactly one of content (text, stored as UTF-8), content_base64 (binary) or file_path (a file on the machine running this MCP server). name is required unless file_path is given. content_type defaults from the file extension. Files are limited to 50 MB. Deleting a file later is a soft delete.
+Supply exactly one of content (text, stored as UTF-8), content_base64 (binary) or file_path (a file on the machine running this MCP server). name is required unless file_path is given. content_type defaults from the file extension. content and content_base64 travel inside the MCP message, which is capped at 10 MiB on stdio and HTTP, so content_base64 carries up to about 7.5 MiB of file. file_path is read on the server, so use it for larger files, up to 50 MiB. Deleting a file later is a soft delete.
 
 Args:
   - case_id (string): ${ID_NOTE}
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
   - name (string, optional): File name as it should appear on the case.
   - content (string, optional): Text content.
-  - content_base64 (string, optional): Binary content, base64.
-  - file_path (string, optional): Local path to read.
+  - content_base64 (string, optional): Binary content, base64 (up to about 7.5 MiB of file).
+  - file_path (string, optional): Local path to read (up to 50 MiB).
   - content_type (string, optional): MIME type; guessed from the name when omitted.
   - embedded (boolean, optional, default false): Mark the file as embedded content (for images used in key findings).
 
@@ -1464,7 +1464,7 @@ Returns:
         tenant_id: tenantIdField,
         name: z.string().min(1).optional().describe("File name on the case"),
         content: z.string().optional().describe("Text content (UTF-8)"),
-        content_base64: z.string().optional().describe("Binary content, base64"),
+        content_base64: z.string().optional().describe("Binary content, base64 (up to about 7.5 MiB of file; use file_path above that)"),
         file_path: z.string().optional().describe("Local file path on the MCP server host"),
         content_type: z.string().optional().describe("MIME type (guessed from the name when omitted)"),
         embedded: z.boolean().optional().default(false).describe("Embedded content (images in key findings)"),
