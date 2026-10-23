@@ -30,6 +30,7 @@ import {
   refuseForeignOrigins,
   refuseMalformedJson,
   refusePayloadTooLarge,
+  refuseUnreadableBody,
   requireBearerToken,
 } from "./http-guard.js";
 
@@ -191,6 +192,7 @@ async function runHTTP(createServer: () => McpServer, config: SophosConfig): Pro
   app.use("/mcp", express.json({ limit: MAX_MCP_MESSAGE_BYTES }));
   app.use("/mcp", refusePayloadTooLarge);
   app.use("/mcp", refuseMalformedJson);
+  app.use("/mcp", refuseUnreadableBody);
 
   // MCP endpoint: stateless streamable HTTP
   app.post("/mcp", async (req, res) => {
@@ -232,6 +234,15 @@ async function runHTTP(createServer: () => McpServer, config: SophosConfig): Pro
 
 async function runStdio(server: McpServer): Promise<void> {
   const transport = new StdioServerTransport();
+  // On a message over its cap the SDK reports this error, closes the transport and the process exits: say why
+  server.server.onerror = (error) => {
+    const cap = /exceeded maximum size of (\d+) bytes/.exec(error.message)?.[1];
+    if (cap !== undefined) {
+      console.error(
+        `[sophos-mcp] stdio: dropped an incoming message over the ${cap} byte limit. The MCP SDK closes the transport on it, so the server is exiting. For a large case file, use file_path.`
+      );
+    }
+  };
   await server.connect(transport);
   console.error("[sophos-mcp] Running on stdio transport");
 }

@@ -2,9 +2,9 @@
 // fake-sophos-fetch.mjs) and checks runHTTP() in src/index.ts: overlapping tool
 // calls all succeed, the Origin guard, the MCP_HTTP_TOKEN check and the listen
 // address log are wired in, bodies are parsed only on /mcp after the token, up
-// to the same 10 MiB message cap as stdio, a body over the cap or not valid
-// JSON gets a JSON-RPC error, and tool arguments are capped by element count
-// (maxToolInputElements).
+// to the same 10 MiB message cap as stdio, a body over the cap, not valid
+// JSON or otherwise refused by the parser gets a JSON-RPC error, and tool
+// arguments are capped by element count (maxToolInputElements).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -197,6 +197,37 @@ test("malformed JSON on /mcp gets a JSON-RPC parse error with no stack, and the 
     assert.doesNotMatch(text, /SyntaxError|<html|node_modules|JSON\.parse|body-parser|\/Users\/|\/home\//i);
     assert.deepEqual(JSON.parse(text), { jsonrpc: "2.0", error: { code: -32700, message: "Parse error: Invalid JSON" }, id: null });
     const after = await callTool(server.port, 2, { Authorization: `Bearer ${token}` });
+    assert.equal(after.status, 200);
+    assert.match((await after.json()).result.content[0].text, /"count": 0/);
+  } finally {
+    server.stop();
+  }
+});
+
+test("every other body the /mcp parser rejects gets a JSON-RPC error with its status and no stack, and the server keeps serving", async () => {
+  const token = "entry-point-test-token-6e03";
+  const server = await startServer({ MCP_HTTP_TOKEN: token });
+  try {
+    const auth = { Authorization: `Bearer ${token}` };
+    const valid = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    const unreadable = (encoding) => `Bad Request: the request body could not be read as Content-Encoding "${encoding}".`;
+    const cases = [
+      ["bad brotli", { "Content-Encoding": "br" }, "not brotli", 400, unreadable("br")],
+      ["bad gzip", { "Content-Encoding": "gzip" }, "not gzip", 400, unreadable("gzip")],
+      ["bad deflate", { "Content-Encoding": "deflate" }, "not deflate", 400, unreadable("deflate")],
+      ["unknown Content-Encoding", { "Content-Encoding": "zstd" }, valid, 415, 'Unsupported Media Type: Content-Encoding "zstd" is not supported. Use gzip, deflate, br or none.'],
+      ["non-UTF charset", { "Content-Type": "application/json; charset=latin1" }, valid, 415, 'Unsupported Media Type: charset "latin1" is not supported. Use UTF-8.'],
+      ["unknown UTF charset", { "Content-Type": "application/json; charset=utf-99" }, valid, 415, 'Unsupported Media Type: charset "utf-99" is not supported. Use UTF-8.'],
+    ];
+    for (const [name, headers, body, status, message] of cases) {
+      const res = await postMcp(server.port, body, { ...auth, ...headers });
+      assert.equal(res.status, status, name);
+      assert.match(res.headers.get("content-type"), /application\/json/, name);
+      const text = await res.text();
+      assert.doesNotMatch(text, /MediaTypeError|NodeError|zlib|<html|node_modules|body-parser|\/Users\/|\/home\//i, name);
+      assert.deepEqual(JSON.parse(text), { jsonrpc: "2.0", error: { code: -32000, message }, id: null }, name);
+    }
+    const after = await callTool(server.port, 2, auth);
     assert.equal(after.status, 200);
     assert.match((await after.json()).result.content[0].text, /"count": 0/);
   } finally {
