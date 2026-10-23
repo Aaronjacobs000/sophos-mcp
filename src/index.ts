@@ -28,6 +28,7 @@ import {
   MAX_MCP_MESSAGE_BYTES,
   openListenerWarning,
   refuseForeignOrigins,
+  refuseMalformedJson,
   refusePayloadTooLarge,
   requireBearerToken,
 } from "./http-guard.js";
@@ -189,6 +190,7 @@ async function runHTTP(createServer: () => McpServer, config: SophosConfig): Pro
   // Parse (and decompress) bodies only on /mcp, after the token check
   app.use("/mcp", express.json({ limit: MAX_MCP_MESSAGE_BYTES }));
   app.use("/mcp", refusePayloadTooLarge);
+  app.use("/mcp", refuseMalformedJson);
 
   // MCP endpoint: stateless streamable HTTP
   app.post("/mcp", async (req, res) => {

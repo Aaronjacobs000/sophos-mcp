@@ -2,8 +2,9 @@
 // fake-sophos-fetch.mjs) and checks runHTTP() in src/index.ts: overlapping tool
 // calls all succeed, the Origin guard, the MCP_HTTP_TOKEN check and the listen
 // address log are wired in, bodies are parsed only on /mcp after the token, up
-// to the same 10 MiB message cap as stdio, and tool arguments are capped by
-// element count (maxToolInputElements).
+// to the same 10 MiB message cap as stdio, a body over the cap or not valid
+// JSON gets a JSON-RPC error, and tool arguments are capped by element count
+// (maxToolInputElements).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -177,6 +178,24 @@ test("a /mcp body over the cap gets a JSON-RPC 413 and the server keeps serving"
     const { error } = JSON.parse(text);
     assert.equal(error.code, -32000);
     assert.match(error.message, new RegExp(`over the ${MAX_MESSAGE_BYTES} byte limit.*file_path`));
+    const after = await callTool(server.port, 2, { Authorization: `Bearer ${token}` });
+    assert.equal(after.status, 200);
+    assert.match((await after.json()).result.content[0].text, /"count": 0/);
+  } finally {
+    server.stop();
+  }
+});
+
+test("malformed JSON on /mcp gets a JSON-RPC parse error with no stack, and the server keeps serving", async () => {
+  const token = "entry-point-test-token-d27f";
+  const server = await startServer({ MCP_HTTP_TOKEN: token });
+  try {
+    const res = await postMcp(server.port, '{"jsonrpc":"2.0","id":1,', { Authorization: `Bearer ${token}` });
+    assert.equal(res.status, 400);
+    assert.match(res.headers.get("content-type"), /application\/json/);
+    const text = await res.text();
+    assert.doesNotMatch(text, /SyntaxError|<html|node_modules|JSON\.parse|body-parser|\/Users\/|\/home\//i);
+    assert.deepEqual(JSON.parse(text), { jsonrpc: "2.0", error: { code: -32700, message: "Parse error: Invalid JSON" }, id: null });
     const after = await callTool(server.port, 2, { Authorization: `Bearer ${token}` });
     assert.equal(after.status, 200);
     assert.match((await after.json()).result.content[0].text, /"count": 0/);
