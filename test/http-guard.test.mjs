@@ -13,7 +13,7 @@ import express from "express";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { isLoopbackAddress, openListenerWarning, refuseForeignOrigins, requireBearerToken } from "../dist/http-guard.js";
+import { isLoopbackAddress, openListenerWarning, refuseForeignOrigins, refuseUnreadableBody, requireBearerToken } from "../dist/http-guard.js";
 import { parseAllowedOrigins } from "../dist/config/config.js";
 
 async function startApp({ allowedOrigins = [], token } = {}) {
@@ -234,5 +234,14 @@ test("the open-listener warning fires only off loopback with no token", () => {
     assert.equal(isLoopbackAddress(address), false, address);
     assert.match(openListenerWarning(address, false), /WARNING: listening on .* with no MCP_HTTP_TOKEN/, address);
     assert.equal(openListenerWarning(address, true), undefined, address);
+  }
+});
+
+test("a body parser error that is not a client error becomes a JSON-RPC 500 with no detail", () => {
+  for (const error of [Object.assign(new Error("stream is not readable"), { status: 500, type: "stream.not.readable" }), new Error("no status")]) {
+    const sent = {};
+    const res = { status: (code) => ((sent.status = code), res), json: (body) => (sent.body = body) };
+    refuseUnreadableBody(error, { headers: {} }, res, () => assert.fail("passed the error on"));
+    assert.deepEqual(sent, { status: 500, body: { jsonrpc: "2.0", error: { code: -32603, message: "Internal error: the request body could not be read." }, id: null } });
   }
 });

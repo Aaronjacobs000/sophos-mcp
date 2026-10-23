@@ -19,11 +19,13 @@
  * MAX_MCP_MESSAGE_BYTES is the /mcp body limit. It matches the SDK's stdio
  * message cap (STDIO_DEFAULT_MAX_BUFFER_SIZE), so a tool call that fits on one
  * transport fits on the other. refusePayloadTooLarge answers a body over it,
- * and refuseMalformedJson answers a body that is not JSON, both as JSON-RPC
- * errors instead of Express's HTML error page, which carries a stack trace.
+ * refuseMalformedJson a body that is not JSON, and refuseUnreadableBody every
+ * other body parser error, all as JSON-RPC errors instead of Express's HTML
+ * error page, which carries a stack trace.
  */
 
 import { createHash, timingSafeEqual } from "node:crypto";
+import { STATUS_CODES } from "node:http";
 import type { ErrorRequestHandler, NextFunction, Request, RequestHandler, Response } from "express";
 
 /** 10 MiB: the largest JSON-RPC message /mcp accepts, the same as stdio. */
@@ -98,6 +100,26 @@ export const refuseMalformedJson: ErrorRequestHandler = (error, _req, res, next)
   }
   // The SDK's wording for the same case when it parses the body itself
   jsonRpcError(res, 400, "Parse error: Invalid JSON", -32700);
+};
+
+/**
+ * Answers every other body parser error as a JSON-RPC error with the parser's status: a body that does not
+ * decompress (400), an unsupported Content-Encoding or charset (415). A status that is not a client error becomes
+ * a 500 with no detail. Mounted last before the /mcp route, so it never passes an error on.
+ */
+export const refuseUnreadableBody: ErrorRequestHandler = (error, req, res, _next) => {
+  const { status, type, encoding, charset } = (error ?? {}) as Record<string, unknown>;
+  if (type === "encoding.unsupported") {
+    jsonRpcError(res, 415, `Unsupported Media Type: Content-Encoding "${String(encoding)}" is not supported. Use gzip, deflate, br or none.`);
+  } else if (type === "charset.unsupported") {
+    jsonRpcError(res, 415, `Unsupported Media Type: charset "${String(charset)}" is not supported. Use UTF-8.`);
+  } else if (typeof status === "number" && status >= 400 && status < 500) {
+    const contentEncoding = req.headers["content-encoding"];
+    const as = contentEncoding && contentEncoding !== "identity" ? ` as Content-Encoding "${contentEncoding}"` : "";
+    jsonRpcError(res, status, `${STATUS_CODES[status] ?? "Bad Request"}: the request body could not be read${as}.`);
+  } else {
+    jsonRpcError(res, 500, "Internal error: the request body could not be read.", -32603);
+  }
 };
 
 export function isLoopbackAddress(address: string): boolean {

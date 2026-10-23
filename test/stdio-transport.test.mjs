@@ -2,7 +2,8 @@
 // fake-sophos-fetch.mjs) and pins what the README and the upload tool
 // description say about the message cap: a message up to the SDK's 10 MiB cap
 // (STDIO_DEFAULT_MAX_BUFFER_SIZE) is answered, and one over it makes the SDK's
-// StdioServerTransport close itself, so the server exits without an answer.
+// StdioServerTransport close itself, so the server exits without an answer,
+// after one stderr line saying why.
 // The SDK (1.32) has no option to refuse that message and keep reading. If an
 // SDK update changes this, the second half fails: update the docs with it.
 
@@ -50,7 +51,7 @@ function startServer() {
             resolve(message);
           });
         });
-  return { send, response, responses, exited, stop: () => child.kill() };
+  return { send, response, responses, exited, stderr: () => stderr, stop: () => child.kill() };
 }
 
 function uploadCall(id, fileBytes) {
@@ -82,6 +83,23 @@ test("a stdio message up to the 10 MiB cap is answered, and one over it ends the
     assert.deepEqual(exit, { code: 0, signal: null });
     assert.equal(server.responses.has(3), false);
     assert.equal(server.responses.has(4), false);
+  } finally {
+    server.stop();
+  }
+});
+
+test("a stdio message over the cap is logged on stderr before the server exits", async () => {
+  const server = startServer();
+  try {
+    server.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "stdio-test", version: "0" } } });
+    assert.equal((await server.response(1)).result.serverInfo.name, "sophos-central-mcp-server");
+    server.send(uploadCall(2, 8 * 1024 * 1024));
+    const exit = await Promise.race([server.exited, new Promise((resolve) => setTimeout(() => resolve("still running"), 15_000))]);
+    assert.deepEqual(exit, { code: 0, signal: null });
+    const lines = server.stderr().split("\n").filter((line) => /stdio|byte limit/i.test(line) && !/Running on stdio/.test(line));
+    assert.deepEqual(lines, [
+      `[sophos-mcp] stdio: dropped an incoming message over the ${MAX_MESSAGE_BYTES} byte limit. The MCP SDK closes the transport on it, so the server is exiting. For a large case file, use file_path.`,
+    ]);
   } finally {
     server.stop();
   }
