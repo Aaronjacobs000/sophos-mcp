@@ -114,6 +114,13 @@ export const CHARACTER_LIMIT = Math.max(
 export const DEFAULT_PAGE_SIZE = 50;
 export const MAX_PAGE_SIZE = 100;
 
+// The SDK's maxToolInputElements (array elements plus object members in one
+// tool call's arguments), which stops an oversized argument list from
+// exhausting memory during validation. A legitimate call can't reach it inside
+// a 10 MiB message: that would take entries averaging under 10.5 bytes, and the
+// only entries that short are ports (at most 65,535 per field), enums and tags.
+export const MAX_TOOL_INPUT_ELEMENTS = 1_000_000;
+
 // Migration awareness for the Classic Cases and Detections REST tools. A
 // tenant that has moved to Sophos Fusion is refused on those tools and pointed
 // at the sophos_fusion_* equivalent, because for such a tenant the Classic

@@ -43,7 +43,7 @@ This is a **Model Context Protocol (MCP) server** that wraps the Sophos Central 
 4. For partner/org callers, `loadTenants()` paginates through all managed tenants and caches `tenantId → apiHost`
 5. `SophosClient` (REST) and `FusionClient` (GraphQL) are created on the same `TokenManager`
 6. Tools are registered conditionally: `sophos_list_tenants` only for partner/org; all others always. The Classic case and detection tools take a `FusionMigrationGuard` built on the case reference cache. The Fusion block (cases, then detections) is registered last
-7. Transport starts: streamable HTTP on `MCP_HTTP_HOST:PORT/mcp` (default `127.0.0.1:3100`; stateless, new `McpServer` and transport per request, behind `src/http-guard.ts`, which refuses a browser `Origin` that is not loopback or in `MCP_ALLOWED_ORIGINS`, and requires `Authorization: Bearer` on `/mcp` when `MCP_HTTP_TOKEN` is set; a non-loopback bind with no token prints a warning) or stdio. The `Host` header is not checked, so clients on other machines can connect
+7. Transport starts: streamable HTTP on `MCP_HTTP_HOST:PORT/mcp` (default `127.0.0.1:3100`; stateless, new `McpServer` and transport per request, behind `src/http-guard.ts`, which refuses a browser `Origin` that is not loopback or in `MCP_ALLOWED_ORIGINS`, and requires `Authorization: Bearer` on `/mcp` when `MCP_HTTP_TOKEN` is set; `/mcp` bodies are capped at `MAX_MCP_MESSAGE_BYTES` (10 MiB, the SDK's stdio cap) with a JSON-RPC 413 above it; a non-loopback bind with no token prints a warning) or stdio. The `Host` header is not checked, so clients on other machines can connect
 
 ### Core classes
 
@@ -126,6 +126,7 @@ Helper functions in `src/tools/helpers.ts`:
 | `SOPHOS_FUSION_GRAPHQL_URL` | `https://api.taegis.sophos.com/graphql`, env override of the same name (https on a `sophos.com` host only, checked in `loadConfig`) |
 | `CHARACTER_LIMIT` | `50000` (env override, minimum 10000) |
 | `DEFAULT_PAGE_SIZE` | `50` |
+| `MAX_TOOL_INPUT_ELEMENTS` | `1000000`, passed to every `McpServer` as `maxToolInputElements` |
 
 ## Prose
 

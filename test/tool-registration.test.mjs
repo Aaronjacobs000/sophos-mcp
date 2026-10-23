@@ -186,8 +186,10 @@ test("the write tools carry the measured warnings and the guards in their schema
   expect("sophos_fusion_merge_cases", /Asynchronous/);
   expect("sophos_fusion_merge_cases", /keep their own evidence rows/);
 
-  // files: soft delete
+  // files: soft delete, and the per-transport upload limits
   expect("sophos_fusion_delete_case_file", /SOFT delete/);
+  expect("sophos_fusion_upload_case_file", /capped at 10 MiB on stdio and HTTP, so content_base64 carries up to about 7\.5 MiB/);
+  expect("sophos_fusion_upload_case_file", /file_path .* up to 50 MiB/);
   expect("sophos_fusion_list_case_files", /hidden unless include_deleted/);
 
   // tags: replace versus merge

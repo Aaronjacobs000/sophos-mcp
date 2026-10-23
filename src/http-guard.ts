@@ -15,10 +15,17 @@
  *
  * requireBearerToken is the opt-in shared secret (MCP_HTTP_TOKEN) for a server
  * that other machines can reach.
+ *
+ * MAX_MCP_MESSAGE_BYTES is the /mcp body limit. It matches the SDK's stdio
+ * message cap (STDIO_DEFAULT_MAX_BUFFER_SIZE), so a tool call that fits on one
+ * transport fits on the other. refusePayloadTooLarge answers a body over it.
  */
 
 import { createHash, timingSafeEqual } from "node:crypto";
-import type { NextFunction, Request, RequestHandler, Response } from "express";
+import type { ErrorRequestHandler, NextFunction, Request, RequestHandler, Response } from "express";
+
+/** 10 MiB: the largest JSON-RPC message /mcp accepts, the same as stdio. */
+export const MAX_MCP_MESSAGE_BYTES = 10 * 1024 * 1024;
 
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
@@ -67,6 +74,19 @@ export function requireBearerToken(token: string): RequestHandler {
     jsonRpcError(res, 401, "Unauthorized: send the MCP_HTTP_TOKEN value as an \"Authorization: Bearer <token>\" header.");
   };
 }
+
+/** Turns the body parser's 413 into a JSON-RPC error; other errors pass through. */
+export const refusePayloadTooLarge: ErrorRequestHandler = (error, _req, res, next) => {
+  if ((error as { type?: unknown })?.type !== "entity.too.large") {
+    next(error);
+    return;
+  }
+  jsonRpcError(
+    res,
+    413,
+    `Payload Too Large: the request body is over the ${MAX_MCP_MESSAGE_BYTES} byte limit. For a large case file, use file_path.`
+  );
+};
 
 export function isLoopbackAddress(address: string): boolean {
   return address.startsWith("127.") || address === "::1" || address.toLowerCase().startsWith("::ffff:127.");
