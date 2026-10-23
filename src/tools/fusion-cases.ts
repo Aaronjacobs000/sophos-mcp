@@ -1445,7 +1445,7 @@ Returns:
       title: "Upload Fusion Case File",
       description: `Attach a file to a Sophos Fusion case: registers the upload, PUTs the bytes to the presigned URL the API returns, then polls until the file status leaves SCHEDULED (it reached UPLOADED within about 3 seconds in testing).
 
-Supply exactly one of content (text, stored as UTF-8), content_base64 (binary) or file_path (a file on the machine running this MCP server). name is required unless file_path is given. content_type defaults from the file extension. content and content_base64 travel inside the MCP message, which is capped at 10 MiB on stdio and HTTP, so content_base64 carries up to about 7.5 MiB of file. file_path is read on the server, so use it for larger files, up to 50 MiB. Deleting a file later is a soft delete.
+Supply exactly one of content (text, stored as UTF-8), content_base64 (binary) or file_path (a file on the machine running this MCP server). name is required unless file_path is given. content_type defaults from the file extension. content and content_base64 travel inside the MCP message, which is capped at 10 MiB on stdio and HTTP, so content_base64 carries up to about 7.5 MiB of file. A larger message gets an error over HTTP, but over stdio the MCP SDK closes the connection and this server exits. file_path is read on the server, so use it for larger files, up to 50 MiB. Deleting a file later is a soft delete.
 
 Args:
   - case_id (string): ${ID_NOTE}

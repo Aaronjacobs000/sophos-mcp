@@ -18,7 +18,9 @@
  *
  * MAX_MCP_MESSAGE_BYTES is the /mcp body limit. It matches the SDK's stdio
  * message cap (STDIO_DEFAULT_MAX_BUFFER_SIZE), so a tool call that fits on one
- * transport fits on the other. refusePayloadTooLarge answers a body over it.
+ * transport fits on the other. refusePayloadTooLarge answers a body over it,
+ * and refuseMalformedJson answers a body that is not JSON, both as JSON-RPC
+ * errors instead of Express's HTML error page, which carries a stack trace.
  */
 
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -37,8 +39,8 @@ function isLoopbackOrigin(origin: string): boolean {
   }
 }
 
-function jsonRpcError(res: Response, status: number, message: string): void {
-  res.status(status).json({ jsonrpc: "2.0", error: { code: -32000, message }, id: null });
+function jsonRpcError(res: Response, status: number, message: string, code = -32000): void {
+  res.status(status).json({ jsonrpc: "2.0", error: { code, message }, id: null });
 }
 
 export function refuseForeignOrigins(allowedOrigins: string[]): RequestHandler {
@@ -86,6 +88,16 @@ export const refusePayloadTooLarge: ErrorRequestHandler = (error, _req, res, nex
     413,
     `Payload Too Large: the request body is over the ${MAX_MCP_MESSAGE_BYTES} byte limit. For a large case file, use file_path.`
   );
+};
+
+/** Turns the body parser's JSON syntax error into a JSON-RPC parse error (-32700); other errors pass through. */
+export const refuseMalformedJson: ErrorRequestHandler = (error, _req, res, next) => {
+  if ((error as { type?: unknown })?.type !== "entity.parse.failed") {
+    next(error);
+    return;
+  }
+  // The SDK's wording for the same case when it parses the body itself
+  jsonRpcError(res, 400, "Parse error: Invalid JSON", -32700);
 };
 
 export function isLoopbackAddress(address: string): boolean {
