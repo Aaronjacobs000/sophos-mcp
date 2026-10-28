@@ -19,7 +19,7 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SophosClient } from "../client/sophos-client.js";
+import { errorStatus, type SophosClient } from "../client/sophos-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { SophosPagedResponse } from "../types/sophos.js";
 import { jsonResult, withErrorHandling } from "./helpers.js";
@@ -208,7 +208,7 @@ async function lookUpTargets(
     try {
       found.set(id, await client.tenantRequest<TargetInfo>(tenantId, `${path}/${id}`));
     } catch (error) {
-      if (!/Sophos API error 404:/.test(message(error))) throw error;
+      if (errorStatus(error) !== 404) throw error;
     }
   }
   return found;

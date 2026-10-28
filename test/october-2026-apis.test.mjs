@@ -223,6 +223,24 @@ test("S/MIME get config and get internal CA report a missing resource rather tha
   }
 });
 
+test("S/MIME get config and get internal CA treat a 404 with a non-JSON body as missing", async () => {
+  const h = await restHarness(registerEmailSmimeTools, () => ({
+    status: 404,
+    body: "<html><body>404 Not Found</body></html>",
+    contentType: "text/html",
+  }));
+  try {
+    const config = await h.call("sophos_get_smime_config", {});
+    assert.equal(config.isError, false, config.text);
+    assert.equal(config.json.configured, false);
+    const ca = await h.call("sophos_get_smime_internal_ca", {});
+    assert.equal(ca.isError, false, ca.text);
+    assert.equal(ca.json.exists, false);
+  } finally {
+    await h.close();
+  }
+});
+
 test("S/MIME internal CA tools send the spec bodies and download PEM text", async () => {
   const h = await restHarness(registerEmailSmimeTools, (m, p) =>
     p.endsWith("/ca/internal/certificate") && m === "GET"

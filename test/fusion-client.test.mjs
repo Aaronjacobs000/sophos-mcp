@@ -209,6 +209,20 @@ test("429 waits for Retry-After and then succeeds", async () => {
   assert.equal(calls.length, 2);
 });
 
+test("429 on every attempt throws the status and body for a query and a mutation", async () => {
+  for (const document of ["query { ok }", "mutation { ok }"]) {
+    const calls = stubFetch(() =>
+      json({ error: "TooManyRequests", message: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": "0" } })
+    );
+    await assert.rejects(
+      () => makeClient().query("tenant-1", document),
+      /^Error: Sophos Fusion API error 429: TooManyRequests - Rate limit exceeded\. Still rate limited after 3 attempts\.$/,
+      document
+    );
+    assert.equal(calls.length, 3, document);
+  }
+});
+
 test("5xx is retried and a later success is returned", async () => {
   const calls = stubFetch((attempt) =>
     attempt < 3 ? json("upstream down", { status: 503 }) : json({ data: { ok: true } })

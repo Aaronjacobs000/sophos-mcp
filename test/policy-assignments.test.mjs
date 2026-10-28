@@ -157,6 +157,18 @@ test("an ID the tenant does not have is refused; a group not listed yet is found
   }
 });
 
+test("an ID whose 404 has a non-JSON body is still reported as not found", async () => {
+  const h = await harness({ plainNotFound: true });
+  try {
+    const missing = await h.call("sophos_set_policy_assignments", { policy_id: P_DEVICE, mode: "add", endpoint_groups: [MISSING] });
+    assert.equal(missing.isError, true);
+    assert.match(missing.text, /endpoint group .*ff was not found in this tenant/);
+    assert.deepEqual(h.writes(), []);
+  } finally {
+    await h.close();
+  }
+});
+
 test("remove does not look targets up", async () => {
   const h = await harness();
   try {

@@ -9,6 +9,7 @@
  *   the same write; clearing it while filter-by stays true gets 400; a new
  *   web control policy defaults to web-profile.enabled true.
  * - Groups listed in `unlisted` answer GET by ID but not the ids= list (lag).
+ * - plainNotFound: an unknown endpoint or group ID gets a 404 with a non-JSON body.
  * Registers the policy tools on a real SophosClient. No network.
  */
 
@@ -84,7 +85,7 @@ function applySettings(stored, write) {
   return { value: next };
 }
 
-export async function policyHarness({ tamper, failPatch = false } = {}) {
+export async function policyHarness({ tamper, failPatch = false, plainNotFound = false } = {}) {
   const endpoints = new Map([
     [E1, { id: E1, type: "computer", hostname: "victim" }],
     [ES1, { id: ES1, type: "server", hostname: "DC01" }],
@@ -122,6 +123,9 @@ export async function policyHarness({ tamper, failPatch = false } = {}) {
 
     if (resource === "endpoints" || resource === "endpoint-groups") {
       const map = resource === "endpoints" ? endpoints : groups;
+      if (id && !map.has(id) && plainNotFound) {
+        return new Response("<html><body>404 Not Found</body></html>", { status: 404, headers: { "Content-Type": "text/html" } });
+      }
       if (id) return map.has(id) ? reply(200, map.get(id)) : reply(404, { error: "resourceNotFound", message: "Not found" });
       const ids = (u.searchParams.get("ids") ?? "").split(",").filter(Boolean);
       const items = ids.filter((x) => map.has(x) && !unlisted.has(x)).map((x) => map.get(x));
