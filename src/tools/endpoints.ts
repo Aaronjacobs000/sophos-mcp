@@ -7,7 +7,8 @@
  *        sophos_trigger_update_check, sophos_request_forensic_logs,
  *        sophos_get_forensic_log_status, sophos_request_memory_dump,
  *        sophos_get_memory_dump_status, sophos_bulk_isolate_endpoints,
- *        sophos_get_endpoint_isolation_status
+ *        sophos_get_endpoint_isolation_status, sophos_bulk_scan_endpoints,
+ *        sophos_bulk_reset_endpoint_health, sophos_bulk_update_tamper_protection
  * Interact with the Sophos Endpoint API /endpoint/v1/endpoints
  */
 
@@ -18,6 +19,26 @@ import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { SophosEndpointPage, SophosEndpoint } from "../types/sophos.js";
 import { jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
+
+/** The 202 body the bulk endpoint actions (scan, reset health, tamper protection) share. */
+interface BulkActionResponse {
+  items?: Array<{ id: string; status: string; requestedAt: string }>;
+  errors?: Array<{ id: string; errorCode: string; endpointErrorCode?: string; errorMessage: string }>;
+}
+
+/** Counts plus the accepted and rejected lists exactly as Sophos returned them. */
+function bulkActionResult(requested: number, data: BulkActionResponse, note?: string) {
+  const items = data.items ?? [];
+  const errors = data.errors ?? [];
+  return {
+    requested,
+    accepted: items.length,
+    rejected: errors.length,
+    items,
+    errors,
+    ...(note ? { note } : {}),
+  };
+}
 
 export function registerEndpointTools(
   server: McpServer,
@@ -924,6 +945,191 @@ Args:
         `/endpoint/v1/endpoints/${endpoint_id}/isolation`
       );
       return jsonResult(data);
+    })
+  );
+
+  // --- Bulk Scan Endpoints ---
+  server.registerTool(
+    "sophos_bulk_scan_endpoints",
+    {
+      title: "Bulk Scan Sophos Endpoints",
+      description: `Ask up to 500 endpoints to run a scan in one request.
+
+Each endpoint is accepted or rejected on its own. Accepted ones come back in
+items with status "requested"; rejected ones come back in errors with an
+errorCode (notFound, notSupported, conflict, permissionDenied, internalError)
+and a message. The scans run asynchronously on the devices. Sophos answers 404
+when none of the IDs is found.
+
+Args:
+  - ids (string[]): Endpoint IDs (1 to 500). Duplicates are dropped.
+  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
+
+Returns:
+  requested, accepted and rejected counts, then items and errors as Sophos returned them.`,
+      inputSchema: {
+        ids: z
+          .array(z.string().uuid())
+          .min(1)
+          .max(500)
+          .describe("Endpoint IDs to scan (1 to 500)"),
+        tenant_id: z
+          .string()
+          .uuid()
+          .optional()
+          .describe("Tenant ID. Required for partner/org callers."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    withErrorHandling(async ({ ids, tenant_id }) => {
+      const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const unique = [...new Set(ids)];
+      const data = await client.tenantRequest<BulkActionResponse>(
+        resolvedTenantId,
+        "/endpoint/v1/endpoints/scans",
+        { method: "POST", body: { ids: unique } }
+      );
+      return jsonResult(bulkActionResult(unique.length, data));
+    })
+  );
+
+  // --- Bulk Reset Endpoint Health ---
+  server.registerTool(
+    "sophos_bulk_reset_endpoint_health",
+    {
+      title: "Bulk Reset Sophos Endpoint Health",
+      description: `Reset the health status to green and clear all alerts on up to 500 endpoints in one request.
+
+WARNING: every alert on the targeted endpoints is cleared, and that cannot be
+undone. Review or record the alerts first (sophos_list_alerts). Windows
+computers, Windows servers and Linux only; other platforms come back in errors
+as notSupported.
+
+Each endpoint is accepted or rejected on its own. Accepted ones come back in
+items with status "requested"; rejected ones in errors with an errorCode
+(notFound, notSupported, conflict, permissionDenied, internalError). Sophos
+answers 404 when none of the IDs is found. Accepted means requested: an
+endpoint offline since 2023 was accepted and still read suspicious minutes
+later (29/10/2026), so read health back with sophos_get_endpoint.
+
+Args:
+  - ids (string[]): Endpoint IDs (1 to 500). Duplicates are dropped.
+  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
+
+Returns:
+  requested, accepted and rejected counts, then items and errors as Sophos returned them.`,
+      inputSchema: {
+        ids: z
+          .array(z.string().uuid())
+          .min(1)
+          .max(500)
+          .describe("Endpoint IDs to reset (1 to 500)"),
+        tenant_id: z
+          .string()
+          .uuid()
+          .optional()
+          .describe("Tenant ID. Required for partner/org callers."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    withErrorHandling(async ({ ids, tenant_id }) => {
+      const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const unique = [...new Set(ids)];
+      const data = await client.tenantRequest<BulkActionResponse>(
+        resolvedTenantId,
+        "/endpoint/v1/endpoints/reset-health",
+        { method: "POST", body: { ids: unique } }
+      );
+      return jsonResult(bulkActionResult(unique.length, data));
+    })
+  );
+
+  // --- Bulk Update Tamper Protection ---
+  server.registerTool(
+    "sophos_bulk_update_tamper_protection",
+    {
+      title: "Bulk Update Tamper Protection",
+      description: `Turn tamper protection on or off, or generate a new tamper protection password, for up to 200 endpoints in one request.
+
+WARNING: turning tamper protection off lets anyone on those devices uninstall
+or reconfigure the Sophos agent without a password. Turn it back on when the
+work is done. Generating a new password replaces the current one on every
+targeted endpoint.
+
+Pass enabled, regenerate_password, or both. Each endpoint is accepted or
+rejected on its own: accepted ones come back in items with status
+"requested", rejected ones in errors with an errorCode (notFound,
+notSupported, conflict, permissionDenied, internalError). Accepted means
+requested, so read the result back with sophos_get_tamper_protection, which
+also returns the new password. Sophos answers 404 when none of the IDs is
+found.
+
+Args:
+  - ids (string[]): Endpoint IDs (1 to 200). Duplicates are dropped.
+  - enabled (boolean, optional): true turns tamper protection on, false turns it off.
+  - regenerate_password (boolean, optional): true generates a new tamper protection password.
+  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
+
+Returns:
+  requested, accepted and rejected counts, then items and errors as Sophos returned them.`,
+      inputSchema: {
+        ids: z
+          .array(z.string().uuid())
+          .min(1)
+          .max(200)
+          .describe("Endpoint IDs (1 to 200)"),
+        enabled: z
+          .boolean()
+          .optional()
+          .describe("true turns tamper protection on, false turns it off"),
+        regenerate_password: z
+          .boolean()
+          .optional()
+          .describe("true generates a new tamper protection password"),
+        tenant_id: z
+          .string()
+          .uuid()
+          .optional()
+          .describe("Tenant ID. Required for partner/org callers."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    withErrorHandling(async ({ ids, enabled, regenerate_password, tenant_id }) => {
+      if (enabled === undefined && regenerate_password === undefined) {
+        throw new Error("Pass enabled, regenerate_password, or both.");
+      }
+      const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const unique = [...new Set(ids)];
+      const body: Record<string, unknown> = { ids: unique };
+      if (enabled !== undefined) body.enabled = enabled;
+      if (regenerate_password !== undefined) body.regeneratePassword = regenerate_password;
+      const data = await client.tenantRequest<BulkActionResponse>(
+        resolvedTenantId,
+        "/endpoint/v1/endpoints/tamper-protection",
+        { method: "POST", body }
+      );
+      return jsonResult(
+        bulkActionResult(
+          unique.length,
+          data,
+          "Accepted means requested. Check each endpoint with sophos_get_tamper_protection."
+        )
+      );
     })
   );
 }

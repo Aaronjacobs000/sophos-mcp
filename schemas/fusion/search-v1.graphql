@@ -1,0 +1,399 @@
+"A signed 64-bit integer."
+scalar Int64
+
+"""
+A Search Platform URN in the format
+`urn:type:visibility:app:tenant:timestamp:uuid`.
+This identifier is distinct from the standard resource name (RNs) used
+by other APIs as identifiers for core resources.
+"""
+scalar URN
+
+"A timestamp formatted according to ISO 8601."
+scalar Time
+
+"A data type of a result field, including list and map shapes."
+enum BaseType {
+  "A string without a specified structure."
+  STRING
+  "An integer or decimal number."
+  NUMBER
+  "A boolean value."
+  BOOL
+  "An integer of the number of seconds since the unix epoch."
+  TIMESTAMP_SECONDS
+  "An integer of the number of milliseconds since the unix epoch."
+  TIMESTAMP_MILLISECONDS
+  "An integer of the number of microseconds since the unix epoch."
+  TIMESTAMP_MICROSECONDS
+  "An ISO 8601 compliant string."
+  TIMESTAMP_ISO_8601
+  "A base64 encoded string of byte data."
+  BYTES
+  "A string limited to specific values."
+  ENUM
+  "A list of strings without specified structure."
+  STRING_LIST
+  "A list of integer or decimal numbers."
+  NUMBER_LIST
+  "A list of boolean values."
+  BOOL_LIST
+  "A list of integers of the number of seconds since the unix epoch."
+  TIMESTAMP_SECONDS_LIST
+  "A list of integers of the number of milliseconds since the unix epoch."
+  TIMESTAMP_MILLISECONDS_LIST
+  "A list of integers of the number of microseconds since the unix epoch."
+  TIMESTAMP_MICROSECONDS_LIST
+  "A list of ISO 8601 compliant strings."
+  TIMESTAMP_ISO_8601_LIST
+  "A list of base64 encoded strings of byte data."
+  BYTES_LIST
+  "A list of strings limited to specific values."
+  ENUM_LIST
+  "A map of strings to strings."
+  STRING_MAP
+  "A map of strings to decimal or integer numbers."
+  NUMBER_MAP
+  "A map of strings to boolean values."
+  BOOL_MAP
+  "A map of strings to integers of the number of seconds since the unix epoch."
+  TIMESTAMP_SECONDS_MAP
+  "A map of strings to integers of the number of milliseconds since the unix epoch."
+  TIMESTAMP_MILLISECONDS_MAP
+  "A map of strings to integers of the number of microseconds since the unix epoch."
+  TIMESTAMP_MICROSECONDS_MAP
+  "A map of strings to ISO 8601 compliant strings."
+  TIMESTAMP_ISO_8601_MAP
+  "A map of strings to base64 encoded strings of byte data."
+  BYTES_MAP
+  "A map of strings to strings limited to specific values."
+  ENUM_MAP
+}
+
+"""
+A semantic matcher for fields across schemas in QL. Each value
+corresponds to an @-prefixed QL reference.
+"""
+enum LogicalType {
+  "@command"
+  COMMAND
+  "@hash"
+  HASH
+  "@domain"
+  DOMAIN
+  "@host"
+  HOST
+  "@ip"
+  IP
+  "@latitude"
+  LATITUDE
+  "@longitude"
+  LONGITUDE
+  "@mac"
+  MAC
+  "@path"
+  PATH
+  "@port"
+  PORT
+  "@raw"
+  RAW
+  "@user"
+  USER
+  "@url"
+  URL
+  "@uuid"
+  UUID
+  "@sensor_id"
+  SENSOR_ID
+  "@timestamp"
+  TIMESTAMP
+}
+
+"A hostname in the query and the host identifiers it resolved to."
+type HostnameMapping {
+  "The hostname referenced by the query."
+  hostname: String!
+  """
+  The host IDs resolved from this hostname. One hostname can resolve to
+  multiple host IDs over time.
+  """
+  hostIds: [String!]!
+}
+
+"A JSON object with string keys and values of any JSON type."
+scalar Map
+
+"An execution of a query at a specific time."
+type SearchV2 {
+  "The search identifier."
+  urn: URN!
+  "The current status of the search, derived from its partitions' statuses."
+  status: SearchExecutionStatus!
+  "Whether any partition is predicted to exceed the long-running threshold."
+  overThreshold: Boolean!
+  """
+  Search-scoped diagnostics captured when the request is accepted. Today this
+  only contains non-fatal validation warnings. Execution failures belong to
+  their individual search partitions, available under the outcome field.
+  """
+  errors: [String!]!
+  """
+  How completely the search's partitions have succeeded, and errors from any
+  that have failed. If the search itself failed this will have no errors and
+  an UNKNOWN success: see the errors field and status on the search itself for
+  clarity.
+  """
+  outcome: SearchOutcome!
+  """
+  The query executed by this search, in the QL text format. If the query was
+  submitted as text, this is the original text as provided. If the query was
+  submitted as QuerySpec, this is a generated, canonical representation.
+  """
+  queryText: String!
+  """
+  Search partitions are the actionable search jobs that are spawned from a
+  search request. They map directly to the output schema or schemas that this
+  query generates.
+  """
+  searchPartitions: [SearchPartition!]!
+  "The time the search was created."
+  createTime: Time!
+  "The time the search moved to a running state."
+  startTime: Time
+  "The time the search moved to a completed state."
+  endTime: Time
+  """
+  The time when this search's results will be discarded or invalid. Aligns with
+  the earliest associated partition's expiry.
+  """
+  expireTime: Time!
+  """
+  Arbitrary client-provided metadata attached to the search. While certain
+  metadata keys may be validated by the API, if the search succeeds the metadata
+  is stored and retained without transformation.
+  """
+  metadata: Map
+  """
+  For queries that include hostname matching, this holds the map of each
+  referenced hostname to its resolved host ids. It will be empty for queries
+  with no hostnames.
+  """
+  hostnameMappings: [HostnameMapping!]
+}
+
+"The execution status of a search, derived from the statuses of its partitions."
+enum SearchExecutionStatus {
+  "The search is waiting to start. All partitions are waiting."
+  QUEUED
+  "The search has started, and at least one partition has not finished."
+  IN_PROGRESS
+  "All partitions have finished. Check outcome for success or failure."
+  COMPLETE
+}
+
+"Describes how complete a search was once it finished."
+type SearchOutcome {
+  "How many of the search's partitions succeeded. Is UNKNOWN until complete."
+  success: PartitionsSuccess!
+  """
+  The accumulated errors from every FAILED or CANCELED partition, as well as
+  warnings and other diagnostic errors associated with them.
+  """
+  errors: [SearchPartitionError!]!
+}
+
+"Relative description of how many partitions succeeded within a search."
+enum PartitionsSuccess {
+  "The search has not completed."
+  UNKNOWN
+  "All partitions succeeded."
+  ALL
+  "Some partitions succeeded and some did not."
+  PARTIAL
+  "No partitions succeeded."
+  NONE
+}
+
+"Errors and warnings associated with one search partition."
+type SearchPartitionError {
+  "The URN of the search partition that produced these messages."
+  urn: URN!
+  "The accumulated error messages for the partition."
+  errors: [String!]!
+}
+
+"""
+The actionable job or jobs associated with a search. Each search request is
+handled by one or more search jobs aligning to output schemas they generate, and
+these "partitions" of the search may be separately tracked, referenced or read.
+"""
+type SearchPartition {
+  "The partition identifier."
+  urn: URN!
+  "The identifier of the search this partition is associated with."
+  searchURN: URN!
+  """
+  The pre-defined schema this partition targets, if any. Unset for
+  partitions whose output schema is generated dynamically from the query
+  (e.g. aggregations).
+  """
+  schemaType: String
+  "The current execution status of the partition."
+  status: PartitionStatus!
+  "Whether this partition is predicted to exceed the long-running threshold."
+  overThreshold: Boolean!
+  """
+  Errors, warnings or other diagnostic messages generated while attempting to
+  run this search partition job. This may have values even while the status is
+  SUCCEEDED.
+  """
+  errors: [String!]!
+  "The time the partition was created."
+  createTime: Time!
+  "The time the partition moved to a running state."
+  startTime: Time
+  "The time the partition moved to a completed state."
+  endTime: Time
+  "The time when this partition's results will be discarded."
+  expireTime: Time!
+}
+
+"The execution state of one search partition."
+enum PartitionStatus {
+  "The search partition has not started."
+  WAITING
+  "The search partition is running."
+  IN_PROGRESS
+  "The search partition finished successfully."
+  SUCCEEDED
+  "The search partition failed."
+  FAILED
+  "The search partition was canceled."
+  CANCELED
+}
+
+"The query and optional settings used to start a search."
+input CreateSearchInput {
+  """
+  The query to execute in this search, in the QL text format. Exactly one of
+  text or spec must be provided.
+  """
+  text: String
+  "Arbitrary metadata stored alongside the search."
+  metadata: Map
+}
+
+type Mutation {
+  "Create and execute a new search."
+  createSearch(
+    "The query and optional settings for a new search."
+    input: CreateSearchInput
+  ): SearchV2!
+  """
+  Create and execute a new search if a matching one doesn't exist. Otherwise,
+  retrieve search information and its current state. Searches are matched on
+  their input data, with queries compared for equivalency via their canonical
+  structured representations, not byte-wise textual representations.
+  """
+  getOrCreateSearch(
+    """
+    The query and optional settings used to create a new search or match on
+    an existing search already in flight or completed.
+    """
+    input: CreateSearchInput
+  ): SearchV2!
+}
+
+type Query {
+  "Retrieve search information and its current state."
+  search(
+    "The URN of a search returned by createSearch or getOrCreateSearch."
+    urn: URN!
+  ): SearchV2!
+}
+
+"Raw data returned in a page of results, formatted as a JSON array of objects."
+scalar SearchResultValues
+
+"""
+A page of result rows, field metadata, and optional counts for a search or
+search partition.
+"""
+type SearchResultPage {
+  "The result set's available fields."
+  fields: [SearchResultField!]!
+  "The values of this page of the result set."
+  values: SearchResultValues!
+  "The total result counts for the search or partition."
+  totals: SearchResultTotals
+  """
+  The page token to use when listing the next page of search results. Not set
+  if this is the last page of the result set.
+  """
+  nextCursor: String
+  """
+  The page token to use when listing the previous page of search results. Not
+  set if this is the first page of the result set.
+  """
+  previousCursor: String
+  """
+  For hostname queries, the mapping of each hostname named in the query to the
+  host IDs it resolved to during translation. Empty for queries with no
+  hostname filter.
+  """
+  hostnameMappings: [HostnameMapping!]
+}
+
+"The name and type metadata of a field in the result set."
+type SearchResultField {
+  """
+  The fully qualified name of the field, including all parent field names
+  separated by `.`. For example, `source_port` or `process_file_hash.md5`.
+  """
+  name: String!
+  "The base type that applies to the field, or to a list field's items."
+  baseType: BaseType!
+  "A QL logical type that resolves to this field, when one exists."
+  logicalType: LogicalType
+  "The possible values this field may have. Only for enum fields."
+  enumValues: [String!]
+  "The pre-defined schema(s) that this field originates from."
+  originSchemaTypes: [String!]!
+}
+
+"Total and per-schema result counts."
+type SearchResultTotals {
+  "The total result count, when available."
+  total: SearchResultTotal
+  """
+  Result counts for this search's partitions, each labeled by schema type. A
+  direct search partition read returns a subtotal for that partition.
+  """
+  subtotals: [SearchResultSubTotal!]
+}
+
+"A total number of result rows."
+type SearchResultTotal {
+  "The number of result rows."
+  value: Int64!
+}
+
+"The result count for one schema type."
+type SearchResultSubTotal {
+  "The schema type for this count."
+  schemaType: String!
+  "The number of result rows for this schema type."
+  value: Int64!
+}
+
+extend type Query {
+  "Reads results from a completed search or search partition."
+  searchResults(
+    "The URN of a completed search or search partition."
+    urn: URN!
+    "A page token returned by searchResults. Omit it for the first page."
+    cursor: String
+    "The maximum number of result rows to return in this page."
+    limit: Int
+  ): SearchResultPage!
+}

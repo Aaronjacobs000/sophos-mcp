@@ -5,7 +5,7 @@
 > Sophos. It calls the public Sophos APIs using credentials you supply. Use it at your own
 > risk, and raise problems as issues on this repository rather than with Sophos support.
 
-MCP (Model Context Protocol) server for the Sophos Fusion and Sophos Central APIs. Supports partner, organisation, and single-tenant credential types with automatic region routing. **305 tools** covering 22 Sophos API namespaces: the Sophos Central REST APIs plus the Sophos Fusion GraphQL APIs (`sophos_fusion_*`). Install it as a Claude Desktop extension (`.mcpb`), run it with npx, or host it yourself over streamable HTTP.
+MCP (Model Context Protocol) server for the Sophos Fusion and Sophos Central APIs. Supports partner, organisation, and single-tenant credential types with automatic region routing. **333 tools** covering 23 Sophos API namespaces: the Sophos Central REST APIs plus the Sophos Fusion GraphQL APIs (`sophos_fusion_*`). Install it as a Claude Desktop extension (`.mcpb`), run it with npx, or host it yourself over streamable HTTP.
 
 The npm package, the `.mcpb` bundle and the binaries keep the `sophos-central-mcp-server` name so existing installs update in place.
 
@@ -170,7 +170,7 @@ The script:
 npm test
 ```
 
-Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, the policy assignment and web profile writes (body shapes, refusals, target lookups and read-back) against an in-memory policy store, the no-retry rule for a POST or mutation after a 5xx, the read-modify-write and PATCH update tools, the request shapes of the tools checked against the published specs, a registration check that lists all 305 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
+Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, the policy assignment and web profile writes (body shapes, refusals, target lookups and read-back) against an in-memory policy store, the no-retry rule for a POST or mutation after a 5xx, the read-modify-write and PATCH update tools, the request shapes of the tools checked against the published specs, the request shapes of the October 2026 bulk endpoint, S/MIME and Search tools, a registration check that lists all 333 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
 
 To exercise the Fusion tools against a live tenant, put credentials in `.env` (or export them) and run:
 
@@ -182,7 +182,7 @@ node scripts/fusion-smoke.mjs --write-classic  # plus the Classic case tools on 
 node scripts/fusion-smoke.mjs --all            # everything
 ```
 
-It spawns the built server over stdio and calls the tools through an MCP client, so what runs is what a host runs. Read-only mode covers the reference data, the case list with filter and cursor variants, the newest case by short ID, its evidence, summary, comments and files, the detection search, the not-found and legacy-ID refusals, and the Classic side: on a migrated tenant the migration refusal, otherwise the six Classic read tools. `--write` creates one case titled `MCP smoke test <timestamp>` (managed_by CUSTOMER), exercises comment add, edit and delete with the mention read-back, link create, update and delete, tag merge and replace, evidence add and remove_all, file upload, list and soft delete, the verdict clear on reopen, the one way door on new and the closed-case freeze, then closes it with a verdict and archives it (Fusion has no delete). `--write-classic` creates, updates and deletes one Classic case; the Cases API requires an assignee and a detection that still exists, so set `SMOKE_CLASSIC_ASSIGNEE` (a tenant admin email) and, if needed, `SMOKE_CLASSIC_DETECTION_ID` (a recent detection ID). Every write is listed at the end. Existing cases are never modified.
+It spawns the built server over stdio and calls the tools through an MCP client, so what runs is what a host runs. Read-only mode covers the reference data, the case list with filter and cursor variants, the newest case by short ID, its evidence, summary, comments and files, the detection search, a small Data Lake search (start, poll, one page of results), the not-found and legacy-ID refusals, and the Classic side: on a migrated tenant the migration refusal, otherwise the six Classic read tools. `--write` creates one case titled `MCP smoke test <timestamp>` (managed_by CUSTOMER), exercises comment add, edit and delete with the mention read-back, link create, update and delete, tag merge and replace, evidence add and remove_all, file upload, list and soft delete, the verdict clear on reopen, the one way door on new and the closed-case freeze, then closes it with a verdict and archives it (Fusion has no delete). `--write-classic` creates, updates and deletes one Classic case; the Cases API requires an assignee and a detection that still exists, so set `SMOKE_CLASSIC_ASSIGNEE` (a tenant admin email) and, if needed, `SMOKE_CLASSIC_DETECTION_ID` (a recent detection ID). Every write is listed at the end. Existing cases are never modified.
 
 **Cutting a release:** bump `version` in `package.json`, run `npm run build:mcpb`, commit `package.json`, `package-lock.json`, and `manifest.json`, tag, and attach the `.mcpb` from `release/` to the GitHub release. Publish to npm as before so the Claude Code and self-hosted options pick up the same version.
 
@@ -198,7 +198,7 @@ It spawns the built server over stdio and calls the tools through an MCP client,
 - **One-click install**: Ships as a Claude Desktop extension (`.mcpb`) with credentials held in the OS secure store
 - **Two API generations**: the Sophos Central REST APIs and the Sophos Fusion GraphQL APIs on one credential, with `sophos_fusion_*` tools for the GraphQL side
 - **Migration aware**: the Classic case and detection tools refuse a tenant that has moved to Sophos Fusion and name the `sophos_fusion_*` tool to use instead
-- **Full API coverage**: 305 tools across endpoints, alerts, policies, firewalls, web filtering, licensing, audit events, email, mobile, XDR, cases, SIEM, and more
+- **Full API coverage**: 333 tools across endpoints, alerts, policies, firewalls, web filtering, licensing, audit events, email (including S/MIME), mobile, XDR, Data Lake search, cases, SIEM, and more
 
 ## Screenshots
 
@@ -247,7 +247,7 @@ The server speaks to two Sophos API generations on one credential:
 - **Sophos Central REST APIs** (retained). Every tool without the `fusion` prefix. Regional hosts, discovered from `/whoami/v1`.
 - **Sophos Fusion GraphQL APIs** (new, 18/09/2026). The `sophos_fusion_*` tools. One endpoint, `https://api.taegis.sophos.com/graphql`, same token, same `X-Tenant-ID` header. Filters are written in Fusion Query Language (QL). Case types, statuses and verdicts are tenant reference data resolved to IDs at runtime, case severity is an integer (2 to 10), and assignees are Subject IDs, not email addresses. A GraphQL failure arrives as HTTP 200 with an `errors` array; the client treats that as an error, and a partial response (data plus errors) is returned with a `warnings` list rather than as a clean result.
 
-Sophos is moving tenants to Fusion over the coming months (the [upgrade centre](https://community.sophos.com/sophos-xdr/sophos-xdr-mdr-expansion/upgrade-center) announces each account's slot). This is a point in time change, not a fallback: once a tenant has moved, the Classic Cases and Detections REST APIs reference the pre-migration Sophos Central objects, so their answers are wrong rather than stale. The Classic tools therefore check which world a tenant is in before every call, using the Fusion case reference data (a tenant that has not moved gets an empty case type list), and refuse a migrated tenant with a message naming the `sophos_fusion_*` tool to use. For a tenant that has not moved they stay correct and carry no deprecation label. Fusion holds a separate case set (a UUID plus a `CSE#####` short ID) and neither ID form resolves in the other API. Live Discover and XDR Query are unaffected. Data Lake search over GraphQL has not shipped (Sophos says October 2026), so `sophos_run_xdr_query` stays on the SQL XDR Query API. Fusion tools for events, threat timeline and live endpoint search are planned.
+Sophos is moving tenants to Fusion over the coming months (the [upgrade centre](https://community.sophos.com/sophos-xdr/sophos-xdr-mdr-expansion/upgrade-center) announces each account's slot). This is a point in time change, not a fallback: once a tenant has moved, the Classic Cases and Detections REST APIs reference the pre-migration Sophos Central objects, so their answers are wrong rather than stale. The Classic tools therefore check which world a tenant is in before every call, using the Fusion case reference data (a tenant that has not moved gets an empty case type list), and refuse a migrated tenant with a message naming the `sophos_fusion_*` tool to use. For a tenant that has not moved they stay correct and carry no deprecation label. Fusion holds a separate case set (a UUID plus a `CSE#####` short ID) and neither ID form resolves in the other API. Live Discover and XDR Query are unaffected. Data Lake search over GraphQL shipped on 12/10/2026 as the Search GraphQL API (`sophos_fusion_create_search` and friends); the SQL XDR Query API stays available, and `sophos_run_xdr_query` stays on it. Fusion tools for events, threat timeline and live endpoint search are planned.
 
 Two Fusion case writes, `createCase` and `addEvidenceToCase`, fail 74% of the time with `not allowed` on `partnerPreferences` from `investigations-v2`. It is an intermittent downstream fault, not authorisation: the identical call succeeds on retry, and `updateCase` does not carry the fault at all. Measured on a live tenant 22/09/2026: 111 faults in 150 calls, drifting from 60% to 85% across four samples six minutes apart. The client retries a call whose first error path is `partnerPreferences`, and only that, up to 20 times with a short backoff, which leaves about 1 call in 410 failing at the measured rate and about 1 in 26 at the worst rate observed; an error naming the operation in its path is a real input or permission error and surfaces at once.
 
@@ -284,7 +284,7 @@ Two Fusion case writes, `createCase` and `addEvidenceToCase`, fail 74% of the ti
 | `sophos_acknowledge_alert` | Mark an alert as reviewed |
 | `sophos_search_alerts` | Advanced search with structured filters and sorting |
 
-### Endpoints (18 tools)
+### Endpoints (21 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -306,6 +306,9 @@ Two Fusion case writes, `createCase` and `addEvidenceToCase`, fail 74% of the ti
 | `sophos_get_memory_dump_status` | Get memory dump request status |
 | `sophos_bulk_isolate_endpoints` | Bulk isolate/release multiple endpoints |
 | `sophos_get_endpoint_isolation_status` | Get endpoint isolation status |
+| `sophos_bulk_scan_endpoints` | Scan up to 500 endpoints in one request |
+| `sophos_bulk_reset_endpoint_health` | Reset health to green and clear all alerts on up to 500 Windows and Linux endpoints |
+| `sophos_bulk_update_tamper_protection` | Turn tamper protection on or off, or generate a new password, on up to 200 endpoints |
 
 ### Endpoint Settings (26 tools)
 
@@ -491,6 +494,17 @@ Sophos Fusion Detections GraphQL API v2. One QL search replaces the Classic run,
 |------|-------------|
 | `sophos_fusion_search_detections` | Search detections with QL; returns the resource-name IDs the case evidence tools take |
 
+### Fusion Search (4 tools)
+
+Sophos Fusion Search GraphQL API v1 (12/10/2026): Data Lake searches in QL, the counterpart of the SQL XDR Query tools. Asynchronous: start a search, poll it by its URN until `COMPLETE`, check `outcome.success` (`ALL`, `PARTIAL` or `NONE`), then page the rows by cursor (up to 1000 per page). Working example `from process earliest=-1h | fields host_id, image_path`. Project with `| fields`: an unprojected search returns over 800 fields, so field metadata is off unless asked for. Results expire (30 days in testing). `sophos_fusion_get_or_create_search` reuses a matching search only when the query has absolute time bounds; a relative one (`earliest=-1h`) starts a new search each call.
+
+| Tool | Description |
+|------|-------------|
+| `sophos_fusion_create_search` | Start a QL search; returns its search URN and partitions |
+| `sophos_fusion_get_or_create_search` | Return a matching running or complete search, or start one |
+| `sophos_fusion_get_search` | Status, outcome, partition diagnostics and expiry of a search |
+| `sophos_fusion_get_search_results` | One page of rows from a search or partition, with totals and the next cursor |
+
 ### Detections (6 tools)
 
 Sophos Central Detections REST API, async: start a query, poll for completion, then fetch results. Refused for a tenant that has moved to Fusion, with a pointer to `sophos_fusion_search_detections`.
@@ -604,6 +618,34 @@ for about 3 minutes to cover that window.
 | `sophos_list_mailbox_delegates` | List mailbox delegates |
 | `sophos_add_mailbox_delegate` | Add a mailbox delegate |
 | `sophos_delete_mailbox_delegate` | Remove a mailbox delegate |
+
+### Email S/MIME (21 tools)
+
+Sophos Email API S/MIME operations (01/10/2026). Certificates are identified by SHA-256 fingerprint; private keys are never returned, and downloads give the PEM public certificate. Usual order: create or upload the internal CA (which also creates a disabled configuration), turn S/MIME on, then add internal user certificates (the address must be a tenant mailbox), external user certificates and trusted CAs. The reset deletes every certificate and private key and needs the configuration's `deleteToken`. Errors carry Sophos's reason and code, for example `SMIME_CUSTOMER_CA_NOT_PRESENT`.
+
+| Tool | Description |
+|------|-------------|
+| `sophos_get_smime_config` | S/MIME on or off, certificate extraction, expiry notification addresses, deleteToken |
+| `sophos_create_smime_config` | Create the configuration (once per tenant) |
+| `sophos_update_smime_config` | Turn S/MIME on or off, change extraction or notification addresses |
+| `sophos_reset_smime_config` | Delete every certificate and private key and turn S/MIME off (irreversible) |
+| `sophos_get_smime_internal_ca` | Internal CA details |
+| `sophos_create_smime_internal_ca` | Have Sophos generate the internal CA |
+| `sophos_upload_smime_internal_ca` | Upload your own CA as a PKCS#12 bundle |
+| `sophos_download_smime_internal_ca` | Internal CA certificate as PEM |
+| `sophos_list_smime_internal_users` | List or search internal users and their certificates |
+| `sophos_create_smime_internal_user_cert` | Generate a certificate for a mailbox |
+| `sophos_upload_smime_internal_user_cert` | Upload a mailbox's certificate as a PKCS#12 bundle |
+| `sophos_download_smime_internal_user_cert` | Internal user certificate (with chain) as PEM |
+| `sophos_delete_smime_internal_user_cert` | Delete one internal user certificate |
+| `sophos_list_smime_external_users` | List or search external users and their certificates |
+| `sophos_upload_smime_external_user_cert` | Upload an external user's public certificate |
+| `sophos_download_smime_external_user_cert` | External user certificate as PEM |
+| `sophos_delete_smime_external_user_cert` | Delete one external user certificate |
+| `sophos_list_smime_external_cas` | List or search trusted external CAs |
+| `sophos_upload_smime_external_ca` | Trust a CA certificate |
+| `sophos_download_smime_external_ca` | Trusted CA certificate as PEM |
+| `sophos_delete_smime_external_ca` | Stop trusting a CA certificate |
 
 ### Mobile Device Management (32 tools)
 
@@ -788,6 +830,7 @@ src/
 ├── fusion/
 │   ├── queries/cases.ts         # Cases v2 GraphQL documents
 │   ├── queries/detections.ts    # Detections v2 documents: the case summary lookup and the QL search
+│   ├── queries/search.ts        # Search v1 documents: create, get-or-create, status, results
 │   ├── case-reference-data.ts   # Per-tenant cache of case types, statuses, verdicts
 │   ├── cases-ql.ts              # QL builder for the cases search
 │   ├── format.ts                # Severity scales, timestamps, ID checks, mentions, tags, detection rows
@@ -797,10 +840,11 @@ src/
 │   ├── helpers.ts               # Shared response formatting
 │   ├── fusion-cases.ts          # Sophos Fusion cases (GraphQL)
 │   ├── fusion-detections.ts     # Sophos Fusion detection search (GraphQL)
+│   ├── fusion-search.ts         # Sophos Fusion Data Lake search (GraphQL)
 │   ├── tenants.ts               # Tenant listing (partner/org only)
 │   ├── partner.ts               # Partner admin, roles, billing (partner/org only)
 │   ├── alerts.ts                # Alert list, get, acknowledge, search
-│   ├── endpoints.ts             # Endpoint CRUD, scan, isolate, tamper, forensics
+│   ├── endpoints.ts             # Endpoint CRUD, scan, isolate, tamper, forensics, bulk actions
 │   ├── endpoint-settings.ts     # Installer, web control, exploit mitigation, IPS, etc.
 │   ├── endpoint-migrations.ts   # Migration jobs, software packages
 │   ├── health.ts                # Account health, gap analysis
@@ -816,6 +860,7 @@ src/
 │   ├── live-discover.ts         # Live Discover queries (async)
 │   ├── firewall.ts              # Firewall CRUD, firmware, groups, threat feed, config import/export
 │   ├── email.ts                 # Quarantine, mailboxes, message actions
+│   ├── email-smime.ts           # S/MIME configuration, internal CA, user and CA certificates
 │   ├── mobile.ts                # Mobile devices, groups, actions, policies
 │   ├── dns-protection.ts        # DNS locations
 │   ├── cloud-security.ts        # Cloud security profiles, assets
@@ -824,7 +869,7 @@ src/
 └── types/sophos.ts              # Sophos API response types
 ```
 
-Packaging files at the repo root: `manifest.json` (MCPB manifest, regenerated by the build), `scripts/build-mcpb.mjs` (bundle builder), and `.mcpbignore` (extra exclusions applied when packing). `schemas/fusion/` holds the five Fusion GraphQL schemas as downloaded from `https://developer.sophos.com/assets/graphql/<api>.graphql` on 21/09/2026, unmodified, for reference and for diffing when Sophos changes them. `test/` holds the `node:test` suites and `scripts/fusion-smoke.mjs` the live check.
+Packaging files at the repo root: `manifest.json` (MCPB manifest, regenerated by the build), `scripts/build-mcpb.mjs` (bundle builder), and `.mcpbignore` (extra exclusions applied when packing). `schemas/fusion/` holds the six Fusion GraphQL schemas as downloaded from `https://developer.sophos.com/assets/graphql/<api>.graphql` (five on 21/09/2026, `search-v1` on 29/10/2026), unmodified, for reference and for diffing when Sophos changes them. `test/` holds the `node:test` suites and `scripts/fusion-smoke.mjs` the live check.
 
 ## Security
 

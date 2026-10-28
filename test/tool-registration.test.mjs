@@ -2,8 +2,9 @@
  * Registers every tool module the way src/index.ts does, connects a client
  * over an in-memory transport and lists the tools. No credentials and no
  * network: registration never calls Sophos. Proves the server still exposes
- * the 283 Classic tools plus the 21 Fusion case tools and the Fusion
- * detection search, and that the descriptions carry the measured warnings.
+ * the 307 Classic tools plus the 21 Fusion case tools, the Fusion detection
+ * search and the 4 Fusion search tools, and that the descriptions carry the
+ * measured warnings.
  */
 
 import test from "node:test";
@@ -38,6 +39,41 @@ const FUSION_CASE_TOOLS = [
 ];
 
 const FUSION_DETECTION_TOOLS = ["sophos_fusion_search_detections"];
+
+const FUSION_SEARCH_TOOLS = [
+  "sophos_fusion_create_search",
+  "sophos_fusion_get_or_create_search",
+  "sophos_fusion_get_search",
+  "sophos_fusion_get_search_results",
+];
+
+// Endpoint API bulk actions and Email API S/MIME, released October 2026
+const OCTOBER_2026_REST_TOOLS = [
+  "sophos_bulk_scan_endpoints",
+  "sophos_bulk_reset_endpoint_health",
+  "sophos_bulk_update_tamper_protection",
+  "sophos_get_smime_config",
+  "sophos_create_smime_config",
+  "sophos_update_smime_config",
+  "sophos_reset_smime_config",
+  "sophos_get_smime_internal_ca",
+  "sophos_create_smime_internal_ca",
+  "sophos_upload_smime_internal_ca",
+  "sophos_download_smime_internal_ca",
+  "sophos_list_smime_internal_users",
+  "sophos_create_smime_internal_user_cert",
+  "sophos_upload_smime_internal_user_cert",
+  "sophos_download_smime_internal_user_cert",
+  "sophos_delete_smime_internal_user_cert",
+  "sophos_list_smime_external_users",
+  "sophos_upload_smime_external_user_cert",
+  "sophos_download_smime_external_user_cert",
+  "sophos_delete_smime_external_user_cert",
+  "sophos_list_smime_external_cas",
+  "sophos_upload_smime_external_ca",
+  "sophos_download_smime_external_ca",
+  "sophos_delete_smime_external_ca",
+];
 
 const CLASSIC_DETECTION_TOOLS = [
   "sophos_run_detections_query",
@@ -103,19 +139,23 @@ async function listAllTools() {
   return { modules, tools };
 }
 
-test("tools/list exposes the 283 Classic tools plus the 22 Fusion tools", async () => {
+test("tools/list exposes the 307 Classic tools plus the 26 Fusion tools", async () => {
   const { modules, tools } = await listAllTools();
   const names = new Set(tools.map((t) => t.name));
 
   assert.ok(modules.includes("fusion-cases"), "fusion-cases is imported by src/index.ts");
   assert.ok(modules.includes("fusion-detections"), "fusion-detections is imported by src/index.ts");
-  assert.equal(tools.length, 305);
-  assert.equal(names.size, 305, "tool names are unique");
+  assert.ok(modules.includes("fusion-search"), "fusion-search is imported by src/index.ts");
+  assert.ok(modules.includes("email-smime"), "email-smime is imported by src/index.ts");
+  assert.equal(tools.length, 333);
+  assert.equal(names.size, 333, "tool names are unique");
 
   for (const name of CLASSIC_CASE_TOOLS) assert.ok(names.has(name), `${name} still registered`);
   for (const name of CLASSIC_DETECTION_TOOLS) assert.ok(names.has(name), `${name} still registered`);
   for (const name of FUSION_CASE_TOOLS) assert.ok(names.has(name), `${name} registered`);
   for (const name of FUSION_DETECTION_TOOLS) assert.ok(names.has(name), `${name} registered`);
+  for (const name of FUSION_SEARCH_TOOLS) assert.ok(names.has(name), `${name} registered`);
+  for (const name of OCTOBER_2026_REST_TOOLS) assert.ok(names.has(name), `${name} registered`);
 
   const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
   for (const tool of manifest.tools) {
@@ -133,7 +173,37 @@ test("every Fusion case tool has a schema, annotations and dash-free prose", asy
     assert.doesNotMatch(tool.description, /[\u2013\u2014]/, `${tool.name} description has no en or em dash`);
   }
   const readOnly = tools.filter((t) => t.name.startsWith("sophos_fusion_") && t.annotations.readOnlyHint);
-  assert.equal(readOnly.length, 8, "eight Fusion tools are read-only");
+  assert.equal(readOnly.length, 12, "twelve Fusion tools are read-only");
+});
+
+test("the October 2026 tools: dash-free prose, destructive marks on the risky writes, read-only reads", async () => {
+  const { tools } = await listAllTools();
+  const byName = new Map(tools.map((t) => [t.name, t]));
+  for (const name of [...OCTOBER_2026_REST_TOOLS, ...FUSION_SEARCH_TOOLS]) {
+    const tool = byName.get(name);
+    assert.doesNotMatch(tool.description, /[\u2013\u2014]/, `${name} description has no en or em dash`);
+    assert.equal(typeof tool.annotations?.destructiveHint, "boolean", `${name} has destructiveHint`);
+    const read = /^sophos_(get|list|download)_/.test(name) || name.startsWith("sophos_fusion_");
+    assert.equal(tool.annotations.readOnlyHint, read, `${name} readOnlyHint`);
+  }
+  for (const name of [
+    "sophos_bulk_update_tamper_protection",
+    "sophos_bulk_reset_endpoint_health",
+    "sophos_update_smime_config",
+    "sophos_reset_smime_config",
+    "sophos_delete_smime_internal_user_cert",
+    "sophos_delete_smime_external_user_cert",
+    "sophos_delete_smime_external_ca",
+  ]) {
+    assert.equal(byName.get(name).annotations.destructiveHint, true, `${name} is marked destructive`);
+  }
+  assert.equal(byName.get("sophos_bulk_scan_endpoints").annotations.destructiveHint, false);
+  assert.match(byName.get("sophos_bulk_update_tamper_protection").description, /WARNING: turning tamper protection off/);
+  assert.match(byName.get("sophos_bulk_reset_endpoint_health").description, /cannot be\s+undone/);
+  assert.match(byName.get("sophos_reset_smime_config").description, /WARNING: irreversible/);
+  assert.ok(byName.get("sophos_reset_smime_config").inputSchema.required.includes("delete_token"));
+  assert.match(byName.get("sophos_fusion_create_search").description, /from process earliest=-1h \| fields host_id, image_path/);
+  assert.equal(byName.get("sophos_fusion_get_search_results").inputSchema.properties.limit.maximum, 1000);
 });
 
 test("a tool that writes a local file is not marked read-only", async () => {

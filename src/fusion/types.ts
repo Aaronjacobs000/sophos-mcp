@@ -340,3 +340,60 @@ export interface FusionDetectionSearchResponse {
     } | null;
   } | null;
 }
+
+// --- Search GraphQL API v1 ---
+
+export interface FusionHostnameMapping {
+  hostname: string;
+  hostIds: string[];
+}
+
+export interface FusionSearchPartition {
+  urn: string;
+  searchURN: string;
+  schemaType: string | null;
+  status: "WAITING" | "IN_PROGRESS" | "SUCCEEDED" | "FAILED" | "CANCELED";
+  overThreshold: boolean;
+  errors: string[];
+  createTime: string;
+  startTime: string | null;
+  endTime: string | null;
+  expireTime: string;
+}
+
+export interface FusionSearch {
+  urn: string;
+  status: "QUEUED" | "IN_PROGRESS" | "COMPLETE";
+  overThreshold: boolean;
+  errors: string[];
+  outcome: {
+    success: "UNKNOWN" | "ALL" | "PARTIAL" | "NONE";
+    errors: Array<{ urn: string; errors: string[] }>;
+  };
+  queryText: string;
+  searchPartitions: FusionSearchPartition[];
+  createTime: string;
+  startTime: string | null;
+  endTime: string | null;
+  expireTime: string;
+  metadata: Record<string, unknown> | null;
+  hostnameMappings: FusionHostnameMapping[] | null;
+}
+
+export interface FusionSearchResultPage {
+  values: Array<Record<string, unknown>> | null;
+  totals: {
+    total: { value: number } | null;
+    subtotals: Array<{ schemaType: string; value: number }> | null;
+  } | null;
+  nextCursor: string | null;
+  previousCursor: string | null;
+  hostnameMappings: FusionHostnameMapping[] | null;
+  fields?: Array<{
+    name: string;
+    baseType: string;
+    logicalType: string | null;
+    enumValues: string[] | null;
+    originSchemaTypes: string[];
+  }>;
+}

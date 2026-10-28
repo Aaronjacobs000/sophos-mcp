@@ -16,6 +16,8 @@ export interface RequestOptions {
   body?: unknown;
   /** Additional headers */
   headers?: Record<string, string>;
+  /** "text" returns the body as a string, for downloads served as application/octet-stream */
+  responseType?: "json" | "text";
 }
 
 /**
@@ -97,7 +99,7 @@ export class SophosClient {
       fetchOptions.body = JSON.stringify(options.body);
     }
 
-    return this.executeWithRetry<T>(url.toString(), fetchOptions);
+    return this.executeWithRetry<T>(url.toString(), fetchOptions, 2, options.responseType === "text");
   }
 
   /**
@@ -153,7 +155,8 @@ export class SophosClient {
   private async executeWithRetry<T>(
     url: string,
     options: globalThis.RequestInit,
-    retries = 2
+    retries = 2,
+    asText = false
   ): Promise<T> {
     let lastError: Error | null = null;
 
@@ -188,8 +191,15 @@ export class SophosClient {
             // Not JSON
           }
 
+          // Some APIs (Email S/MIME) give the reason only in errorDetails
+          const details = Array.isArray(parsed?.errorDetails)
+            ? parsed.errorDetails
+                .map((d) => [d?.error, d?.code ? `[${d.code}]` : ""].filter(Boolean).join(" "))
+                .filter(Boolean)
+                .join("; ")
+            : "";
           const msg = parsed
-            ? `Sophos API error ${response.status}: ${parsed.error ?? "UnknownError"}${parsed.message ? ` - ${parsed.message}` : ""}${parsed.correlationId ? ` (correlationId: ${parsed.correlationId})` : ""}`
+            ? `Sophos API error ${response.status}: ${parsed.error ?? "UnknownError"}${parsed.message ? ` - ${parsed.message}` : ""}${details ? ` - ${details}` : ""}${parsed.correlationId ? ` (correlationId: ${parsed.correlationId})` : ""}`
             : `Sophos API error (${response.status}): ${errorBody.slice(0, 500)}`;
 
           throw new Error(msg);
@@ -198,6 +208,10 @@ export class SophosClient {
         // Some endpoints return 204 No Content
         if (response.status === 204) {
           return {} as T;
+        }
+
+        if (asText) {
+          return (await response.text()) as T;
         }
 
         return (await response.json()) as T;

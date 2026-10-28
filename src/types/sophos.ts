@@ -348,6 +348,8 @@ export interface SophosApiError {
   createdAt?: string;
   requestId?: string;
   docUrl?: string;
+  /** Per-field reasons; the Email S/MIME API puts its only explanation here */
+  errorDetails?: Array<{ error?: string; code?: string }>;
 }
 
 // --- Generic paginated response wrapper ---

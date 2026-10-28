@@ -21,7 +21,9 @@
  *   4. sophos_fusion_get_case_evidence and sophos_fusion_get_case_summary
  *   5. sophos_fusion_list_case_comments and sophos_fusion_list_case_files
  *   6. sophos_fusion_search_detections
- *   7. Classic: on a migrated tenant, the migration refusal on sophos_list_cases
+ *   7. sophos_fusion_create_search, sophos_fusion_get_search and
+ *      sophos_fusion_get_search_results on a small process search
+ *   8. Classic: on a migrated tenant, the migration refusal on sophos_list_cases
  *      and sophos_run_detections_query; otherwise sophos_list_cases, sophos_get_case,
  *      sophos_list_case_detections, sophos_get_case_detection,
  *      sophos_get_case_mitre_summary, sophos_list_case_impacted_entities
@@ -222,6 +224,25 @@ try {
       "search detection severity is on the 0 to 1 scale"
     );
     if (!borrowedDetectionId) borrowedDetectionId = search.json.detections[0].id;
+  }
+
+  // Search GraphQL v1: start a small QL search, poll it, read one page
+  const started = await call(
+    "sophos_fusion_create_search",
+    { ...scope, query: "from process earliest=-1h | fields host_id, image_path" },
+    { quiet: true }
+  );
+  const searchUrn = started.json?.search?.urn;
+  check(typeof searchUrn === "string" && searchUrn.startsWith("urn:"), "create_search returns a search URN");
+  if (searchUrn) {
+    let status = started.json.search.status;
+    for (let i = 0; i < 20 && status !== "COMPLETE"; i++) {
+      await sleep(3000);
+      status = (await call("sophos_fusion_get_search", { ...scope, urn: searchUrn }, { silent: true })).json?.search?.status;
+    }
+    check(status === "COMPLETE", "the search completes within a minute");
+    const page = await call("sophos_fusion_get_search_results", { ...scope, urn: searchUrn, limit: 3 }, { quiet: true });
+    check(Array.isArray(page.json?.values), "get_search_results returns a values array");
   }
 
   await call(
