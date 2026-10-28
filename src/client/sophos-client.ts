@@ -55,6 +55,12 @@ export function assertSafeApiPath(path: string): void {
   }
 }
 
+/** The HTTP status a SophosClient error carries, or undefined for any other error. */
+export function errorStatus(error: unknown): number | undefined {
+  const status = error instanceof Error ? (error as Error & { status?: unknown }).status : undefined;
+  return typeof status === "number" ? status : undefined;
+}
+
 export class SophosClient {
   constructor(
     private tokenManager: TokenManager,

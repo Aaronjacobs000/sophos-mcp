@@ -21,7 +21,7 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SophosClient } from "../client/sophos-client.js";
+import { errorStatus, type SophosClient } from "../client/sophos-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
 import { jsonResult, withErrorHandling } from "./helpers.js";
 
@@ -110,7 +110,7 @@ function certListParams(a: Record<string, unknown>): Record<string, string> {
   return params;
 }
 
-const isNotFound = (error: unknown) => error instanceof Error && /^Sophos API error 404:/.test(error.message);
+const isNotFound = (error: unknown) => errorStatus(error) === 404;
 
 export function registerEmailSmimeTools(
   server: McpServer,
