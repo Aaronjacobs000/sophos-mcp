@@ -234,3 +234,41 @@ test("a 4xx with a non-JSON body is not retried and keeps the status and body", 
     globalThis.fetch = realFetch;
   }
 });
+
+test("a 429 on every attempt reports the status and body, and does not wait after the last one", async () => {
+  for (const [body, contentType, expected] of [
+    [
+      JSON.stringify({ error: "TooManyRequests", message: "Rate limit exceeded", correlationId: "c9" }),
+      "application/json",
+      /^Sophos API error 429: TooManyRequests - Rate limit exceeded \(correlationId: c9\)\. Still rate limited after 3 attempts\.$/,
+    ],
+    ["Too Many Requests", "text/plain", /^Sophos API error \(429\): Too Many Requests\. Still rate limited after 3 attempts\.$/],
+  ]) {
+    for (const method of ["GET", "POST"]) {
+      const realFetch = globalThis.fetch;
+      let calls = 0;
+      globalThis.fetch = async () => {
+        calls++;
+        return new Response(body, { status: 429, headers: { "Content-Type": contentType, "Retry-After": "1" } });
+      };
+      try {
+        const client = new SophosClient({ getToken: async () => "t" }, { resolveApiHost: async () => HOST, resolveTenantId: (id) => id });
+        const waits = [];
+        client.sleep = async (ms) => void waits.push(ms);
+        await assert.rejects(
+          () => client.tenantRequest(TENANT, "/endpoint/v1/policies", { method, ...(method === "POST" ? { body: {} } : {}) }),
+          (error) => {
+            assert.match(error.message, expected);
+            assert.equal(error.status, 429);
+            return true;
+          },
+          `${method} ${contentType}`
+        );
+        assert.equal(calls, 3);
+        assert.deepEqual(waits, [1000, 1000]);
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    }
+  }
+});

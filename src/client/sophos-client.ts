@@ -177,8 +177,8 @@ export class SophosClient {
           clearTimeout(timeout);
         }
 
-        if (response.status === 429) {
-          // Rate limited: wait and retry
+        if (response.status === 429 && attempt < retries) {
+          // Rate limited: wait and retry. The last 429 is reported below.
           const retryAfter = response.headers.get("Retry-After");
           const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
           console.error(
@@ -208,7 +208,8 @@ export class SophosClient {
             ? `Sophos API error ${response.status}: ${parsed.error ?? "UnknownError"}${parsed.message ? ` - ${parsed.message}` : ""}${details ? ` - ${details}` : ""}${parsed.correlationId ? ` (correlationId: ${parsed.correlationId})` : ""}`
             : `Sophos API error (${response.status}): ${errorBody.slice(0, 500)}`;
 
-          throw Object.assign(new Error(msg), { status: response.status });
+          const note = response.status === 429 ? `. Still rate limited after ${retries + 1} attempts.` : "";
+          throw Object.assign(new Error(`${msg}${note}`), { status: response.status });
         }
 
         // Some endpoints return 204 No Content

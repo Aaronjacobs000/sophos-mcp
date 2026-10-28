@@ -237,7 +237,8 @@ export class FusionClient {
           clearTimeout(timeout);
         }
 
-        if (response.status === 429) {
+        if (response.status === 429 && attempt < this.retries) {
+          // The last 429 is reported below
           const retryAfter = response.headers.get("Retry-After");
           const waitMs = retryAfter
             ? parseInt(retryAfter, 10) * 1000
@@ -269,7 +270,8 @@ export class FusionClient {
                 : errorBody.slice(0, 500);
           const correlation = parsed?.correlationId ? ` (correlationId: ${parsed.correlationId})` : "";
 
-          throw new Error(`Sophos Fusion API error ${response.status}: ${detail}${correlation}`);
+          const note = response.status === 429 ? `. Still rate limited after ${this.retries + 1} attempts.` : "";
+          throw new Error(`Sophos Fusion API error ${response.status}: ${detail}${correlation}${note}`);
         }
 
         const text = await response.text();
