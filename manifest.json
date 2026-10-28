@@ -2,9 +2,9 @@
   "manifest_version": "0.3",
   "name": "sophos-central-mcp-server",
   "display_name": "Sophos Fusion (formerly Sophos Central)",
-  "version": "0.8.9",
-  "description": "Unofficial, not a Sophos product. Query and manage Sophos Fusion (formerly Sophos Central) from Claude. 305 tools across 22 API namespaces: endpoints, alerts, policies, firewalls, email, mobile, XDR, cases, SIEM, licensing, Fusion GraphQL cases, and more.",
-  "long_description": "**Unofficial project, not from Sophos.** This is a personal project by an individual. It is not an official Sophos product and it is not built, endorsed, supported, or warranted by Sophos. It calls the public Sophos APIs using credentials you supply. Use it at your own risk, and raise problems as issues on the GitHub repository rather than with Sophos support.\n\nConnects Claude to the Sophos Fusion (formerly Sophos Central) APIs so you can list and act on endpoints, alerts, policies, firewalls, email quarantine, mobile devices, XDR Data Lake queries, cases, SIEM feeds, licensing, audit events, and more from a chat. The `sophos_fusion_*` tools use the Sophos Fusion GraphQL APIs (Cases v2 today) beside the Sophos Central REST tools, on the same credential.\n\nWorks with tenant, partner, and organisation API credentials. Partner and organisation credentials unlock the cross-tenant tools (`sophos_list_tenants`, `sophos_list_account_health`, `sophos_partner_gap_analysis`) and every tenant-scoped tool then needs a `tenant_id`. Tenant credentials operate on that tenant only. Regional API hosts are discovered automatically.\n\nWrite actions carry `destructiveHint` annotations so clients can warn before isolating an endpoint, wiping a device, deleting a policy, and similar operations. The full tool list is in the project README.",
+  "version": "0.9.0",
+  "description": "Unofficial, not a Sophos product. Query and manage Sophos Fusion (formerly Sophos Central) from Claude. 333 tools across 23 API namespaces: endpoints, alerts, policies, firewalls, email (including S/MIME), mobile, XDR, cases, SIEM, licensing, Fusion GraphQL cases and Data Lake search, and more.",
+  "long_description": "**Unofficial project, not from Sophos.** This is a personal project by an individual. It is not an official Sophos product and it is not built, endorsed, supported, or warranted by Sophos. It calls the public Sophos APIs using credentials you supply. Use it at your own risk, and raise problems as issues on the GitHub repository rather than with Sophos support.\n\nConnects Claude to the Sophos Fusion (formerly Sophos Central) APIs so you can list and act on endpoints, alerts, policies, firewalls, email quarantine and S/MIME, mobile devices, XDR Data Lake queries, cases, SIEM feeds, licensing, audit events, and more from a chat. The `sophos_fusion_*` tools use the Sophos Fusion GraphQL APIs (Cases v2, Detections v2 and Search v1) beside the Sophos Central REST tools, on the same credential.\n\nWorks with tenant, partner, and organisation API credentials. Partner and organisation credentials unlock the cross-tenant tools (`sophos_list_tenants`, `sophos_list_account_health`, `sophos_partner_gap_analysis`) and every tenant-scoped tool then needs a `tenant_id`. Tenant credentials operate on that tenant only. Regional API hosts are discovered automatically.\n\nWrite actions carry `destructiveHint` annotations so clients can warn before isolating an endpoint, wiping a device, deleting a policy, and similar operations. The full tool list is in the project README.",
   "author": {
     "name": "Aaron Jacobs",
     "url": "https://github.com/Aaronjacobs000"
@@ -140,6 +140,18 @@
     {
       "name": "sophos_get_endpoint_isolation_status",
       "description": "Get the current isolation status of a specific endpoint."
+    },
+    {
+      "name": "sophos_bulk_scan_endpoints",
+      "description": "Ask up to 500 endpoints to run a scan in one request."
+    },
+    {
+      "name": "sophos_bulk_reset_endpoint_health",
+      "description": "Reset the health status to green and clear all alerts on up to 500 endpoints in one request."
+    },
+    {
+      "name": "sophos_bulk_update_tamper_protection",
+      "description": "Turn tamper protection on or off, or generate a new tamper protection password, for up to 200 endpoints in one request."
     },
     {
       "name": "sophos_get_account_health",
@@ -806,6 +818,90 @@
       "description": "Remove delegates from a mailbox (up to 50 per call)."
     },
     {
+      "name": "sophos_get_smime_config",
+      "description": "Get a tenant's S/MIME configuration: whether S/MIME is on, whether certificates are extracted from incoming mail, the certificate expiry notification address..."
+    },
+    {
+      "name": "sophos_create_smime_config",
+      "description": "Create a tenant's S/MIME configuration."
+    },
+    {
+      "name": "sophos_update_smime_config",
+      "description": "Turn S/MIME on or off, or change its settings. Only the fields you pass change."
+    },
+    {
+      "name": "sophos_reset_smime_config",
+      "description": "Reset S/MIME for a tenant: permanently delete every S/MIME certificate and private key (internal CA, internal users, external users and trusted external CAs)..."
+    },
+    {
+      "name": "sophos_get_smime_internal_ca",
+      "description": "Get the tenant's internal CA certificate details (fingerprint, subject, issuer, validity, origin)."
+    },
+    {
+      "name": "sophos_create_smime_internal_ca",
+      "description": "Have Sophos generate the tenant's internal CA certificate (RSA 2048, SHA-512) from your organisation details."
+    },
+    {
+      "name": "sophos_upload_smime_internal_ca",
+      "description": "Upload your own CA as the tenant's internal CA: a Base64 PKCS#12 bundle holding the CA certificate and its private key (RSA, EC or DSA)."
+    },
+    {
+      "name": "sophos_download_smime_internal_ca",
+      "description": "Download the tenant's internal CA certificate as PEM (public certificate only)."
+    },
+    {
+      "name": "sophos_list_smime_internal_users",
+      "description": "List or search the tenant's S/MIME internal users (its own mailboxes) and their certificates (up to 2 each). Text filters are case-insensitive."
+    },
+    {
+      "name": "sophos_create_smime_internal_user_cert",
+      "description": "Have Sophos generate a certificate for one of the tenant's mailboxes, signed by the internal CA, and turn S/MIME on for that user."
+    },
+    {
+      "name": "sophos_upload_smime_internal_user_cert",
+      "description": "Upload your own certificate for one of the tenant's mailboxes: a Base64 PKCS#12 bundle holding the user's certificate and private key, and turn S/MIME on for..."
+    },
+    {
+      "name": "sophos_download_smime_internal_user_cert",
+      "description": "Download an internal user's certificate as PEM by fingerprint."
+    },
+    {
+      "name": "sophos_delete_smime_internal_user_cert",
+      "description": "Delete one certificate (and its private key) from an internal user. If it was the user's last certificate, the user leaves the S/MIME list. Irreversible."
+    },
+    {
+      "name": "sophos_list_smime_external_users",
+      "description": "List or search the external users (people outside the organisation) whose certificates the tenant holds, with their certificates."
+    },
+    {
+      "name": "sophos_upload_smime_external_user_cert",
+      "description": "Upload the public certificate of someone outside the organisation, so the tenant can send them encrypted mail and verify their signed mail."
+    },
+    {
+      "name": "sophos_download_smime_external_user_cert",
+      "description": "Download an external user's certificate as PEM by fingerprint."
+    },
+    {
+      "name": "sophos_delete_smime_external_user_cert",
+      "description": "Delete one certificate from an external user. If it was the user's last certificate, the user leaves the S/MIME list."
+    },
+    {
+      "name": "sophos_list_smime_external_cas",
+      "description": "List or search the CA certificates the tenant trusts to verify signed mail from other organisations (up to 100). Text filters are case-insensitive."
+    },
+    {
+      "name": "sophos_upload_smime_external_ca",
+      "description": "Trust a CA certificate, so mail signed by certificates it issued is verified automatically. The same certificate already on file gets 409."
+    },
+    {
+      "name": "sophos_download_smime_external_ca",
+      "description": "Download a trusted external CA certificate as PEM by fingerprint."
+    },
+    {
+      "name": "sophos_delete_smime_external_ca",
+      "description": "Stop trusting an external CA certificate. Mail signed under it is no longer verified automatically."
+    },
+    {
       "name": "sophos_list_dns_locations",
       "description": "List DNS protection locations configured for a tenant."
     },
@@ -1268,6 +1364,22 @@
     {
       "name": "sophos_fusion_search_detections",
       "description": "Search detections in Sophos Fusion with a Fusion Query Language (QL) query."
+    },
+    {
+      "name": "sophos_fusion_create_search",
+      "description": "Start a new Sophos Fusion Data Lake search with a Fusion Query Language (QL) query and return its search URN."
+    },
+    {
+      "name": "sophos_fusion_get_or_create_search",
+      "description": "Return a matching Sophos Fusion Data Lake search that is running or complete, or start a new one if none matches."
+    },
+    {
+      "name": "sophos_fusion_get_search",
+      "description": "Get a Sophos Fusion Data Lake search's status and diagnostics by its search URN."
+    },
+    {
+      "name": "sophos_fusion_get_search_results",
+      "description": "Read one page of rows from a completed Sophos Fusion Data Lake search, or from one of its partitions."
     }
   ],
   "keywords": [
