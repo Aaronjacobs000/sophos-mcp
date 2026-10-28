@@ -53,6 +53,7 @@ import { registerEndpointMigrationTools } from "./tools/endpoint-migrations.js";
 import { registerEndpointSettingsTools } from "./tools/endpoint-settings.js";
 import { registerFirewallTools } from "./tools/firewall.js";
 import { registerEmailTools } from "./tools/email.js";
+import { registerEmailSmimeTools } from "./tools/email-smime.js";
 import { registerDnsProtectionTools } from "./tools/dns-protection.js";
 import { registerCloudSecurityTools } from "./tools/cloud-security.js";
 import { registerWifiTools } from "./tools/wifi.js";
@@ -141,6 +142,7 @@ async function main(): Promise<void> {
 
     // Phase 8: Email protection tools
     registerEmailTools(server, sophosClient, tenantResolver);
+    registerEmailSmimeTools(server, sophosClient, tenantResolver);
 
     // Phase 9: DNS, cloud security, Wi-Fi, licensing, accounts, user activity
     registerDnsProtectionTools(server, sophosClient, tenantResolver);
