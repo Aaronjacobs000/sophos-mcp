@@ -1,6 +1,6 @@
 /**
  * GraphQL client for the Sophos Fusion APIs (Cases v2, Detections v2, Threat
- * Timeline v2, Events v1, Live Endpoint Search v1). Sits beside SophosClient,
+ * Timeline v2, Events v1, Live Endpoint Search v1, Search v1). Sits beside SophosClient,
  * which keeps serving the Sophos Central REST APIs.
  *
  * One endpoint for every tenant, no regional host lookup. Auth is unchanged:
