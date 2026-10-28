@@ -199,3 +199,38 @@ test("a POST is still retried after a 429, and GET, PATCH and DELETE still retry
     }
   }
 });
+
+test("a 4xx with a non-JSON body is not retried and keeps the status and body", async () => {
+  const realFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return new Response("<html><body>403 Forbidden</body></html>", { status: 403, headers: { "Content-Type": "text/html" } });
+  };
+  try {
+    const tenantResolver = {
+      resolveApiHost: async () => HOST,
+      resolveTenantId: (id) => id ?? TENANT,
+      getIdentity: () => ({ id: TENANT, idType: "tenant", apiHosts: { global: "https://api.central.sophos.com" } }),
+      getIdHeader: () => ({ name: "X-Tenant-ID", value: TENANT }),
+    };
+    const client = new SophosClient({ getToken: async () => "t" }, tenantResolver);
+    client.sleep = async () => {};
+    const requests = [
+      () => client.tenantRequest(TENANT, "/endpoint/v1/endpoints"),
+      () => client.tenantRequest(TENANT, "/endpoint/v1/endpoints/x", { method: "PATCH", body: {} }),
+      () => client.tenantRequest(TENANT, "/endpoint/v1/endpoints/x", { method: "DELETE" }),
+      () => client.globalRequest("/partner/v1/tenants"),
+    ];
+    for (const request of requests) {
+      calls = 0;
+      await assert.rejects(request, (error) => {
+        assert.match(error.message, /^Sophos API error \(403\): <html><body>403 Forbidden<\/body><\/html>$/);
+        return true;
+      });
+      assert.equal(calls, 1);
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

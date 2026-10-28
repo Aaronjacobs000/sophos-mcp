@@ -202,7 +202,7 @@ export class SophosClient {
             ? `Sophos API error ${response.status}: ${parsed.error ?? "UnknownError"}${parsed.message ? ` - ${parsed.message}` : ""}${details ? ` - ${details}` : ""}${parsed.correlationId ? ` (correlationId: ${parsed.correlationId})` : ""}`
             : `Sophos API error (${response.status}): ${errorBody.slice(0, 500)}`;
 
-          throw new Error(msg);
+          throw Object.assign(new Error(msg), { status: response.status });
         }
 
         // Some endpoints return 204 No Content
@@ -218,8 +218,9 @@ export class SophosClient {
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
 
-        // Don't retry on 4xx client errors (message contains "error NNN:" where NNN is 4xx)
-        if (/Sophos API error 4\d\d:/.test(lastError.message)) {
+        // Don't retry a 4xx client error, whether or not its body was JSON
+        const status = (lastError as Error & { status?: number }).status;
+        if (status !== undefined && status >= 400 && status < 500) {
           throw lastError;
         }
 
