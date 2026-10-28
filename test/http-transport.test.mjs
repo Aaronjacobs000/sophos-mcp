@@ -215,7 +215,7 @@ test("every other body the /mcp parser rejects gets a JSON-RPC error with its st
       ["bad brotli", { "Content-Encoding": "br" }, "not brotli", 400, unreadable("br")],
       ["bad gzip", { "Content-Encoding": "gzip" }, "not gzip", 400, unreadable("gzip")],
       ["bad deflate", { "Content-Encoding": "deflate" }, "not deflate", 400, unreadable("deflate")],
-      ["unknown Content-Encoding", { "Content-Encoding": "zstd" }, valid, 415, 'Unsupported Media Type: Content-Encoding "zstd" is not supported. Use gzip, deflate, br or none.'],
+      ["unknown Content-Encoding", { "Content-Encoding": "compress" }, valid, 415, 'Unsupported Media Type: Content-Encoding "compress" is not supported. Use gzip, deflate, br or none.'],
       ["non-UTF charset", { "Content-Type": "application/json; charset=latin1" }, valid, 415, 'Unsupported Media Type: charset "latin1" is not supported. Use UTF-8.'],
       ["unknown UTF charset", { "Content-Type": "application/json; charset=utf-99" }, valid, 415, 'Unsupported Media Type: charset "utf-99" is not supported. Use UTF-8.'],
     ];
