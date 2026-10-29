@@ -6,6 +6,7 @@
 import type { TokenManager } from "../auth/token-manager.js";
 import type { TenantResolver } from "./tenant-resolver.js";
 import type { SophosApiError } from "../types/sophos.js";
+import { retryAfterMs } from "./retry-after.js";
 
 export interface RequestOptions {
   /** HTTP method */
@@ -179,8 +180,7 @@ export class SophosClient {
 
         if (response.status === 429 && attempt < retries) {
           // Rate limited: wait and retry. The last 429 is reported below.
-          const retryAfter = response.headers.get("Retry-After");
-          const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
+          const waitMs = retryAfterMs(response.headers.get("Retry-After"), 5000);
           console.error(
             `[sophos-client] Rate limited, waiting ${waitMs}ms (attempt ${attempt + 1})`
           );
