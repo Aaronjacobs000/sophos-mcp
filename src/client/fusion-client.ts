@@ -12,8 +12,10 @@
  * body has been read. Transport failures (expired token, 429, 5xx) use the
  * usual non-2xx status and the standard Sophos error object, and those are
  * retried the same way SophosClient retries them: 429 always, 5xx and network
- * failures for queries only, never for a mutation. GraphQL-layer errors are
- * not retried, with one measured exception: the intermittent
+ * failures for queries only, never for a mutation. The one 5xx never retried
+ * is the 503 Fusion returns for a tenant it does not hold
+ * (FusionTenantNotOnFusionError). GraphQL-layer errors are not retried,
+ * with one measured exception: the intermittent
  * partnerPreferences fault on the case write path, which is keyed on the
  * error path and bounded (see FusionGraphQLError.isTransientPartnerPreferences).
  */
@@ -109,6 +111,24 @@ export class FusionGraphQLError extends Error {
     return this.errors[0]?.path?.[0] === "partnerPreferences";
   }
 }
+
+/**
+ * Thrown for the HTTP 503 Fusion returns for a tenant it does not hold, or
+ * one this credential cannot reach there: "tenant <id> not found or not
+ * accessible" from tenantsv4 GetTenant, with no error code (live, 29/10/2026).
+ * The answer is the same on every attempt, so it is never retried.
+ */
+export class FusionTenantNotOnFusionError extends Error {
+  constructor(
+    message: string,
+    readonly tenantId: string
+  ) {
+    super(message);
+    this.name = "FusionTenantNotOnFusionError";
+  }
+}
+
+const TENANT_NOT_ON_FUSION = /\btenant (\S+) not found or not accessible\b/i;
 
 export class FusionClient {
   private readonly url: string;
@@ -221,8 +241,9 @@ export class FusionClient {
 
   /**
    * Transport retries: 429 always; 5xx, timeouts and network errors only for
-   * a query. A mutation that failed that way may already have taken effect
-   * (a case created, evidence attached), so it is not repeated.
+   * a query, apart from the not-on-Fusion 503, which is never retried. A
+   * mutation that failed that way may already have taken effect (a case
+   * created, evidence attached), so it is not repeated.
    */
   private async executeWithRetry<T>(options: globalThis.RequestInit, mutation = false): Promise<T> {
     let lastError: Error | null = null;
@@ -268,6 +289,14 @@ export class FusionClient {
                 : errorBody.slice(0, 500);
           const correlation = parsed?.correlationId ? ` (correlationId: ${parsed.correlationId})` : "";
 
+          const notOnFusion = response.status === 503 ? TENANT_NOT_ON_FUSION.exec(errorBody) : null;
+          if (notOnFusion) {
+            throw new FusionTenantNotOnFusionError(
+              `Sophos Fusion API error 503: tenant ${notOnFusion[1]} is not on Sophos Fusion (or not accessible to this credential). Not retried, because Fusion gives this answer every time. Fusion said: ${detail}${correlation}`,
+              notOnFusion[1]
+            );
+          }
+
           const note = response.status === 429 ? `. Still rate limited after ${this.retries + 1} attempts.` : "";
           throw new Error(`Sophos Fusion API error ${response.status}: ${detail}${correlation}${note}`);
         }
@@ -290,6 +319,11 @@ export class FusionClient {
 
         // Don't retry on 4xx client errors
         if (/Sophos Fusion API error 4\d\d:/.test(lastError.message)) {
+          throw lastError;
+        }
+
+        // Not on Fusion: the same answer every attempt, and a mutation never ran
+        if (lastError instanceof FusionTenantNotOnFusionError) {
           throw lastError;
         }
 
