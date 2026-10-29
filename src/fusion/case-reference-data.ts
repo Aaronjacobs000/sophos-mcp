@@ -22,7 +22,7 @@ export interface CaseReferenceData {
   fetchedAt: string;
 }
 
-const DEFAULT_TTL_MS = 15 * 60_000;
+export const CASE_REFERENCE_DATA_TTL_MS = 15 * 60_000;
 
 export class CaseReferenceDataCache {
   private cache = new Map<string, { data: CaseReferenceData; expiresAt: number }>();
@@ -30,7 +30,7 @@ export class CaseReferenceDataCache {
 
   constructor(
     private client: FusionClient,
-    private ttlMs: number = DEFAULT_TTL_MS
+    private ttlMs: number = CASE_REFERENCE_DATA_TTL_MS
   ) {}
 
   async get(tenantId: string, options: { refresh?: boolean } = {}): Promise<CaseReferenceData> {

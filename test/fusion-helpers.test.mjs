@@ -23,6 +23,7 @@ import {
 import { buildCasesQl } from "../dist/fusion/cases-ql.js";
 import { CaseReferenceDataCache, matchReference } from "../dist/fusion/case-reference-data.js";
 import { FusionMigrationGuard, UPGRADE_CENTRE_URL } from "../dist/fusion/migration.js";
+import { FusionClient, FusionTenantNotOnFusionError } from "../dist/client/fusion-client.js";
 import { buildMitreSummary } from "../dist/tools/fusion-cases.js";
 
 const TYPE_ID = "11111111-1111-4111-8111-111111111111";
@@ -333,6 +334,94 @@ test("migration guard warns instead of blocking when Fusion cannot be reached", 
   assert.match(warnings[0], /Could not confirm whether tenant t1 has migrated/);
   assert.match(warnings[0], /503: down/);
   assert.match(warnings[0], /use sophos_fusion_get_case/);
+});
+
+// Fusion's 503 for a tenant it does not hold (live 29/10/2026, tenant ID
+// replaced). It is the same answer every time, so it settles the question.
+const NOT_ON_FUSION_TENANT = "11111111-2222-3333-4444-555555555555";
+const notOnFusionBody = `{"message":"error invoking downstream api\\ntenantsv4.APIClient.GetTenant: input:1:30: tenant ${NOT_ON_FUSION_TENANT} not found or not accessible"}`;
+
+function notOnFusionReferenceData() {
+  let calls = 0;
+  return {
+    get calls() {
+      return calls;
+    },
+    get: async (tenantId) => {
+      calls += 1;
+      throw new FusionTenantNotOnFusionError(`Sophos Fusion API error 503: tenant ${tenantId} is not on Sophos Fusion`, tenantId);
+    },
+  };
+}
+
+test("migration guard reads a tenant Fusion does not hold as not migrated, with no warning, once per tenant", async () => {
+  const referenceData = notOnFusionReferenceData();
+  const guard = new FusionMigrationGuard(referenceData, true);
+  for (let i = 0; i < 3; i++) {
+    assert.deepEqual(await guard.assertClassic("t1", "sophos_list_cases", "sophos_fusion_list_cases"), []);
+  }
+  const status = await guard.status("t1");
+  assert.equal(status.migrated, false);
+  assert.deepEqual(status.caseTypes, []);
+  assert.match(status.detail, /not on Sophos Fusion/);
+  assert.equal(referenceData.calls, 1, "one Fusion lookup across four checks on the same tenant");
+  assert.deepEqual(await guard.assertClassic("t2", "sophos_get_case", "sophos_fusion_get_case"), []);
+  assert.equal(referenceData.calls, 2, "the answer is held per tenant");
+});
+
+test("the not-on-Fusion answer is held for the reference data TTL, 15 minutes", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 0 });
+  const referenceData = notOnFusionReferenceData();
+  const guard = new FusionMigrationGuard(referenceData, true);
+  await guard.assertClassic("t1", "sophos_list_cases", "sophos_fusion_list_cases");
+  t.mock.timers.tick(15 * 60_000 - 1);
+  await guard.assertClassic("t1", "sophos_list_cases", "sophos_fusion_list_cases");
+  assert.equal(referenceData.calls, 1);
+  t.mock.timers.tick(1);
+  assert.deepEqual(await guard.assertClassic("t1", "sophos_list_cases", "sophos_fusion_list_cases"), []);
+  assert.equal(referenceData.calls, 2, "asked again once the 15 minutes are up");
+});
+
+test("any other Fusion failure is not held and still warns on every call", async () => {
+  const referenceData = fakeReferenceData([], { throws: "Sophos Fusion API error 503: down" });
+  const guard = new FusionMigrationGuard(referenceData, true);
+  for (let i = 0; i < 2; i++) {
+    const warnings = await guard.assertClassic("t1", "sophos_list_cases", "sophos_fusion_list_cases");
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /Could not confirm whether tenant t1 has migrated/);
+  }
+  assert.equal(referenceData.calls, 2);
+});
+
+test("on the real client and cache, repeated Classic checks on a tenant Fusion does not hold cost one Fusion call", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  let body = notOnFusionBody;
+  globalThis.fetch = async (_url, init) => {
+    calls.push(init);
+    return new Response(body, { status: 503, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const client = new FusionClient({ getToken: async () => "test-token" }, { url: "https://fusion.test/graphql", backoffBaseMs: 1, retries: 2 });
+    const guard = new FusionMigrationGuard(new CaseReferenceDataCache(client), true);
+    for (let i = 0; i < 3; i++) {
+      assert.deepEqual(await guard.assertClassic(NOT_ON_FUSION_TENANT, "sophos_list_cases", "sophos_fusion_list_cases"), []);
+    }
+    assert.equal((await guard.status(NOT_ON_FUSION_TENANT)).migrated, false);
+    assert.equal(calls.length, 1);
+
+    // An outage 503 for another tenant keeps its retries, its warning and no cache.
+    body = '{"message":"upstream connect error or disconnect/reset before headers"}';
+    calls.length = 0;
+    for (let i = 0; i < 2; i++) {
+      const warnings = await guard.assertClassic("tenant-2", "sophos_list_cases", "sophos_fusion_list_cases");
+      assert.equal(warnings.length, 1);
+      assert.match(warnings[0], /Could not confirm whether tenant tenant-2 has migrated/);
+    }
+    assert.equal(calls.length, 6, "three attempts on each of the two checks");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("migration guard is inert when disabled and never calls Fusion", async () => {

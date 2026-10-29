@@ -13,17 +13,24 @@
  * unmigrated tenants and one migrated one, 22/09/2026). The lookup shares the
  * 15 minute per-tenant cache, so a Classic call costs at most one extra
  * GraphQL round trip per tenant per cache window.
+ *
+ * A tenant Fusion does not hold gets HTTP 503 "tenant <id> not found or not
+ * accessible" instead (FusionTenantNotOnFusionError, the same answer every
+ * time, 29/10/2026). That is a definite "not migrated". The reference data
+ * cache keeps only successes, so the guard holds this answer itself for the
+ * same 15 minutes. Any other failure is not held and yields a warning.
  */
 
 import { CLASSIC_MIGRATION_CHECK } from "../config/config.js";
-import type { CaseReferenceDataCache } from "./case-reference-data.js";
+import { FusionTenantNotOnFusionError } from "../client/fusion-client.js";
+import { CASE_REFERENCE_DATA_TTL_MS, type CaseReferenceDataCache } from "./case-reference-data.js";
 
 export const UPGRADE_CENTRE_URL =
   "https://community.sophos.com/sophos-xdr/sophos-xdr-mdr-expansion/upgrade-center";
 
 export interface MigrationStatus {
   tenantId: string;
-  /** true migrated, false not migrated, null when the check was skipped or Fusion could not be reached. */
+  /** true migrated, false not migrated (including a tenant Fusion does not hold), null when the check was skipped or Fusion could not be reached. */
   migrated: boolean | null;
   /** Fusion case type names the tenant exposes (empty when not migrated). */
   caseTypes: string[];
@@ -31,9 +38,13 @@ export interface MigrationStatus {
 }
 
 export class FusionMigrationGuard {
+  /** Tenants Fusion answered "not found or not accessible" for, and until when that answer holds. */
+  private notOnFusion = new Map<string, number>();
+
   constructor(
     private referenceData: Pick<CaseReferenceDataCache, "get">,
-    private enabled: boolean = CLASSIC_MIGRATION_CHECK
+    private enabled: boolean = CLASSIC_MIGRATION_CHECK,
+    private notOnFusionTtlMs: number = CASE_REFERENCE_DATA_TTL_MS
   ) {}
 
   async status(tenantId: string): Promise<MigrationStatus> {
@@ -44,6 +55,10 @@ export class FusionMigrationGuard {
         caseTypes: [],
         detail: "migration check disabled (SOPHOS_CLASSIC_MIGRATION_CHECK=off)",
       };
+    }
+    const heldUntil = this.notOnFusion.get(tenantId);
+    if (heldUntil !== undefined && Date.now() < heldUntil) {
+      return notOnFusionStatus(tenantId);
     }
     try {
       const { types } = await this.referenceData.get(tenantId);
@@ -58,6 +73,10 @@ export class FusionMigrationGuard {
             : "Fusion exposes no case types for this tenant",
       };
     } catch (error) {
+      if (error instanceof FusionTenantNotOnFusionError) {
+        this.notOnFusion.set(tenantId, Date.now() + this.notOnFusionTtlMs);
+        return notOnFusionStatus(tenantId);
+      }
       const message = error instanceof Error ? error.message : String(error);
       return {
         tenantId,
@@ -88,4 +107,13 @@ export class FusionMigrationGuard {
     }
     return [];
   }
+}
+
+function notOnFusionStatus(tenantId: string): MigrationStatus {
+  return {
+    tenantId,
+    migrated: false,
+    caseTypes: [],
+    detail: "Fusion does not hold this tenant (HTTP 503 tenant not found or not accessible), so it is not on Sophos Fusion",
+  };
 }
