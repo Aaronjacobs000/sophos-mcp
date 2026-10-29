@@ -49,7 +49,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -117,7 +117,7 @@ Returns:
         case_id: z.string().describe("Case ID to retrieve (e.g. '1-598868')"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -164,7 +164,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         name: z.string().describe("Case name"),
@@ -245,7 +245,7 @@ Returns:
         case_id: z.string().describe("Case ID to update (e.g. '1-598868')"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         name: z.string().optional().describe("New case name"),
@@ -313,7 +313,7 @@ Returns:
         case_id: z.string().describe("Case ID to list detections for (e.g. '1-598868')"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -383,7 +383,7 @@ Returns:
         case_id: z.string().describe("Case ID to get MITRE summary for (e.g. '1-598868')"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -421,7 +421,7 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         case_id: z.string().describe("Case ID to delete (e.g. '1-598868')"),
-        tenant_id: z.string().uuid().optional().describe("Tenant ID. Required for partner/org callers."),
+        tenant_id: z.string().guid().optional().describe("Tenant ID. Required for partner/org callers."),
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
@@ -449,7 +449,7 @@ Args:
   - page (number, optional): Page number (default 1).`,
       inputSchema: {
         case_id: z.string().describe("Case ID (e.g. '1-598868')"),
-        tenant_id: z.string().uuid().optional().describe("Tenant ID. Required for partner/org callers."),
+        tenant_id: z.string().guid().optional().describe("Tenant ID. Required for partner/org callers."),
         limit: z.coerce.number().int().min(1).max(CASES_MAX_PAGE_SIZE).optional().default(CASES_MAX_PAGE_SIZE).describe("Results per page (max 50)"),
         page: z.coerce.number().int().min(1).optional().default(1).describe("Page number (default 1)"),
       },
@@ -488,7 +488,7 @@ Args:
       inputSchema: {
         case_id: z.string().describe("Case ID (e.g. '1-598868')"),
         detection_id: z.string().describe("Detection ID"),
-        tenant_id: z.string().uuid().optional().describe("Tenant ID. Required for partner/org callers."),
+        tenant_id: z.string().guid().optional().describe("Tenant ID. Required for partner/org callers."),
       },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },

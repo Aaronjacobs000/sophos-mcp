@@ -85,7 +85,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -132,13 +132,13 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
-        device_group_id: z.string().uuid().optional().describe("Device group for auto-enrolled devices"),
+        device_group_id: z.string().guid().optional().describe("Device group for auto-enrolled devices"),
         ownership_type: ownershipTypeSchema.optional().describe("Ownership type of auto-enrolled devices"),
-        android_policy_id: z.string().uuid().optional().describe("Android security policy ID"),
-        ios_policy_id: z.string().uuid().optional().describe("iOS security policy ID"),
+        android_policy_id: z.string().guid().optional().describe("Android security policy ID"),
+        ios_policy_id: z.string().guid().optional().describe("iOS security policy ID"),
         rotate_connection_code: z.boolean().optional().describe("Issue a new connection code; the old one stops working"),
       },
       annotations: {
@@ -185,7 +185,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -233,7 +233,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         search: z
@@ -304,7 +304,7 @@ Returns:
         device_id: z.string().describe("Mobile device ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -350,17 +350,17 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         name: z.string().describe("Device name"),
         platform: platformSchema.describe("Device platform"),
         ownership_type: ownershipTypeSchema.describe("Ownership type"),
-        group_id: z.string().uuid().optional().describe("Device group ID"),
+        group_id: z.string().guid().optional().describe("Device group ID"),
         description: z.string().optional().describe("Device description"),
         phone_number: z.string().optional().describe("Phone number of the assigned user"),
         email: z.string().optional().describe("Email address for the device when no user is assigned"),
-        assigned_person_id: z.string().uuid().optional().describe("ID of the user assigned to the device"),
+        assigned_person_id: z.string().guid().optional().describe("ID of the user assigned to the device"),
         log_level: logLevelSchema.optional().describe("Sophos Mobile app log level"),
       },
       annotations: {
@@ -421,16 +421,16 @@ Returns:
         device_id: z.string().describe("Mobile device ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         name: z.string().optional().describe("New device name"),
-        group_id: z.string().uuid().optional().describe("Device group ID to move it to"),
+        group_id: z.string().guid().optional().describe("Device group ID to move it to"),
         ownership_type: ownershipTypeSchema.optional().describe("Ownership type"),
         description: z.string().optional().describe("Device description"),
         phone_number: z.string().optional().describe("Phone number of the assigned user"),
         email: z.string().optional().describe("Email address for the device when no user is assigned"),
-        assigned_person_id: z.string().uuid().optional().describe("ID of the user assigned to the device"),
+        assigned_person_id: z.string().guid().optional().describe("ID of the user assigned to the device"),
         log_level: logLevelSchema.optional().describe("Sophos Mobile app log level"),
       },
       annotations: {
@@ -482,7 +482,7 @@ Returns:
         device_id: z.string().describe("Mobile device ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -521,7 +521,7 @@ Returns:
         device_id: z.string().describe("Mobile device ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -563,7 +563,7 @@ Returns:
         device_id: z.string().describe("Mobile device ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -601,7 +601,7 @@ Returns:
         device_id: z.string().describe("Mobile device ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -639,7 +639,7 @@ Returns:
         device_id: z.string().describe("Mobile device ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -677,7 +677,7 @@ Returns:
         device_id: z.string().describe("Mobile device ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -719,7 +719,7 @@ Returns:
         device_id: z.string().describe("Mobile device ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -761,7 +761,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         page: z
@@ -823,7 +823,7 @@ Returns:
         group_id: z.string().describe("Device group ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -868,12 +868,12 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         name: z.string().describe("Group name"),
-        employee_compliance_policy_id: z.string().uuid().describe("Compliance policy for devices the user owns"),
-        corporate_compliance_policy_id: z.string().uuid().describe("Compliance policy for devices the organization owns"),
+        employee_compliance_policy_id: z.string().guid().describe("Compliance policy for devices the user owns"),
+        corporate_compliance_policy_id: z.string().guid().describe("Compliance policy for devices the organization owns"),
         description: z.string().optional().describe("Group description"),
         ios_auto_enrollment: iosAutoEnrollmentSchema.optional(),
       },
@@ -928,13 +928,13 @@ Returns:
         group_id: z.string().describe("Device group ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         name: z.string().optional().describe("New group name"),
         description: z.string().optional().describe("New group description"),
-        employee_compliance_policy_id: z.string().uuid().optional().describe("Compliance policy for devices the user owns"),
-        corporate_compliance_policy_id: z.string().uuid().optional().describe("Compliance policy for devices the organization owns"),
+        employee_compliance_policy_id: z.string().guid().optional().describe("Compliance policy for devices the user owns"),
+        corporate_compliance_policy_id: z.string().guid().optional().describe("Compliance policy for devices the organization owns"),
         ios_auto_enrollment: iosAutoEnrollmentSchema.optional(),
       },
       annotations: {
@@ -982,7 +982,7 @@ Returns:
         group_id: z.string().describe("Device group ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -1025,7 +1025,7 @@ Returns:
         device_id: z.string().describe("Mobile device ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -1064,7 +1064,7 @@ Returns:
         device_id: z.string().describe("Mobile device ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -1103,7 +1103,7 @@ Returns:
         device_id: z.string().describe("Mobile device ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -1144,7 +1144,7 @@ Returns:
         device_id: z.string().describe("Mobile device ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -1184,7 +1184,7 @@ Returns:
         device_id: z.string().describe("Mobile device ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         message: z.string().max(500).describe("Message text to send to the device"),
@@ -1230,7 +1230,7 @@ Returns:
         reason: z.string().max(255).describe("Why the device is being located (privacy log)"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -1274,7 +1274,7 @@ Returns:
         device_id: z.string().describe("Mobile device ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         message: z.string().max(500).optional().describe("Lock screen message (Android and iOS)"),
@@ -1327,7 +1327,7 @@ Returns:
         device_id: z.string().describe("Mobile device ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         wipe_code: z.string().regex(/^[0-9]{6}$/, "Six digits").optional().describe("Six-digit wipe code (Macs)"),
@@ -1378,7 +1378,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         page: z
@@ -1436,7 +1436,7 @@ Returns:
         group_id: z.string().describe("App group ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -1476,7 +1476,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         name: z.string().describe("App group name"),
@@ -1523,7 +1523,7 @@ Returns:
         group_id: z.string().describe("App group ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         name: z.string().optional().describe("New app group name"),
@@ -1568,7 +1568,7 @@ Returns:
         group_id: z.string().describe("App group ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },

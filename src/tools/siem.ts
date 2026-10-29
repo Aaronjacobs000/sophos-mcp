@@ -40,7 +40,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -119,7 +119,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z

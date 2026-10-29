@@ -37,7 +37,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -94,10 +94,10 @@ Args:
 Returns:
   Migration job details including status, name, and endpoint information.`,
       inputSchema: {
-        migration_id: z.string().uuid().describe("Migration job ID"),
+        migration_id: z.string().guid().describe("Migration job ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -149,16 +149,16 @@ Returns:
       inputSchema: {
         side: z.enum(["receiving", "sending"]).describe("Which tenant this call is on"),
         endpoints: z
-          .array(z.string().uuid())
+          .array(z.string().guid())
           .min(1)
           .max(1000)
           .describe("Endpoint IDs to migrate"),
-        from_tenant: z.string().uuid().optional().describe("Receiving side: the source tenant's ID"),
-        migration_id: z.string().uuid().optional().describe("Sending side: the job id from the receiving side"),
+        from_tenant: z.string().guid().optional().describe("Receiving side: the source tenant's ID"),
+        migration_id: z.string().guid().optional().describe("Sending side: the job id from the receiving side"),
         token: z.string().optional().describe("Sending side: the token from the receiving side"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -208,10 +208,10 @@ Args:
 Returns:
   Paginated list of endpoints in the migration.`,
       inputSchema: {
-        migration_id: z.string().uuid().describe("Migration job ID"),
+        migration_id: z.string().guid().describe("Migration job ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -268,7 +268,7 @@ Args:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -310,7 +310,7 @@ Args:
         type: z.enum(["fixed", "special", "lts"]).optional().describe("Package type"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },

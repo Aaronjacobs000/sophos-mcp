@@ -43,7 +43,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -130,12 +130,12 @@ Example SQL (OSquery):
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         query_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("ID of a saved query to run (from sophos_list_live_discover_queries)"),
         sql: z
@@ -157,7 +157,7 @@ Example SQL (OSquery):
           .optional()
           .describe("Variable substitutions for saved query templates"),
         endpoint_ids: z
-          .array(z.string().uuid())
+          .array(z.string().guid())
           .optional()
           .describe("Specific endpoint UUIDs to target"),
         hostname_contains: z
@@ -251,10 +251,10 @@ Returns:
   status, endpoint_counts (how many endpoints responded/failed/pending), performance metrics.
   When status indicates completion, fetch results with sophos_get_live_discover_results.`,
       inputSchema: {
-        run_id: z.string().uuid().describe("Run ID from sophos_run_live_discover_query"),
+        run_id: z.string().guid().describe("Run ID from sophos_run_live_discover_query"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -304,10 +304,10 @@ Args:
 Returns:
   items (rows from all endpoints), next_key (for pagination), has_more.`,
       inputSchema: {
-        run_id: z.string().uuid().describe("Run ID from sophos_run_live_discover_query"),
+        run_id: z.string().guid().describe("Run ID from sophos_run_live_discover_query"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z

@@ -53,19 +53,19 @@ export interface AssignmentArgs {
 
 const assignmentInputSchema = {
   users: z
-    .array(z.string().uuid())
+    .array(z.string().guid())
     .optional()
     .describe("User IDs (makes it a user policy). Plain ID strings."),
   user_groups: z
-    .array(z.string().uuid())
+    .array(z.string().guid())
     .optional()
     .describe("Directory user group IDs (makes it a user policy). Plain ID strings."),
   endpoints: z
-    .array(z.string().uuid())
+    .array(z.string().guid())
     .optional()
     .describe("Endpoint IDs (makes it a device policy). Plain ID strings."),
   endpoint_groups: z
-    .array(z.string().uuid())
+    .array(z.string().guid())
     .optional()
     .describe("Endpoint group IDs (makes it a device policy). Plain ID strings."),
 };
@@ -488,7 +488,7 @@ sophos_get_policy by ID, which is current at once, rather than re-listing.`,
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         policy_type: z
@@ -560,10 +560,10 @@ Args:
   - policy_id (string): The policy ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        policy_id: z.string().uuid().describe("Policy ID to retrieve"),
+        policy_id: z.string().guid().describe("Policy ID to retrieve"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -628,10 +628,10 @@ Args:
   - settings (object, optional): Policy settings object to merge. Only include settings you want to change.
   - users, user_groups, endpoints, endpoint_groups (string arrays, optional): The new whole assignment.`,
       inputSchema: {
-        policy_id: z.string().uuid().describe("Policy ID to update"),
+        policy_id: z.string().guid().describe("Policy ID to update"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         name: z.string().optional().describe("New policy name"),
@@ -646,7 +646,7 @@ Args:
           .optional()
           .describe("Whether policy settings are enforced"),
         settings: z
-          .record(z.unknown())
+          .record(z.string(), z.unknown())
           .optional()
           .describe("Policy settings to update (partial merge)"),
         ...assignmentInputSchema,
@@ -736,11 +736,11 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
   - users, user_groups, endpoints, endpoint_groups (string arrays, optional): The clone's whole assignment.`,
       inputSchema: {
-        source_policy_id: z.string().uuid().describe("Policy ID to clone from"),
+        source_policy_id: z.string().guid().describe("Policy ID to clone from"),
         name: z.string().describe("Name for the cloned policy"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         ...assignmentInputSchema,
@@ -828,12 +828,12 @@ Args:
   - settings (object, optional): Policy settings object.
   - users, user_groups, endpoints, endpoint_groups (string arrays, optional): Who or what the policy applies to.`,
       inputSchema: {
-        tenant_id: z.string().uuid().optional().describe("Tenant ID. Required for partner/org callers."),
+        tenant_id: z.string().guid().optional().describe("Tenant ID. Required for partner/org callers."),
         name: z.string().describe("Policy name"),
         type: z.string().describe('Policy type e.g. "threat-protection", "peripheral-control", "web-control"'),
         enabled: z.boolean().optional().describe("Whether the policy is enabled (default true)"),
         priority: z.coerce.number().int().optional().describe("Policy priority (lower = higher priority)"),
-        settings: z.record(z.unknown()).optional().describe("Policy settings object"),
+        settings: z.record(z.string(), z.unknown()).optional().describe("Policy settings object"),
         ...assignmentInputSchema,
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -878,8 +878,8 @@ Args:
   - policy_id (string): Policy ID to delete.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        policy_id: z.string().uuid().describe("Policy ID to delete"),
-        tenant_id: z.string().uuid().optional().describe("Tenant ID. Required for partner/org callers."),
+        policy_id: z.string().guid().describe("Policy ID to delete"),
+        tenant_id: z.string().guid().optional().describe("Tenant ID. Required for partner/org callers."),
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
@@ -926,12 +926,12 @@ Args:
   - users, user_groups, endpoints, endpoint_groups (string arrays, optional): IDs. At least one is required.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        policy_id: z.string().uuid().describe("Policy ID"),
+        policy_id: z.string().guid().describe("Policy ID"),
         mode: z
           .enum(["replace", "add", "remove"])
           .describe("replace sets the whole assignment; add and remove change only the IDs passed"),
         ...assignmentInputSchema,
-        tenant_id: z.string().uuid().optional().describe("Tenant ID. Required for partner/org callers."),
+        tenant_id: z.string().guid().optional().describe("Tenant ID. Required for partner/org callers."),
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },

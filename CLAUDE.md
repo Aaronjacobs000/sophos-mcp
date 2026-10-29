@@ -112,6 +112,8 @@ Helper functions in `src/tools/helpers.ts`:
 6. Fusion tools take the `sophos_fusion_` prefix, name the severity scale a field uses, give one working QL example where a query is accepted, and batch ID lookups (the rate limit is per credential and shared with the Central tools)
 7. Update the count in `test/tool-registration.test.mjs` and run `npm test`
 
+Schemas are zod 4. ID arguments use `z.string().guid()`, never `.uuid()`: zod 4's `uuid` enforces the RFC 4122 version and variant digits, and Sophos IDs do not all carry them (built-in role IDs, some XDR query IDs and some Fusion reference data IDs). Never import `zod/v3`: it keeps the code GHSA-mrhx-c7xc-m3w5 is about.
+
 ### Pagination
 
 - Endpoint APIs use cursor-based pagination (`pageFromKey` / `nextKey`)

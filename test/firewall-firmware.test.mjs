@@ -120,14 +120,16 @@ test("a time with no offset is refused by the registered schema and nothing is s
   }
 });
 
-test("an impossible offset that passes the schema is refused before anything is sent", async () => {
+test("an impossible offset is refused by the registered schema and nothing is sent", async () => {
   const h = await harness();
   try {
     const { isError, text } = await h.call("sophos_start_firmware_upgrade", {
       firewalls: [{ id: FW1, upgrade_at: "2026-10-08T02:00:00+99:99" }],
     });
     assert.equal(isError, true);
-    assert.match(text, /is not a valid date and time\. Nothing was sent\./);
+    // zod 4 checks the offset range, so the SDK's input validation answers
+    assert.match(text, /^MCP error -32602: Input validation error/);
+    assert.match(text, /firewalls\[0\]\.upgrade_at/);
     assert.equal(h.calls.length, 0, "no request was sent");
   } finally {
     await h.close();

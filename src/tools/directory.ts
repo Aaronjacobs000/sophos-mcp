@@ -63,7 +63,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         search: z
@@ -146,7 +146,7 @@ Args:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -217,7 +217,7 @@ Args:
         principal_type: z.enum(["user", "service"]).optional().describe("Principal type"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -258,10 +258,10 @@ Args:
 Returns:
   User details including name, email, group memberships, and associated endpoints.`,
       inputSchema: {
-        user_id: z.string().uuid().describe("User ID"),
+        user_id: z.string().guid().describe("User ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -316,7 +316,7 @@ Returns:
         exchange_login: z.string().optional().describe("Exchange login / UPN"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -374,7 +374,7 @@ Args:
   - exchange_login (string, optional): New Exchange login / UPN.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        user_id: z.string().uuid().describe("User ID to update"),
+        user_id: z.string().guid().describe("User ID to update"),
         name: z.string().optional().describe("New display name"),
         first_name: z.string().optional().describe("New first name"),
         last_name: z.string().optional().describe("New last name"),
@@ -382,7 +382,7 @@ Args:
         exchange_login: z.string().optional().describe("New Exchange login / UPN"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -445,10 +445,10 @@ Args:
   - user_id (string): User ID to delete.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        user_id: z.string().uuid().describe("User ID to delete"),
+        user_id: z.string().guid().describe("User ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -494,7 +494,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         search: z.string().optional().describe("Search by group name"),
@@ -558,10 +558,10 @@ Args:
 Returns:
   User group details including name, description, and member count.`,
       inputSchema: {
-        group_id: z.string().uuid().describe("User group ID"),
+        group_id: z.string().guid().describe("User group ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -604,7 +604,7 @@ Returns:
         description: z.string().optional().describe("Group description"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -644,12 +644,12 @@ Args:
   - description (string, optional): New group description.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        group_id: z.string().uuid().describe("User group ID to update"),
+        group_id: z.string().guid().describe("User group ID to update"),
         name: z.string().optional().describe("New group name"),
         description: z.string().optional().describe("New group description"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -698,10 +698,10 @@ Args:
   - group_id (string): User group ID to delete.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        group_id: z.string().uuid().describe("User group ID to delete"),
+        group_id: z.string().guid().describe("User group ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -743,10 +743,10 @@ Args:
 Returns:
   Paginated list of users in the group.`,
       inputSchema: {
-        group_id: z.string().uuid().describe("User group ID"),
+        group_id: z.string().guid().describe("User group ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -813,14 +813,14 @@ Args:
   - user_ids (array): Array of user IDs to add.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        group_id: z.string().uuid().describe("User group ID"),
+        group_id: z.string().guid().describe("User group ID"),
         user_ids: z
-          .array(z.string().uuid())
+          .array(z.string().guid())
           .min(1)
           .describe("User IDs to add to the group"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -863,11 +863,11 @@ Args:
   - user_id (string): User ID to remove.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        group_id: z.string().uuid().describe("User group ID"),
-        user_id: z.string().uuid().describe("User ID to remove"),
+        group_id: z.string().guid().describe("User group ID"),
+        user_id: z.string().guid().describe("User ID to remove"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -914,10 +914,10 @@ Args:
 Returns:
   The policies that name the group: id, name, type, enabled, priority.`,
       inputSchema: {
-        group_id: z.string().uuid().describe("User group ID"),
+        group_id: z.string().guid().describe("User group ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },

@@ -29,7 +29,7 @@ const siteListActionSchema = z.object({
 
 const tenantIdSchema = z
   .string()
-  .uuid()
+  .guid()
   .optional()
   .describe("Tenant ID. Required for partner/org callers.");
 

@@ -41,7 +41,7 @@ Args:
 Returns:
   status, total_results, next_offset, search_id, and detections (id, title, severity_0_to_1, confidence, status, detector, entities, event_count, MITRE technique IDs, timestamps).`,
       inputSchema: {
-        tenant_id: z.string().uuid().optional().describe("Tenant ID. Required for partner/org callers."),
+        tenant_id: z.string().guid().optional().describe("Tenant ID. Required for partner/org callers."),
         query: z.string().optional().default(DEFAULT_DETECTION_QUERY).describe("QL query, source keyword alert"),
         limit: z
           .number()

@@ -34,7 +34,7 @@ Args:
   - timeout_in_seconds (number, optional): Expiry, 60 to 86400 seconds.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        user_id: z.string().uuid().describe("User ID"),
+        user_id: z.string().guid().describe("User ID"),
         title: z.string().max(100).describe("Title shown to the user"),
         question: z.string().max(500).describe("The question"),
         options: z
@@ -52,7 +52,7 @@ Args:
         timeout_in_seconds: z.number().int().min(60).max(86400).optional().describe("Expiry in seconds"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -103,7 +103,7 @@ Args:
         attestation_id: z.string().describe("Attestation ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },

@@ -36,7 +36,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -88,7 +88,7 @@ Args:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -124,7 +124,7 @@ Args:
         profile_id: z.string().describe("Cloud security profile ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -197,10 +197,10 @@ Returns:
           .describe("Overrides of the default content settings"),
         name: z.string().min(1).max(50).optional().describe("Profile name"),
         profile_description: z.string().optional().describe("Profile description"),
-        profile_id: z.string().uuid().optional().describe("Existing profile to add a version to"),
+        profile_id: z.string().guid().optional().describe("Existing profile to add a version to"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -243,11 +243,11 @@ Args:
   - name (string): New profile name (1 to 50 characters).
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        profile_id: z.string().uuid().describe("Cloud security profile ID to rename"),
+        profile_id: z.string().guid().describe("Cloud security profile ID to rename"),
         name: z.string().min(1).max(50).describe("New profile name"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -286,10 +286,10 @@ Args:
   - profile_id (string): The profile ID to delete.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        profile_id: z.string().uuid().describe("Cloud security profile ID to delete"),
+        profile_id: z.string().guid().describe("Cloud security profile ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },

@@ -21,6 +21,7 @@
 import { SOPHOS_FUSION_GRAPHQL_URL } from "../config/config.js";
 import type { TokenManager } from "../auth/token-manager.js";
 import type { SophosApiError } from "../types/sophos.js";
+import { retryAfterMs } from "./retry-after.js";
 
 /** One entry of a GraphQL response `errors` array. */
 export interface GraphQLErrorEntry {
@@ -239,10 +240,7 @@ export class FusionClient {
 
         if (response.status === 429 && attempt < this.retries) {
           // The last 429 is reported below
-          const retryAfter = response.headers.get("Retry-After");
-          const waitMs = retryAfter
-            ? parseInt(retryAfter, 10) * 1000
-            : this.backoffBaseMs * 5;
+          const waitMs = retryAfterMs(response.headers.get("Retry-After"), this.backoffBaseMs * 5);
           console.error(
             `[fusion-client] Rate limited, waiting ${waitMs}ms (attempt ${attempt + 1})`
           );

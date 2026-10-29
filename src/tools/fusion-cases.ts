@@ -121,7 +121,7 @@ const MAX_FILE_LIST_PAGES = 20;
 
 const tenantIdField = z
   .string()
-  .uuid()
+  .guid()
   .optional()
   .describe("Tenant ID. Required for partner/org callers.");
 

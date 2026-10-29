@@ -30,13 +30,13 @@ export const EXAMPLE_SEARCH_QUERY = "from process earliest=-1h | fields host_id,
 /** searchResults refuses a limit above 1000 (live tenant, 29/10/2026). */
 export const MAX_SEARCH_RESULTS_LIMIT = 1000;
 
-const tenantIdSchema = z.string().uuid().optional().describe("Tenant ID. Required for partner/org callers.");
+const tenantIdSchema = z.string().guid().optional().describe("Tenant ID. Required for partner/org callers.");
 const urnSchema = z.string().regex(/^urn:\S+$/, "a URN starting urn:");
 const queryInputSchema = {
   tenant_id: tenantIdSchema,
   query: z.string().min(1).describe(`QL query, for example "${EXAMPLE_SEARCH_QUERY}"`),
   metadata: z
-    .record(z.unknown())
+    .record(z.string(), z.unknown())
     .optional()
     .describe("Optional JSON object stored with the search and returned with it"),
 };

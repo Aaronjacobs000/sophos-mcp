@@ -48,7 +48,7 @@ Example SQL:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         sql: z
@@ -113,10 +113,10 @@ Returns:
   and ready flag (true when results are available).
   When ready is true, fetch results with sophos_get_xdr_query_results.`,
       inputSchema: {
-        run_id: z.string().uuid().describe("Run ID from sophos_run_xdr_query"),
+        run_id: z.string().guid().describe("Run ID from sophos_run_xdr_query"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -165,10 +165,10 @@ Returns:
   items (rows as key-value objects), columns metadata, and pagination keys.
   Pass next_key as page_from_key in the next call to retrieve subsequent pages.`,
       inputSchema: {
-        run_id: z.string().uuid().describe("Run ID from sophos_run_xdr_query"),
+        run_id: z.string().guid().describe("Run ID from sophos_run_xdr_query"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -224,7 +224,7 @@ Args:
   - limit (number, optional): Results per page (default 50).
   - page (number, optional): Page number (default 1).`,
       inputSchema: {
-        tenant_id: z.string().uuid().optional().describe("Tenant ID. Required for partner/org callers."),
+        tenant_id: z.string().guid().optional().describe("Tenant ID. Required for partner/org callers."),
         limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).optional().default(DEFAULT_PAGE_SIZE).describe("Results per page (default 50)"),
         page: z.coerce.number().int().min(1).optional().default(1).describe("Page number (default 1)"),
       },
@@ -262,8 +262,8 @@ Args:
   - run_id (string): Run ID to cancel.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        run_id: z.string().uuid().describe("Run ID to cancel"),
-        tenant_id: z.string().uuid().optional().describe("Tenant ID. Required for partner/org callers."),
+        run_id: z.string().guid().describe("Run ID to cancel"),
+        tenant_id: z.string().guid().optional().describe("Tenant ID. Required for partner/org callers."),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -284,7 +284,7 @@ Args:
 Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        tenant_id: z.string().uuid().optional().describe("Tenant ID. Required for partner/org callers."),
+        tenant_id: z.string().guid().optional().describe("Tenant ID. Required for partner/org callers."),
       },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -307,7 +307,7 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         category_id: z.string().describe("Category ID"),
-        tenant_id: z.string().uuid().optional().describe("Tenant ID. Required for partner/org callers."),
+        tenant_id: z.string().guid().optional().describe("Tenant ID. Required for partner/org callers."),
       },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -331,7 +331,7 @@ Args:
   - limit (number, optional): Results per page (default 50).
   - page (number, optional): Page number (default 1).`,
       inputSchema: {
-        tenant_id: z.string().uuid().optional().describe("Tenant ID. Required for partner/org callers."),
+        tenant_id: z.string().guid().optional().describe("Tenant ID. Required for partner/org callers."),
         category_id: z.string().optional().describe("Filter by category ID"),
         limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).optional().default(DEFAULT_PAGE_SIZE).describe("Results per page (default 50)"),
         page: z.coerce.number().int().min(1).optional().default(1).describe("Page number (default 1)"),
@@ -359,7 +359,7 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         query_id: z.string().describe("Query ID"),
-        tenant_id: z.string().uuid().optional().describe("Tenant ID. Required for partner/org callers."),
+        tenant_id: z.string().guid().optional().describe("Tenant ID. Required for partner/org callers."),
       },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },

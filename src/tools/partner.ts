@@ -20,13 +20,13 @@ import { jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
 const partnerRoleAssignmentSchema = z.object({
-  role_id: z.string().uuid().describe("Role ID"),
+  role_id: z.string().guid().describe("Role ID"),
   scope_type: z
     .enum(["tenant", "allManagedTenants", "self", "tenantGroup"])
     .describe("What the role applies to"),
   scope_id: z
     .string()
-    .uuid()
+    .guid()
     .optional()
     .describe("Tenant or tenant group ID; not used for allManagedTenants or self"),
 });
@@ -585,8 +585,8 @@ Args:
 Returns:
   Created role assignment details.`,
       inputSchema: {
-        admin_id: z.string().uuid().describe("Admin ID to assign the role to"),
-        role_id: z.string().uuid().describe("Role ID to assign"),
+        admin_id: z.string().guid().describe("Admin ID to assign the role to"),
+        role_id: z.string().guid().describe("Role ID to assign"),
         scope_type: partnerRoleAssignmentSchema.shape.scope_type,
         scope_id: partnerRoleAssignmentSchema.shape.scope_id,
       },
@@ -679,7 +679,7 @@ Returns:
         month: z.coerce.number().int().min(1).max(12).describe("Month (1-12)"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Filter results to a specific tenant by accountId"),
         page_size: z

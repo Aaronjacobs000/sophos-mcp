@@ -39,7 +39,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -83,7 +83,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -143,7 +143,7 @@ Args:
         expire_in_days: z.number().int().min(1).max(365).optional().describe("Unblock after this many days"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -182,10 +182,10 @@ Args:
   - address_ids (array): Blocked address record IDs to remove.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        address_ids: z.array(z.string().uuid()).min(1).describe("Blocked address record IDs to remove"),
+        address_ids: z.array(z.string().guid()).min(1).describe("Blocked address record IDs to remove"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -229,7 +229,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -291,7 +291,7 @@ Args:
         tags: z.array(z.string()).optional().describe("Tags for organizing sites"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -333,14 +333,14 @@ Args:
   - tags (string[], optional): Updated tags.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        site_id: z.string().uuid().describe("Local site ID to update"),
+        site_id: z.string().guid().describe("Local site ID to update"),
         url: z.string().optional().describe("Updated URL pattern"),
         categoryId: z.coerce.number().int().optional().describe("Updated web control category ID"),
         comment: z.string().optional().describe("Updated description"),
         tags: z.array(z.string()).optional().describe("Updated tags"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -378,10 +378,10 @@ Args:
   - site_id (string): Local site ID to delete.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        site_id: z.string().uuid().describe("Local site ID to delete"),
+        site_id: z.string().guid().describe("Local site ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -427,7 +427,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -466,7 +466,7 @@ Args:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -514,7 +514,7 @@ Args:
           .describe("Categories to change"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -556,7 +556,7 @@ Args:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -600,7 +600,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -653,10 +653,10 @@ Args:
   - exploit_id (string): Detected exploit ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        exploit_id: z.string().uuid().describe("Detected exploit ID"),
+        exploit_id: z.string().guid().describe("Detected exploit ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -695,7 +695,7 @@ Args:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -732,7 +732,7 @@ Args:
         category_id: z.string().regex(/^[A-Za-z0-9_-]+$/, "A category ID such as java").describe('Category ID, for example "java"'),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -775,7 +775,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -828,10 +828,10 @@ Args:
   - app_id (string): Exploit mitigation application ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        app_id: z.string().uuid().describe("Exploit mitigation application ID"),
+        app_id: z.string().guid().describe("Exploit mitigation application ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -870,7 +870,7 @@ Args:
           .describe("Array of executable paths to protect"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -905,14 +905,14 @@ Args:
   - paths (string[], optional): Updated executable paths.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        app_id: z.string().uuid().describe("Exploit mitigation application ID to update"),
+        app_id: z.string().guid().describe("Exploit mitigation application ID to update"),
         paths: z
           .array(z.string())
           .optional()
           .describe("Updated executable paths"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -960,7 +960,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -1027,7 +1027,7 @@ Args:
         comment: z.string().optional().describe("Reason for the exclusion"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -1064,10 +1064,10 @@ Args:
   - exclusion_id (string): IPS exclusion ID to delete.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        exclusion_id: z.string().uuid().describe("IPS exclusion ID to delete"),
+        exclusion_id: z.string().guid().describe("IPS exclusion ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -1116,7 +1116,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -1178,7 +1178,7 @@ Args:
         comment: z.string().optional().describe("Reason for the exclusion"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -1215,10 +1215,10 @@ Args:
   - exclusion_id (string): Isolation exclusion ID to delete.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        exclusion_id: z.string().uuid().describe("Isolation exclusion ID to delete"),
+        exclusion_id: z.string().guid().describe("Isolation exclusion ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },

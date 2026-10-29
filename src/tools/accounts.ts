@@ -46,7 +46,7 @@ Args:
           .describe("Page number (default 1)"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -90,7 +90,7 @@ Args:
         expires_at: z.string().optional().describe("Expiry (ISO 8601 datetime)"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -132,7 +132,7 @@ Args:
         expires_at: z.string().optional().describe("New expiry (ISO 8601 datetime)"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -179,7 +179,7 @@ Args:
         token_id: z.string().describe("Token ID to revoke"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },

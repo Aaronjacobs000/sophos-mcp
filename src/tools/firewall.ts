@@ -52,7 +52,7 @@ Args:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         group_id: z
@@ -133,18 +133,18 @@ Args:
   - group_id (string, optional): Group to move the firewall into.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        firewall_id: z.string().uuid().describe("Firewall ID to update"),
+        firewall_id: z.string().guid().describe("Firewall ID to update"),
         name: z.string().max(40).optional().describe("New firewall name"),
         latitude: z.string().optional().describe("Latitude"),
         longitude: z.string().optional().describe("Longitude"),
         group_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Group to move the firewall into"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -203,10 +203,10 @@ Args:
   - firewall_id (string): The firewall ID to delete.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        firewall_id: z.string().uuid().describe("Firewall ID to delete"),
+        firewall_id: z.string().guid().describe("Firewall ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -251,13 +251,13 @@ Args:
   - action (string): Action to perform. Only "approveManagement" is supported.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        firewall_id: z.string().uuid().describe("Firewall ID"),
+        firewall_id: z.string().guid().describe("Firewall ID"),
         action: z
           .enum(["approveManagement"])
           .describe("Action to perform on the firewall (only approveManagement is supported)"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -300,12 +300,12 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         firewall_ids: z
-          .array(z.string().uuid())
+          .array(z.string().guid())
           .min(1)
           .describe("Firewall IDs to check (at least one)"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -346,7 +346,7 @@ Args:
         firewalls: z
           .array(
             z.object({
-              id: z.string().uuid().describe("Firewall ID"),
+              id: z.string().guid().describe("Firewall ID"),
               upgrade_to_version: z
                 .string()
                 .optional()
@@ -358,7 +358,7 @@ Args:
                 .datetime({
                   offset: true,
                   message:
-                    "upgrade_at must be ISO 8601 with Z or an explicit offset, e.g. 2026-10-08T02:00:00+10:00. A time with no offset is ambiguous.",
+                    "upgrade_at must be ISO 8601 with seconds and Z or an explicit offset, e.g. 2026-10-08T02:00:00+10:00. A time with no offset is ambiguous.",
                 })
                 .optional()
                 .describe(
@@ -370,7 +370,7 @@ Args:
           .describe("Firewalls to upgrade (at least one)"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -390,8 +390,8 @@ Args:
           if (fw.upgrade_to_version) item.upgradeToVersion = fw.upgrade_to_version;
           if (fw.upgrade_at) {
             // The schema requires Z or an offset; send UTC in the documented
-            // yyyy-MM-dd'T'HH:mm:ss.SSS'Z' format. The schema still lets an
-            // impossible offset such as +99:99 through.
+            // yyyy-MM-dd'T'HH:mm:ss.SSS'Z' format. The schema already refuses
+            // an impossible offset such as +99:99; this check is a backstop.
             const at = new Date(fw.upgrade_at);
             if (Number.isNaN(at.getTime())) {
               throw new Error(`upgrade_at "${fw.upgrade_at}" is not a valid date and time. Nothing was sent.`);
@@ -428,12 +428,12 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         firewall_ids: z
-          .array(z.string().uuid())
+          .array(z.string().guid())
           .min(1)
           .describe("Firewall IDs whose scheduled upgrades should be cancelled"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -486,7 +486,7 @@ Args:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -548,10 +548,10 @@ Args:
   - group_id (string): The firewall group ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        group_id: z.string().uuid().describe("Firewall group ID"),
+        group_id: z.string().guid().describe("Firewall group ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -595,12 +595,12 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         name: z.string().max(40).describe("Firewall group name"),
-        assign_firewalls: z.array(z.string().uuid()).optional().default([]).describe("Firewall IDs to put in the group"),
-        parent_group_id: z.string().uuid().optional().describe("Parent group ID"),
-        config_import_source_firewall_id: z.string().uuid().optional().describe("Firewall to import configuration from"),
+        assign_firewalls: z.array(z.string().guid()).optional().default([]).describe("Firewall IDs to put in the group"),
+        parent_group_id: z.string().guid().optional().describe("Parent group ID"),
+        config_import_source_firewall_id: z.string().guid().optional().describe("Firewall to import configuration from"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -641,13 +641,13 @@ Args:
   - unassign_firewalls (array, optional): Firewall IDs to remove from the group.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        group_id: z.string().uuid().describe("Firewall group ID to update"),
+        group_id: z.string().guid().describe("Firewall group ID to update"),
         name: z.string().max(40).optional().describe("New group name"),
-        assign_firewalls: z.array(z.string().uuid()).optional().describe("Firewall IDs to add"),
-        unassign_firewalls: z.array(z.string().uuid()).optional().describe("Firewall IDs to remove"),
+        assign_firewalls: z.array(z.string().guid()).optional().describe("Firewall IDs to add"),
+        unassign_firewalls: z.array(z.string().guid()).optional().describe("Firewall IDs to remove"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -695,10 +695,10 @@ Args:
   - group_id (string): Group ID to delete.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        group_id: z.string().uuid().describe("Firewall group ID to delete"),
+        group_id: z.string().guid().describe("Firewall group ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -739,10 +739,10 @@ Args:
   - group_id (string): The firewall group ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        group_id: z.string().uuid().describe("Firewall group ID"),
+        group_id: z.string().guid().describe("Firewall group ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -779,10 +779,10 @@ Args:
   - firewall_id (string): The firewall ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        firewall_id: z.string().uuid().describe("Firewall ID"),
+        firewall_id: z.string().guid().describe("Firewall ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -819,12 +819,12 @@ Args:
   - action (string, optional): "logOnly" or "logAndDrop".
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        firewall_id: z.string().uuid().describe("Firewall ID"),
+        firewall_id: z.string().guid().describe("Firewall ID"),
         enabled: z.boolean().optional().describe("Whether the MDR threat feed is on"),
         action: z.enum(["logOnly", "logAndDrop"]).optional().describe("What the firewall does with matches"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -874,11 +874,11 @@ Args:
   - indicator_values (array): Up to 100 indicator values (IP addresses, domains or URLs).
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        firewall_id: z.string().uuid().describe("Firewall ID"),
+        firewall_id: z.string().guid().describe("Firewall ID"),
         indicator_values: z.array(z.string()).min(1).max(100).describe("Indicator values to look up"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -916,11 +916,11 @@ Args:
   - transaction_id (string): The transaction ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        firewall_id: z.string().uuid().describe("Firewall ID"),
+        firewall_id: z.string().guid().describe("Firewall ID"),
         transaction_id: z.string().describe("Transaction ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -971,7 +971,7 @@ Args:
     valid when full_export is false.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        firewall_id: z.string().uuid().describe("Firewall ID to export"),
+        firewall_id: z.string().guid().describe("Firewall ID to export"),
         full_export: z
           .boolean()
           .optional()
@@ -989,7 +989,7 @@ Args:
           .describe("Include dependent entities (only when full_export is false)"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -1061,7 +1061,7 @@ Args:
           .describe("Transaction ID from the export or import call"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -1113,7 +1113,7 @@ Args:
           .describe("Local file path to save the backup archive to"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -1215,7 +1215,7 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         firewall_ids: z
-          .array(z.string().uuid())
+          .array(z.string().guid())
           .min(1)
           .describe("Target firewall IDs (at least one)"),
         file_path: z
@@ -1232,7 +1232,7 @@ Args:
           .describe("Allow partial success per firewall (default true)"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
