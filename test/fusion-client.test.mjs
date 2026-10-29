@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import {
   FusionClient,
   FusionGraphQLError,
+  FusionTenantNotOnFusionError,
   formatGraphQLError,
   interpretGraphQLBody,
   isMutation,
@@ -239,6 +240,63 @@ test("5xx exhausts the retries and throws the last error", async () => {
     /Sophos Fusion API error 502: upstream down/
   );
   assert.equal(calls.length, 3);
+});
+
+// Live body (29/10/2026), tenant ID replaced: Fusion's answer for a tenant it
+// does not hold, the same on every attempt, so a retry only spends calls.
+const notOnFusionBody =
+  '{"message":"error invoking downstream api\\ntenantsv4.APIClient.GetTenant: input:1:30: tenant 11111111-2222-3333-4444-555555555555 not found or not accessible"}';
+
+test("the 503 that means the tenant is not on Fusion is not retried and says so", async () => {
+  const calls = stubFetch(() => json(notOnFusionBody, { status: 503 }));
+  await assert.rejects(
+    () => makeClient().query("11111111-2222-3333-4444-555555555555", "query { caseTypes }"),
+    (error) => {
+      assert.ok(error instanceof FusionTenantNotOnFusionError);
+      assert.equal(error.tenantId, "11111111-2222-3333-4444-555555555555");
+      assert.match(
+        error.message,
+        /^Sophos Fusion API error 503: tenant 11111111-2222-3333-4444-555555555555 is not on Sophos Fusion \(or not accessible to this credential\)/
+      );
+      assert.match(error.message, /tenantsv4\.APIClient\.GetTenant/);
+      return true;
+    }
+  );
+  assert.equal(calls.length, 1);
+});
+
+test("that 503 on a mutation is not called one that may have taken effect", async () => {
+  const calls = stubFetch(() => json(notOnFusionBody, { status: 503 }));
+  await assert.rejects(
+    () => makeClient().query("11111111-2222-3333-4444-555555555555", "mutation { createCase }"),
+    (error) => {
+      assert.ok(error instanceof FusionTenantNotOnFusionError);
+      assert.doesNotMatch(error.message, /may already have taken effect/);
+      return true;
+    }
+  );
+  assert.equal(calls.length, 1);
+});
+
+test("any other 503, and the same text on another 5xx, keeps its retries", async () => {
+  const cases = [
+    [503, '{"message":"error invoking downstream api\\ntenantsv4.APIClient.GetTenant: connection refused"}'],
+    [503, "upstream down"],
+    [500, notOnFusionBody],
+    [502, notOnFusionBody],
+  ];
+  for (const [status, body] of cases) {
+    const calls = stubFetch(() => json(body, { status }));
+    await assert.rejects(
+      () => makeClient().query("tenant-1", "query { ok }"),
+      (error) => {
+        assert.ok(!(error instanceof FusionTenantNotOnFusionError), `${status} ${body}`);
+        assert.match(error.message, new RegExp(`^Sophos Fusion API error ${status}: `));
+        return true;
+      }
+    );
+    assert.equal(calls.length, 3, `${status} ${body}`);
+  }
 });
 
 test("a hung request is aborted at the timeout and reported as such", async () => {
