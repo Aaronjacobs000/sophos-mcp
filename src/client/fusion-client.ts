@@ -24,6 +24,7 @@ import { SOPHOS_FUSION_GRAPHQL_URL } from "../config/config.js";
 import type { TokenManager } from "../auth/token-manager.js";
 import type { SophosApiError } from "../types/sophos.js";
 import { retryAfterMs } from "./retry-after.js";
+import { refuseRedirect, SophosRedirectError } from "./redirect.js";
 
 /** One entry of a GraphQL response `errors` array. */
 export interface GraphQLErrorEntry {
@@ -254,10 +255,13 @@ export class FusionClient {
         const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
         let response: globalThis.Response;
         try {
-          response = await fetch(this.url, { ...options, signal: controller.signal });
+          // A redirect is refused rather than followed: the request carries the tenant's ID and the query or mutation to the new host.
+          response = await fetch(this.url, { ...options, redirect: "manual", signal: controller.signal });
         } finally {
           clearTimeout(timeout);
         }
+
+        refuseRedirect(response, this.url);
 
         if (response.status === 429 && attempt < this.retries) {
           // The last 429 is reported below
@@ -324,6 +328,11 @@ export class FusionClient {
 
         // Not on Fusion: the same answer every attempt, and a mutation never ran
         if (lastError instanceof FusionTenantNotOnFusionError) {
+          throw lastError;
+        }
+
+        // A redirect: the same answer every attempt, and Sophos did nothing with the request
+        if (lastError instanceof SophosRedirectError) {
           throw lastError;
         }
 
