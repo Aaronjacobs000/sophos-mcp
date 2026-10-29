@@ -7,6 +7,7 @@ import type { TokenManager } from "../auth/token-manager.js";
 import type { TenantResolver } from "./tenant-resolver.js";
 import type { SophosApiError } from "../types/sophos.js";
 import { retryAfterMs } from "./retry-after.js";
+import { refuseRedirect, SophosRedirectError } from "./redirect.js";
 
 export interface RequestOptions {
   /** HTTP method */
@@ -173,10 +174,13 @@ export class SophosClient {
         const timeout = setTimeout(() => controller.abort(), 30_000);
         let response: globalThis.Response;
         try {
-          response = await fetch(url, { ...options, signal: controller.signal });
+          // A redirect is refused rather than followed: the request carries the tenant's ID and any body to the new host.
+          response = await fetch(url, { ...options, redirect: "manual", signal: controller.signal });
         } finally {
           clearTimeout(timeout);
         }
+
+        refuseRedirect(response, url);
 
         if (response.status === 429 && attempt < retries) {
           // Rate limited: wait and retry. The last 429 is reported below.
@@ -224,6 +228,11 @@ export class SophosClient {
         return (await response.json()) as T;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
+
+        // A redirect gets the same answer every time, and Sophos did nothing with the request
+        if (lastError instanceof SophosRedirectError) {
+          throw lastError;
+        }
 
         // Don't retry a 4xx client error, whether or not its body was JSON
         const status = (lastError as Error & { status?: number }).status;
