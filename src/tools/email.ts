@@ -28,16 +28,16 @@ import { jsonResult, withErrorHandling } from "./helpers.js";
 
 const tenantIdSchema = z
   .string()
-  .uuid()
+  .guid()
   .optional()
   .describe("Tenant ID. Required for partner/org callers.");
 
-const messageIdSchema = z.string().uuid().describe("Message ID (the X-Sophos-Email-ID header value)");
-const messageIdsSchema = z.array(z.string().uuid()).min(1).max(50).describe("Message IDs (X-Sophos-Email-ID), up to 50");
+const messageIdSchema = z.string().guid().describe("Message ID (the X-Sophos-Email-ID header value)");
+const messageIdsSchema = z.array(z.string().guid()).min(1).max(50).describe("Message IDs (X-Sophos-Email-ID), up to 50");
 const recipientsSchema = z.array(z.string().email()).optional().describe("Only for these recipients; all when omitted");
 const pageSizeSchema = z.number().int().min(1).max(100).optional().default(50).describe("Results per page (1-100, default 50)");
 const mailboxTypeSchema = z.enum(["user", "distributionList", "publicFolder", "sharedMailbox"]);
-const mailboxIdSchema = z.string().uuid().describe("Mailbox ID");
+const mailboxIdSchema = z.string().guid().describe("Mailbox ID");
 
 const QUARANTINE_REASONS = [
   "bulk", "dataControl", "dkim", "dmarc", "headerAnomaly", "domainAnomaly", "imageAnalysis",
@@ -80,7 +80,7 @@ function searchFilter(a: {
 const sharedSearchFields = {
   begin_date: z.string().describe("Quarantined on or after this time (ISO 8601)"),
   end_date: z.string().describe("Quarantined before this time (ISO 8601)"),
-  message_id: z.string().uuid().optional().describe("One message by X-Sophos-Email-ID"),
+  message_id: z.string().guid().optional().describe("One message by X-Sophos-Email-ID"),
   from_contains: z.string().optional().describe("Sender contains"),
   to_contains: z.string().optional().describe("Recipient contains"),
   subject_contains: z.string().optional().describe("Subject contains"),

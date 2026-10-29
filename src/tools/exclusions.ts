@@ -71,7 +71,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         type: z
@@ -162,7 +162,7 @@ Args:
         comment: z.string().max(100).optional().describe("Why this exclusion exists"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -200,10 +200,10 @@ Args:
   - exclusion_id (string): Exclusion ID to delete.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        exclusion_id: z.string().uuid().describe("Exclusion ID to delete"),
+        exclusion_id: z.string().guid().describe("Exclusion ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -248,7 +248,7 @@ Args:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -321,11 +321,11 @@ Args:
           })
           .describe("Item identification properties"),
         comment: z.string().describe("Reason for allowing"),
-        origin_endpoint_id: z.string().uuid().optional().describe("Source endpoint ID"),
-        origin_person_id: z.string().uuid().optional().describe("Source person ID"),
+        origin_endpoint_id: z.string().guid().optional().describe("Source endpoint ID"),
+        origin_person_id: z.string().guid().optional().describe("Source person ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -368,10 +368,10 @@ Args:
   - item_id (string): Allowed item ID to delete.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        item_id: z.string().uuid().describe("Allowed item ID to delete"),
+        item_id: z.string().guid().describe("Allowed item ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -416,7 +416,7 @@ Args:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -485,7 +485,7 @@ Args:
         comment: z.string().describe("Reason for blocking"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -524,10 +524,10 @@ Args:
   - item_id (string): Blocked item ID to delete.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        item_id: z.string().uuid().describe("Blocked item ID to delete"),
+        item_id: z.string().guid().describe("Blocked item ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },

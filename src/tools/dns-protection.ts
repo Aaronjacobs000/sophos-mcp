@@ -34,7 +34,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -85,7 +85,7 @@ Args:
         location_id: z.string().describe("DNS location ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -128,10 +128,10 @@ Args:
         ip_addresses: z.array(z.string()).max(100).optional().describe("Public IP addresses"),
         domain_names: z.array(z.string()).max(100).optional().describe("Domain names"),
         description: z.string().max(250).optional().describe("Location description"),
-        policy_id: z.string().uuid().optional().describe("DNS Protection policy ID"),
+        policy_id: z.string().guid().optional().describe("DNS Protection policy ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -180,7 +180,7 @@ Args:
   - add_domain_names, remove_domain_names (string[], optional): Domains to add or remove.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        location_id: z.string().uuid().describe("DNS location ID to update"),
+        location_id: z.string().guid().describe("DNS location ID to update"),
         name: z.string().min(1).max(100).regex(/^[a-zA-Z0-9\-_ ]+$/, "Letters, digits, spaces, hyphens and underscores only").optional().describe("New location name"),
         description: z.string().max(250).optional().describe("New description"),
         ip_addresses: z.array(z.string()).max(100).optional().describe("The complete new IP address list"),
@@ -191,7 +191,7 @@ Args:
         remove_domain_names: z.array(z.string()).max(100).optional().describe("Domain names to remove"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -248,7 +248,7 @@ Args:
         location_id: z.string().describe("DNS location ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },

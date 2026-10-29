@@ -34,10 +34,10 @@ Args:
 Returns:
   Admin details including name, email, and role assignments.`,
       inputSchema: {
-        admin_id: z.string().uuid().describe("Admin ID"),
+        admin_id: z.string().guid().describe("Admin ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -76,11 +76,11 @@ Args:
 Returns:
   The created admin record.`,
       inputSchema: {
-        user_id: z.string().uuid().describe("Directory user ID"),
-        role_id: z.string().uuid().describe("Role to assign"),
+        user_id: z.string().guid().describe("Directory user ID"),
+        role_id: z.string().guid().describe("Role to assign"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -121,10 +121,10 @@ Args:
   - admin_id (string): Admin ID to delete.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        admin_id: z.string().uuid().describe("Admin ID to delete"),
+        admin_id: z.string().guid().describe("Admin ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -164,10 +164,10 @@ Args:
 Returns:
   List of role assignments for the admin.`,
       inputSchema: {
-        admin_id: z.string().uuid().describe("Admin ID"),
+        admin_id: z.string().guid().describe("Admin ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -210,11 +210,11 @@ Args:
 Returns:
   The created role assignment.`,
       inputSchema: {
-        admin_id: z.string().uuid().describe("Admin ID"),
-        role_id: z.string().uuid().describe("Role ID to assign"),
+        admin_id: z.string().guid().describe("Admin ID"),
+        role_id: z.string().guid().describe("Role ID to assign"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -248,11 +248,11 @@ Args:
   - assignment_id (string): Role assignment ID to remove.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        admin_id: z.string().uuid().describe("Admin ID"),
-        assignment_id: z.string().uuid().describe("Role assignment ID to remove"),
+        admin_id: z.string().guid().describe("Admin ID"),
+        assignment_id: z.string().guid().describe("Role assignment ID to remove"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -294,11 +294,11 @@ Args:
 Returns:
   Role assignment details.`,
       inputSchema: {
-        admin_id: z.string().uuid().describe("Admin ID"),
-        assignment_id: z.string().uuid().describe("Role assignment ID"),
+        admin_id: z.string().guid().describe("Admin ID"),
+        assignment_id: z.string().guid().describe("Role assignment ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -346,7 +346,7 @@ Returns:
         description: z.string().optional().describe("Role description"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -387,10 +387,10 @@ Args:
 Returns:
   Role details including name, description, and permission sets.`,
       inputSchema: {
-        role_id: z.string().uuid().describe("Role ID"),
+        role_id: z.string().guid().describe("Role ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -426,7 +426,7 @@ Args:
     (replaces the current list; measured 13/10/2026).
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        role_id: z.string().uuid().describe("Role ID to update"),
+        role_id: z.string().guid().describe("Role ID to update"),
         name: z.string().optional().describe("New role name"),
         description: z.string().optional().describe("New role description"),
         permission_sets: z
@@ -435,7 +435,7 @@ Args:
           .describe("Updated permission set IDs"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -487,10 +487,10 @@ Args:
   - role_id (string): Role ID to delete.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        role_id: z.string().uuid().describe("Role ID to delete"),
+        role_id: z.string().guid().describe("Role ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -534,7 +534,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },

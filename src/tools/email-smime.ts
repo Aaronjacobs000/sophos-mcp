@@ -27,7 +27,7 @@ import { jsonResult, withErrorHandling } from "./helpers.js";
 
 const tenantIdSchema = z
   .string()
-  .uuid()
+  .guid()
   .optional()
   .describe("Tenant ID. Required for partner/org callers.");
 

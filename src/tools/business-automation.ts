@@ -42,7 +42,7 @@ Args:
   - limit (number, optional): Max results per page (default 50).
   - page (number, optional): Page number (default 1).`,
       inputSchema: {
-        distributor_id: z.string().uuid().describe("Distributor ID"),
+        distributor_id: z.string().guid().describe("Distributor ID"),
         type: z.enum(["new", "amendment", "renewal"]).optional().describe("Quote type"),
         billing_category_type: z
           .enum(["upfront", "nonStandard"])
@@ -152,7 +152,7 @@ Args:
   - distributor_id (string): Distributor ID (X-Distributor-ID).
   - proposal_number (string): Quote proposal number.`,
       inputSchema: {
-        distributor_id: z.string().uuid().describe("Distributor ID"),
+        distributor_id: z.string().guid().describe("Distributor ID"),
         proposal_number: z.string().describe("Quote proposal number"),
       },
       annotations: {
@@ -187,7 +187,7 @@ Args:
   - limit (number, optional): Max results per page (default 50).
   - page (number, optional): Page number (default 1).`,
       inputSchema: {
-        distributor_id: z.string().uuid().describe("Distributor ID"),
+        distributor_id: z.string().guid().describe("Distributor ID"),
         billing_sub_region: z.string().describe("Billing sub-region"),
         name: z.string().optional().describe("Partner name filter"),
         edi_number: z.string().optional().describe("Partner EDI account number"),
@@ -253,7 +253,7 @@ Args:
   - transaction_type (string, optional): "new" or "renew".
   - promo_codes (array, optional): Promo codes to apply.`,
       inputSchema: {
-        distributor_id: z.string().uuid().describe("Distributor ID"),
+        distributor_id: z.string().guid().describe("Distributor ID"),
         reseller_account_number: z.string().describe("Reseller account number"),
         sector: z
           .enum(["corporate", "education", "government"])

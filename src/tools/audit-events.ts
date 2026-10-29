@@ -87,7 +87,7 @@ Args:
           .describe("Max results per page (default 50)"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID to scope the query to one tenant"),
       },

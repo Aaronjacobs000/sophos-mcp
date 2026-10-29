@@ -47,7 +47,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         from_date: z
@@ -114,10 +114,10 @@ Returns:
   status ("pending" or "finished"), result ("notAvailable", "succeeded", or "failed").
   When status is "finished" and result is "succeeded", use sophos_get_detections_results to fetch results.`,
       inputSchema: {
-        run_id: z.string().uuid().describe("Run ID from sophos_run_detections_query"),
+        run_id: z.string().guid().describe("Run ID from sophos_run_detections_query"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -166,10 +166,10 @@ Args:
 Returns:
   Paginated detections with: id, attackType, detectionRule, severity, sensorGeneratedAt, device, sensor.`,
       inputSchema: {
-        run_id: z.string().uuid().describe("Run ID from sophos_run_detections_query"),
+        run_id: z.string().guid().describe("Run ID from sophos_run_detections_query"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z
@@ -237,7 +237,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         from_date: z
@@ -303,10 +303,10 @@ Args:
 Returns:
   status ("pending" or "finished") and result. When finished and succeeded, fetch results with sophos_get_detection_groups_results.`,
       inputSchema: {
-        run_id: z.string().uuid().describe("Run ID from sophos_run_detection_groups_query"),
+        run_id: z.string().guid().describe("Run ID from sophos_run_detection_groups_query"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -361,10 +361,10 @@ Args:
 Returns:
   Paginated detection groups with grouped detection data.`,
       inputSchema: {
-        run_id: z.string().uuid().describe("Run ID from sophos_run_detection_groups_query"),
+        run_id: z.string().guid().describe("Run ID from sophos_run_detection_groups_query"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         limit: z

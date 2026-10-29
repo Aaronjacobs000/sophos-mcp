@@ -71,7 +71,7 @@ Returns:
       inputSchema: {
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
         health_status: z
@@ -176,10 +176,10 @@ Args:
   - endpoint_id (string): The endpoint ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        endpoint_id: z.string().uuid().describe("Endpoint ID to retrieve"),
+        endpoint_id: z.string().guid().describe("Endpoint ID to retrieve"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -214,10 +214,10 @@ Args:
   - endpoint_id (string): The endpoint ID to scan.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        endpoint_id: z.string().uuid().describe("Endpoint ID to scan"),
+        endpoint_id: z.string().guid().describe("Endpoint ID to scan"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -260,14 +260,14 @@ Args:
   - comment (string, optional): Reason for isolation.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        endpoint_id: z.string().uuid().describe("Endpoint ID to isolate"),
+        endpoint_id: z.string().guid().describe("Endpoint ID to isolate"),
         comment: z
           .string()
           .optional()
           .describe("Reason for isolation"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -308,14 +308,14 @@ Args:
   - comment (string, optional): Reason for releasing isolation.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        endpoint_id: z.string().uuid().describe("Endpoint ID to release"),
+        endpoint_id: z.string().guid().describe("Endpoint ID to release"),
         comment: z
           .string()
           .optional()
           .describe("Reason for releasing isolation"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -358,10 +358,10 @@ Args:
   - endpoint_id (string): The endpoint ID to delete.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        endpoint_id: z.string().uuid().describe("Endpoint ID to delete"),
+        endpoint_id: z.string().guid().describe("Endpoint ID to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -402,13 +402,13 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
         ids: z
-          .array(z.string().uuid())
+          .array(z.string().guid())
           .min(1)
           .max(1000)
           .describe("Endpoint IDs to delete"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -444,10 +444,10 @@ Args:
   - endpoint_id (string): The endpoint ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        endpoint_id: z.string().uuid().describe("Endpoint ID"),
+        endpoint_id: z.string().guid().describe("Endpoint ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -483,13 +483,13 @@ Args:
   - enabled (boolean): Whether to enable or disable tamper protection.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        endpoint_id: z.string().uuid().describe("Endpoint ID"),
+        endpoint_id: z.string().guid().describe("Endpoint ID"),
         enabled: z
           .boolean()
           .describe("Whether to enable (true) or disable (false) tamper protection"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -525,10 +525,10 @@ Args:
   - endpoint_id (string): The endpoint ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        endpoint_id: z.string().uuid().describe("Endpoint ID"),
+        endpoint_id: z.string().guid().describe("Endpoint ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -564,13 +564,13 @@ Args:
   - enabled (boolean): Whether to enable or disable AAP.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        endpoint_id: z.string().uuid().describe("Endpoint ID"),
+        endpoint_id: z.string().guid().describe("Endpoint ID"),
         enabled: z
           .boolean()
           .describe("Whether to enable (true) or disable (false) AAP"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -608,11 +608,11 @@ Args:
       inputSchema: {
         endpoint_id: z
           .string()
-          .uuid()
+          .guid()
           .describe("Endpoint ID to trigger update check"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -662,7 +662,7 @@ Returns:
       inputSchema: {
         endpoint_id: z
           .string()
-          .uuid()
+          .guid()
           .describe("Endpoint ID to request forensic logs from"),
         expires: z
           .string()
@@ -677,7 +677,7 @@ Returns:
         password: z.string().optional().describe("Password to encrypt the upload"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -718,14 +718,14 @@ Args:
   - request_id (string): The forensic log request ID returned by sophos_request_forensic_logs.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        endpoint_id: z.string().uuid().describe("Endpoint ID"),
+        endpoint_id: z.string().guid().describe("Endpoint ID"),
         request_id: z
           .string()
-          .uuid()
+          .guid()
           .describe("Forensic log request ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -771,7 +771,7 @@ Returns:
       inputSchema: {
         endpoint_id: z
           .string()
-          .uuid()
+          .guid()
           .describe("Endpoint ID to request memory dump from"),
         mode: z.enum(["process", "kernel"]).describe("Process or kernel memory dump"),
         expires: z
@@ -783,7 +783,7 @@ Returns:
         password: z.string().optional().describe("Password to encrypt the upload"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -828,14 +828,14 @@ Args:
   - request_id (string): The memory dump request ID returned by sophos_request_memory_dump.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        endpoint_id: z.string().uuid().describe("Endpoint ID"),
+        endpoint_id: z.string().guid().describe("Endpoint ID"),
         request_id: z
           .string()
-          .uuid()
+          .guid()
           .describe("Memory dump request ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -876,7 +876,7 @@ Args:
           .boolean()
           .describe("true to isolate, false to release"),
         ids: z
-          .array(z.string().uuid())
+          .array(z.string().guid())
           .min(1)
           .describe("Array of endpoint IDs to isolate/release"),
         comment: z
@@ -885,7 +885,7 @@ Args:
           .describe("Reason for isolation/release"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -924,10 +924,10 @@ Args:
   - endpoint_id (string): The endpoint ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
       inputSchema: {
-        endpoint_id: z.string().uuid().describe("Endpoint ID"),
+        endpoint_id: z.string().guid().describe("Endpoint ID"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -969,13 +969,13 @@ Returns:
   requested, accepted and rejected counts, then items and errors as Sophos returned them.`,
       inputSchema: {
         ids: z
-          .array(z.string().uuid())
+          .array(z.string().guid())
           .min(1)
           .max(500)
           .describe("Endpoint IDs to scan (1 to 500)"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -1025,13 +1025,13 @@ Returns:
   requested, accepted and rejected counts, then items and errors as Sophos returned them.`,
       inputSchema: {
         ids: z
-          .array(z.string().uuid())
+          .array(z.string().guid())
           .min(1)
           .max(500)
           .describe("Endpoint IDs to reset (1 to 500)"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
@@ -1084,7 +1084,7 @@ Returns:
   requested, accepted and rejected counts, then items and errors as Sophos returned them.`,
       inputSchema: {
         ids: z
-          .array(z.string().uuid())
+          .array(z.string().guid())
           .min(1)
           .max(200)
           .describe("Endpoint IDs (1 to 200)"),
@@ -1098,7 +1098,7 @@ Returns:
           .describe("true generates a new tamper protection password"),
         tenant_id: z
           .string()
-          .uuid()
+          .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
       },
