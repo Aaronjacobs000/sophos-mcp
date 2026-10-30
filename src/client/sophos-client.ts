@@ -8,6 +8,7 @@ import type { TenantResolver } from "./tenant-resolver.js";
 import type { SophosApiError } from "../types/sophos.js";
 import { retryAfterMs } from "./retry-after.js";
 import { refuseRedirect, SophosRedirectError } from "./redirect.js";
+import { sophosApiBase } from "./hosts.js";
 
 export interface RequestOptions {
   /** HTTP method */
@@ -79,7 +80,8 @@ export class SophosClient {
     options: RequestOptions = {}
   ): Promise<T> {
     assertSafeApiPath(path);
-    const apiHost = await this.tenantResolver.resolveApiHost(tenantId);
+    // The host comes from Sophos's answers: checked before the token goes anywhere.
+    const apiHost = sophosApiBase(await this.tenantResolver.resolveApiHost(tenantId));
     const token = await this.tokenManager.getToken();
 
     const url = new URL(`${apiHost}${path}`);
@@ -119,10 +121,11 @@ export class SophosClient {
   ): Promise<T> {
     assertSafeApiPath(path);
     const identity = this.tenantResolver.getIdentity();
+    const global = sophosApiBase(identity.apiHosts.global);
     const token = await this.tokenManager.getToken();
     const idHeader = this.tenantResolver.getIdHeader();
 
-    const url = new URL(`${identity.apiHosts.global}${path}`);
+    const url = new URL(`${global}${path}`);
     if (options.params) {
       for (const [key, value] of Object.entries(options.params)) {
         if (value !== undefined && value !== "") {

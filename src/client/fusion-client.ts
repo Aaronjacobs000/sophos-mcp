@@ -211,7 +211,9 @@ export class FusionClient {
   /**
    * PUT raw bytes to a presigned upload URL (case files). The signature lives
    * in the URL, so no bearer token is sent, and the Content-Type must match
-   * what startCaseFileUpload was told. One attempt, no retry.
+   * what startCaseFileUpload was told. One attempt, no retry. A redirect is
+   * refused rather than followed, so the file's contents never go to a host
+   * the API did not name.
    */
   async putPresigned(url: string, body: Uint8Array, contentType: string): Promise<void> {
     const controller = new AbortController();
@@ -224,6 +226,7 @@ export class FusionClient {
         headers: { "Content-Type": contentType },
         // A fresh copy sits on a plain ArrayBuffer, which is what fetch's body type accepts.
         body: new Uint8Array(body),
+        redirect: "manual",
         signal: controller.signal,
       });
     } catch (error) {
@@ -234,6 +237,7 @@ export class FusionClient {
     } finally {
       clearTimeout(timeout);
     }
+    refuseRedirect(response, url);
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`Case file upload failed with HTTP ${response.status}: ${text.slice(0, 300)}`);
