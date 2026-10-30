@@ -25,6 +25,7 @@ import type { SophosClient } from "../client/sophos-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { SophosPagedResponse } from "../types/sophos.js";
 import { jsonResult, withErrorHandling } from "./helpers.js";
+import { refuseRedirect } from "../client/redirect.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
 export function registerFirewallTools(
@@ -1160,14 +1161,21 @@ Args:
       const expiresAt = txn.response?.expiresAt;
       const urlExpired = () =>
         expiresAt !== undefined && Date.now() > Date.parse(expiresAt);
-      let dl = await fetch(downloadUrl);
+      // A redirect is refused rather than followed, and not retried: the archive saved here
+      // (and maybe imported into firewalls later) must come from the address Sophos named.
+      const download = async (): Promise<Response> => {
+        const response = await fetch(downloadUrl, { redirect: "manual" });
+        refuseRedirect(response, downloadUrl);
+        return response;
+      };
+      let dl = await download();
       for (
         let attempt = 1;
         !dl.ok && dl.status === 404 && !urlExpired() && attempt < MAX_ATTEMPTS;
         attempt++
       ) {
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-        dl = await fetch(downloadUrl);
+        dl = await download();
       }
       if (!dl.ok) {
         throw new Error(
@@ -1258,10 +1266,13 @@ Args:
         }>(resolvedTenantId, "/firewall/v1/firewall-config/firewalls/import", { method: "POST" });
 
         // Step 2: upload the archive to the pre-signed URL (plain fetch, no Sophos auth headers).
+        // A redirect is refused rather than followed, so the archive never goes to a host Sophos did not name.
         const upload = await fetch(init.url, {
           method: init.method || "PUT",
           body: archive,
+          redirect: "manual",
         });
+        refuseRedirect(upload, init.url);
         if (!upload.ok) {
           throw new Error(
             `Archive upload failed (${upload.status}). The pre-signed URL may have expired (expiresAt: ${init.expiresAt}).`
