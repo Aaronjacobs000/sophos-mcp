@@ -89,7 +89,7 @@ Returns:
         has_more: data.has_more,
         next_cursor: data.next_cursor,
         events: data.items,
-      });
+      }, { cursor, limit });
     })
   );
 
@@ -168,7 +168,7 @@ Returns:
         has_more: data.has_more,
         next_cursor: data.next_cursor,
         alerts: data.items,
-      });
+      }, { cursor, limit });
     })
   );
 }

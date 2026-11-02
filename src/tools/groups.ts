@@ -107,7 +107,7 @@ Returns:
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         groups: data.items.map(formatGroup),
-      });
+      }, { page, limit });
     })
   );
 

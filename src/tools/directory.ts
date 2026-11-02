@@ -27,9 +27,12 @@ interface SophosUser {
   groupNames?: string[];
 }
 
+// An admin record has no top-level name: the name is on its directory user
+// (users[].name) and the email on profile, as sophos_get_admin returns them.
 interface SophosAdmin {
   id: string;
-  name?: string;
+  users?: Array<{ id?: string; name?: string }>;
+  profile?: { firstName?: string; lastName?: string; email?: string };
   roleAssignments?: Array<{
     roleId: string;
     roleName?: string;
@@ -128,7 +131,7 @@ Returns:
           exchange_login: u.exchangeLogin ?? null,
           groups: u.groupNames ?? [],
         })),
-      });
+      }, { page, limit });
     })
   );
 
@@ -139,7 +142,7 @@ Returns:
       title: "List Sophos Admins",
       description: `List administrator accounts in a Sophos Central tenant.
 
-Returns admin users and their role assignments.
+Returns admin users (id, name, email) and their role assignments.
 
 Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
@@ -196,10 +199,11 @@ Args:
         page: data.pages?.current ?? page,
         admins: items.map((a) => ({
           id: a.id,
-          name: a.name ?? null,
+          name: adminName(a),
+          email: a.profile?.email ?? null,
           roles: a.roleAssignments ?? [],
         })),
-      });
+      }, { page, limit });
     })
   );
 
@@ -546,7 +550,7 @@ Returns:
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         user_groups: items,
-      });
+      }, { page, limit });
     })
   );
 
@@ -805,7 +809,7 @@ Returns:
           last_name: u.lastName ?? null,
           email: u.email ?? null,
         })),
-      });
+      }, { page, limit });
     })
   );
 
@@ -957,4 +961,11 @@ Returns:
       return jsonResult({ group_id, total: matches.length, policies: matches });
     })
   );
+}
+
+function adminName(admin: SophosAdmin): string | null {
+  const userName = admin.users?.find((u) => u.name)?.name;
+  if (userName) return userName;
+  const profileName = [admin.profile?.firstName, admin.profile?.lastName].filter(Boolean).join(" ");
+  return profileName || null;
 }

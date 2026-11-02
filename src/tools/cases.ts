@@ -94,7 +94,7 @@ Returns:
         page_size: data.pages.size,
         total_pages: data.pages.total,
         cases: data.items.map(formatCase),
-      }, warnings));
+      }, warnings), { page, limit });
     })
   );
 
@@ -359,7 +359,7 @@ Returns:
         page: data.pages.current ?? page,
         page_size: data.pages.size,
         detections: data.items,
-      }, warnings));
+      }, warnings), { page, limit });
     })
   );
 
@@ -470,7 +470,7 @@ Args:
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         impacted_entities: data.items,
-      }, warnings));
+      }, warnings), { page, limit });
     })
   );
 

@@ -208,7 +208,7 @@ Returns:
         next_key: data.pages.nextKey ?? null,
         has_more: !!data.pages.nextKey,
         rows: data.items,
-      });
+      }, { page_from_key, limit });
     })
   );
 
@@ -248,7 +248,7 @@ Args:
           created_at: r.createdAt,
           finished_at: r.finishedAt ?? null,
         })),
-      });
+      }, { page, limit });
     })
   );
 
@@ -344,7 +344,7 @@ Args:
       const params: Record<string, string> = { pageSize: String(limit), page: String(page) };
       if (category_id) params.categoryId = category_id;
       const data = await client.tenantRequest<Record<string, unknown>>(resolvedTenantId, "/xdr-query/v1/queries", { params });
-      return jsonResult(data);
+      return jsonResult(data, { page, limit });
     })
   );
 

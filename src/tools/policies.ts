@@ -542,7 +542,7 @@ sophos_get_policy by ID, which is current at once, rather than re-listing.`,
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         policies: data.items.map(formatPolicy),
-      });
+      }, { page, limit });
     })
   );
 

@@ -164,7 +164,7 @@ Args:
         method: "POST",
         body,
       });
-      return jsonResult(data);
+      return jsonResult(data, { page_from_key, page_size });
     })
   );
 
@@ -213,7 +213,8 @@ Args:
       return jsonResult(
         await client.tenantRequest<Record<string, unknown>>(tenantId, `/email/v1/quarantine/messages/${message_id}/urls`, {
           params: { page: String(page), pageSize: String(page_size) },
-        })
+        }),
+        { page, page_size }
       );
     })
   );
@@ -242,7 +243,8 @@ Args:
       return jsonResult(
         await client.tenantRequest<Record<string, unknown>>(tenantId, `/email/v1/quarantine/messages/${message_id}/attachments`, {
           params: { page: String(page), pageSize: String(page_size) },
-        })
+        }),
+        { page, page_size }
       );
     })
   );
@@ -460,7 +462,7 @@ Args:
         "/email/v1/post-delivery-quarantine/messages/search",
         { method: "POST", body }
       );
-      return jsonResult(data);
+      return jsonResult(data, { page, page_size });
     })
   );
 
@@ -514,7 +516,8 @@ Args:
           tenantId,
           `/email/v1/post-delivery-quarantine/messages/${message_id}/attachments`,
           { params: { page: String(page), pageSize: String(page_size) } }
-        )
+        ),
+        { page, page_size }
       );
     })
   );
@@ -706,7 +709,7 @@ Args:
       if (a.alias) params.alias = a.alias;
       if (a.delegate) params.delegate = a.delegate;
       if (a.page_from_key) params.pageFromKey = a.page_from_key;
-      return jsonResult(await client.tenantRequest<Record<string, unknown>>(tenantId, "/email/v1/mailboxes", { params }));
+      return jsonResult(await client.tenantRequest<Record<string, unknown>>(tenantId, "/email/v1/mailboxes", { params }), { page_from_key: a.page_from_key, page_size: a.page_size });
     })
   );
 

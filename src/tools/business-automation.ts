@@ -136,7 +136,7 @@ Args:
           "/business-automation/v1/quotes",
           { params, headers: { "X-Distributor-ID": distributor_id } }
         );
-        return jsonResult(data);
+        return jsonResult(data, { page, limit });
       }
     )
   );
@@ -233,7 +233,7 @@ Args:
           "/business-automation/v1/partners/level",
           { params, headers: { "X-Distributor-ID": distributor_id } }
         );
-        return jsonResult(data);
+        return jsonResult(data, { page, limit });
       }
     )
   );

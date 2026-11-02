@@ -211,7 +211,7 @@ Returns:
         page: data.pages.current ?? page,
         page_size: data.pages.size,
         detections: data.items,
-      }, warnings));
+      }, warnings), { page, limit });
     })
   );
 
@@ -408,7 +408,7 @@ Returns:
         page: data.pages.current ?? page,
         page_size: data.pages.size,
         detection_groups: data.items,
-      }, warnings));
+      }, warnings), { page, limit });
     })
   );
 }

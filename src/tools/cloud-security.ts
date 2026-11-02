@@ -69,7 +69,7 @@ Returns:
         "/cloud-security/v1/profiles",
         { params: { pageSize: String(limit), page: String(page) } }
       );
-      return jsonResult(data);
+      return jsonResult(data, { page, limit });
     })
   );
 

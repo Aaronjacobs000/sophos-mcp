@@ -67,7 +67,7 @@ Returns:
         "/dns-protection/v2/locations",
         { params: { pageSize: String(limit), page: String(page) } }
       );
-      return jsonResult(data);
+      return jsonResult(data, { page, limit });
     })
   );
 

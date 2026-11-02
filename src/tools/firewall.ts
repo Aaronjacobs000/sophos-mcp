@@ -110,7 +110,7 @@ Args:
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         firewalls: data.items,
-      });
+      }, { page, limit });
     })
   );
 
@@ -535,7 +535,7 @@ Args:
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         groups: data.items,
-      });
+      }, { page, limit });
     })
   );
 

@@ -402,7 +402,7 @@ Returns:
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         admins: items,
-      });
+      }, { page, limit });
     })
   );
 
@@ -726,10 +726,10 @@ Returns:
           unfilteredCount: data.items.length,
           tenantFilter: tenant_id,
           pages: data.pages,
-        });
+        }, { cursor, page_size: page_size ?? DEFAULT_PAGE_SIZE });
       }
 
-      return jsonResult(data);
+      return jsonResult(data, { cursor, page_size: page_size ?? DEFAULT_PAGE_SIZE });
     })
   );
 

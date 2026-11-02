@@ -98,7 +98,7 @@ server.registerTool(
 ```
 
 Helper functions in `src/tools/helpers.ts`:
-- `jsonResult(data)`: JSON-serialises and truncates at `CHARACTER_LIMIT` with a truncation notice
+- `jsonResult(data, paging?, pageField?)`: JSON-serialises and never returns more than `CHARACTER_LIMIT` characters, since a client cuts a longer response mid-JSON with no notice. When a result does not fit, the largest top-level array (or `pageField`) is cut to the items that fit, the JSON stays valid, and a `truncated` key comes first with `returned`, `omitted` and, from the tool's paging arguments (`{ page, limit }`, `{ cursor, limit }`, `{ offset, limit }` and the like, under the tool's own names), the exact `next` request that returns the omitted items: offset paging resumes at the first omitted item; cursor paging repeats the request at the size that fit (same items, a cursor that continues after them); page-number paging reads `next` through `next_through_page` at the size that fit, then `resume`s at the next page at the original size (items can repeat at those edges, never skip, and staying at the smaller size skips nothing either). Every paged list tool passes its paging arguments. A result with no array, or whose first item alone is too big, is cut as text with a notice inside the limit
 - `errorResult(error)`: formats errors as MCP error responses
 - `withErrorHandling(handler)`: wraps handlers to catch and return errors cleanly
 

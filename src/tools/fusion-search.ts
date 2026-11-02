@@ -241,7 +241,9 @@ Returns:
             ...(include_fields ? { fields: page.fields ?? [] } : {}),
           },
           warnings
-        )
+        ),
+        { cursor, limit },
+        "values"
       );
     })
   );
