@@ -102,7 +102,8 @@ Returns:
       >(resolvedTenantId, "/endpoint/v1/endpoint-groups", { params });
 
       return jsonResult({
-        total: data.pages.total ?? data.pages.items ?? data.items.length,
+        total: data.pages.items ?? data.items.length,
+        total_pages: data.pages.total,
         page: data.pages.current ?? page,
         groups: data.items.map(formatGroup),
       });
@@ -166,7 +167,8 @@ Args:
             hostname: e.hostname ?? null,
             type: e.type ?? null,
           })),
-          endpoints_total: endpoints.pages.total ?? endpoints.items.length,
+          endpoints_total: endpoints.pages.items ?? endpoints.items.length,
+          endpoints_total_pages: endpoints.pages.total,
         });
       }
 

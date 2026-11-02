@@ -117,7 +117,8 @@ Returns:
         params: { pageSize: String(limit), page: String(page) },
       });
       return jsonResult({
-        total: data.pages?.total ?? data.pages?.items ?? data.items.length,
+        total: data.pages?.items ?? data.items.length,
+        total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,
       });
@@ -263,7 +264,8 @@ Returns:
         params: { pageSize: String(limit), page: String(page) },
       });
       return jsonResult({
-        total: data.pages?.total ?? data.pages?.items ?? data.items.length,
+        total: data.pages?.items ?? data.items.length,
+        total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,
       });
@@ -636,7 +638,8 @@ Returns:
         { params: { pageSize: String(limit), page: String(page) } }
       );
       return jsonResult({
-        total: data.pages?.total ?? data.pages?.items ?? data.items.length,
+        total: data.pages?.items ?? data.items.length,
+        total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,
       });
@@ -811,7 +814,8 @@ Returns:
         { params: { pageSize: String(limit), page: String(page) } }
       );
       return jsonResult({
-        total: data.pages?.total ?? data.pages?.items ?? data.items.length,
+        total: data.pages?.items ?? data.items.length,
+        total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,
       });
@@ -996,7 +1000,8 @@ Returns:
         { params: { pageSize: String(limit), page: String(page) } }
       );
       return jsonResult({
-        total: data.pages?.total ?? data.pages?.items ?? data.items.length,
+        total: data.pages?.items ?? data.items.length,
+        total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,
       });
@@ -1150,7 +1155,8 @@ Returns:
         params: { pageSize: String(limit), page: String(page) },
       });
       return jsonResult({
-        total: data.pages?.total ?? data.pages?.items ?? data.items.length,
+        total: data.pages?.items ?? data.items.length,
+        total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,
       });

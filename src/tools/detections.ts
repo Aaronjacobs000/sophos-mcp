@@ -205,7 +205,8 @@ Returns:
       );
       return jsonResult(withWarnings({
         run_id,
-        total: data.pages.total ?? data.pages.items ?? data.items.length,
+        total: data.pages.items ?? data.items.length,
+        total_pages: data.pages.total,
         page: data.pages.current ?? page,
         page_size: data.pages.size,
         detections: data.items,
@@ -400,7 +401,8 @@ Returns:
       );
       return jsonResult(withWarnings({
         run_id,
-        total: data.pages.total ?? data.pages.items ?? data.items.length,
+        total: data.pages.items ?? data.items.length,
+        total_pages: data.pages.total,
         page: data.pages.current ?? page,
         page_size: data.pages.size,
         detection_groups: data.items,

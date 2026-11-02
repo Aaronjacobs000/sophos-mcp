@@ -77,7 +77,8 @@ Returns:
         { params: { pageSize: String(limit), page: String(page) } }
       );
       return jsonResult({
-        total: data.pages.total,
+        total: data.pages.items ?? data.items.length,
+        total_pages: data.pages.total,
         page: data.pages.current ?? page,
         page_size: data.pages.size,
         queries: data.items.map((q) => ({

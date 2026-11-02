@@ -191,6 +191,7 @@ export interface SophosCasePage {
     size: number;
     total: number;
     maxSize: number;
+    items?: number;
   };
   items: SophosCase[];
 }
@@ -313,6 +314,7 @@ export interface SophosLiveDiscoverQueryPage {
     size: number;
     total?: number;
     maxSize: number;
+    items?: number;
   };
   items: SophosLiveDiscoverQuery[];
 }

@@ -397,7 +397,8 @@ Returns:
 
       const items = data.items ?? [];
       return jsonResult({
-        total: data.pages?.total ?? data.pages?.items ?? items.length,
+        total: data.pages?.items ?? items.length,
+        total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         admins: items,
       });
