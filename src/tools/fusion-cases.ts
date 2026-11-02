@@ -28,6 +28,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { FusionGraphQLError, type FusionClient } from "../client/fusion-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { CaseReferenceDataCache } from "../fusion/case-reference-data.js";
+import { tenantTypeOf, type FusionMigrationGuard } from "../fusion/migration.js";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "../config/config.js";
 import { buildCasesQl } from "../fusion/cases-ql.js";
 import {
@@ -156,7 +157,8 @@ export function registerFusionCaseTools(
   server: McpServer,
   client: FusionClient,
   tenantResolver: TenantResolver,
-  referenceData: CaseReferenceDataCache
+  referenceData: CaseReferenceDataCache,
+  migration: FusionMigrationGuard
 ): void {
   // --- List Cases ---
   server.registerTool(
@@ -456,6 +458,8 @@ Returns:
       title: "List Fusion Case Reference Data",
       description: `List the case types, primary statuses and primary verdicts this tenant can use in Sophos Fusion. These are not fixed enums: the set depends on the tenant's licensed services, and every filter or write uses their IDs.
 
+tenant_type says which case tools fit the tenant, from its tenant record's xdrOwnership: upgraded (xdrOwnership securityOperations, Sophos Fusion XDR Security Operations: use the sophos_fusion_* case tools; the Classic case and detection tools are refused), not_upgraded (xdrOwnership sophos, still on the Classic Threat Analysis Center: use sophos_list_cases and the other Classic case tools), or unknown when xdrOwnership could not be read. Case types don't decide it: a tenant not yet upgraded can list them too.
+
 A case can carry a primary status ID that is not in this list: a tenant credential sees six statuses while case types list eight supported ones, and the two extra are provider-side statuses on Sophos MDR managed cases. Such an ID is reported raw, not as an error. A type whose managed_by is set (health_check, threat_hunt) pins who manages every case of that type. Cached per tenant for 15 minutes; pass refresh to bypass the cache after a licensing change.
 
 Args:
@@ -463,7 +467,7 @@ Args:
   - refresh (boolean, optional): Ignore the cache and fetch again.
 
 Returns:
-  types (id, name, title, managed_by, supported status and verdict IDs), primary_statuses (id, name, title, is_closed, is_case_visible_to_customers), primary_verdicts (id, name, title), fetched_at.`,
+  tenant_type, xdr_ownership, tenant_type_detail, types (id, name, title, managed_by, supported status and verdict IDs), primary_statuses (id, name, title, is_closed, is_case_visible_to_customers), primary_verdicts (id, name, title), fetched_at.`,
       inputSchema: {
         tenant_id: tenantIdField,
         refresh: z.boolean().optional().describe("Bypass the 15 minute cache"),
@@ -473,8 +477,12 @@ Returns:
     withErrorHandling(async ({ tenant_id, refresh }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
       const data = await referenceData.get(tenantId, { refresh });
+      const type = await migration.detect(tenantId, { refresh });
       return jsonResult({
         tenant_id: tenantId,
+        tenant_type: tenantTypeOf(type),
+        xdr_ownership: type.xdrOwnership,
+        tenant_type_detail: type.detail,
         fetched_at: data.fetchedAt,
         cache_ttl_minutes: 15,
         types: data.types.map((t) => ({

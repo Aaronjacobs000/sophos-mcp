@@ -164,7 +164,7 @@ async function main(): Promise<void> {
     registerBusinessAutomationTools(server, sophosClient, tenantResolver);
 
     // Fusion: GraphQL APIs on api.taegis.sophos.com, beside the Classic REST tools
-    registerFusionCaseTools(server, fusionClient, tenantResolver, caseReferenceData);
+    registerFusionCaseTools(server, fusionClient, tenantResolver, caseReferenceData, migrationGuard);
     registerFusionDetectionTools(server, fusionClient, tenantResolver);
     registerFusionSearchTools(server, fusionClient, tenantResolver);
 

@@ -6,13 +6,14 @@
  */
 
 import type { FusionClient } from "../client/fusion-client.js";
-import { CASE_REFERENCE_DATA } from "./queries/cases.js";
+import { CASE_REFERENCE_DATA, TENANT_XDR_OWNERSHIP } from "./queries/cases.js";
 import { isUuid } from "./format.js";
 import type {
   FusionCasePrimaryStatus,
   FusionCaseReferenceDataResponse,
   FusionCaseType,
   FusionReferenceItem,
+  FusionTenantXdrOwnershipResponse,
 } from "./types.js";
 
 export interface CaseReferenceData {
@@ -55,6 +56,20 @@ export class CaseReferenceDataCache {
 
   invalidate(tenantId: string): void {
     this.cache.delete(tenantId);
+  }
+
+  /**
+   * The tenant record's xdrOwnership ("sophos" for a tenant not yet upgraded,
+   * "securityOperations" for an upgraded one), or null when the record has no
+   * value. Not cached here: FusionMigrationGuard holds the answer. Throws
+   * whatever the client throws.
+   */
+  async xdrOwnership(tenantId: string): Promise<string | null> {
+    const { data } = await this.client.query<FusionTenantXdrOwnershipResponse>(tenantId, TENANT_XDR_OWNERSHIP, {
+      id: tenantId,
+    });
+    const value = data.tenant?.centralTenant?.xdrOwnership;
+    return typeof value === "string" && value.trim() ? value.trim() : null;
   }
 
   /** Accepts a UUID (passed through) or a type name or title (case-insensitive). */
