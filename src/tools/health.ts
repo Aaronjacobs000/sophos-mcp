@@ -213,6 +213,8 @@ Tenants with no health data (no enrolled products) are listed last.
 Args:
   - limit (number, optional): Return only the N lowest-scoring tenants. Useful for
     "show me the 10 worst tenants". Omit to return all tenants.
+  - offset (number, optional): Skip the first N tenants of the ranking (default 0).
+    With limit, pages through the ranking.
 
 Returns:
   Array of tenants with their health scores and full health detail, sorted worst-first.`,
@@ -224,6 +226,12 @@ Returns:
             .max(500)
             .optional()
             .describe("Return only the N lowest-scoring tenants (default: all)."),
+          offset: z
+            .number()
+            .int()
+            .min(0)
+            .optional()
+            .describe("Skip the first N tenants of the ranking (default 0)."),
         },
         annotations: {
           readOnlyHint: true,
@@ -232,7 +240,7 @@ Returns:
           openWorldHint: true,
         },
       },
-      withErrorHandling(async ({ limit }) => {
+      withErrorHandling(async ({ limit, offset }) => {
         const tenants = tenantResolver.getCachedTenants();
 
         // Fetch health for all tenants in parallel batches
@@ -281,13 +289,17 @@ Returns:
           return a.overall_score - b.overall_score;
         });
 
-        const limited = limit !== undefined ? results.slice(0, limit) : results;
+        const start = offset ?? 0;
+        const limited = results.slice(start, limit !== undefined ? start + limit : undefined);
 
-        return jsonResult({
-          total_tenants: tenants.length,
-          returned: limited.length,
-          tenants: limited,
-        });
+        return jsonResult(
+          {
+            total_tenants: tenants.length,
+            returned: limited.length,
+            tenants: limited,
+          },
+          { offset: start, limit: limit ?? limited.length }
+        );
       })
     );
 
@@ -316,6 +328,8 @@ Args:
   - flag_missing_server_protection (boolean, optional): Flag tenants with no server protection
     enrolled as an upsell opportunity. Default: false (avoids noise for SMB-heavy partners).
   - limit (number, optional): Return only the top N tenants (by gap count). Omit for all.
+  - offset (number, optional): Skip the first N tenants of that order (default 0).
+    With limit, pages through it.
 
 Returns:
   summary with gap type counts + per-tenant gap list sorted worst-first.`,
@@ -340,6 +354,12 @@ Returns:
             .max(500)
             .optional()
             .describe("Return only the top N tenants by gap count (default: all)."),
+          offset: z
+            .number()
+            .int()
+            .min(0)
+            .optional()
+            .describe("Skip the first N tenants of that order (default 0)."),
         },
         annotations: {
           readOnlyHint: true,
@@ -349,7 +369,7 @@ Returns:
         },
       },
       withErrorHandling(
-        async ({ protection_threshold, flag_missing_server_protection, limit }) => {
+        async ({ protection_threshold, flag_missing_server_protection, limit, offset }) => {
           const threshold = protection_threshold ?? 80;
           const flagServerGap = flag_missing_server_protection ?? false;
           const tenants = tenantResolver.getCachedTenants();
@@ -400,7 +420,8 @@ Returns:
           // Sort: most gaps first; ties broken by lowest gap score
           withGaps.sort((a, b) => b.gap_count - a.gap_count);
 
-          const limited = limit !== undefined ? withGaps.slice(0, limit) : withGaps;
+          const start = offset ?? 0;
+          const limited = withGaps.slice(start, limit !== undefined ? start + limit : undefined);
 
           // Aggregate gap type counts across all tenants
           const gapTypeCounts: Record<string, number> = {};
@@ -425,7 +446,7 @@ Returns:
               gap_type_breakdown: gapBreakdown,
             },
             tenants_with_gaps: limited,
-          });
+          }, { offset: start, limit: limit ?? limited.length }, "tenants_with_gaps");
         }
       )
     );

@@ -427,7 +427,8 @@ ${CERT_FILTER_ARGS}`,
       return jsonResult(
         await client.tenantRequest<Record<string, unknown>>(tenantId, `${BASE}/users/internal`, {
           params: certListParams(a),
-        })
+        }),
+        { page_from_key: a.page_from_key, page_size: a.page_size }
       );
     })
   );
@@ -583,7 +584,8 @@ ${CERT_FILTER_ARGS}`,
       return jsonResult(
         await client.tenantRequest<Record<string, unknown>>(tenantId, `${BASE}/users/external`, {
           params: certListParams(a),
-        })
+        }),
+        { page_from_key: a.page_from_key, page_size: a.page_size }
       );
     })
   );
@@ -702,7 +704,8 @@ ${CERT_FILTER_ARGS}`,
       return jsonResult(
         await client.tenantRequest<Record<string, unknown>>(tenantId, `${BASE}/cas/external`, {
           params: certListParams(a),
-        })
+        }),
+        { page_from_key: a.page_from_key, page_size: a.page_size }
       );
     })
   );

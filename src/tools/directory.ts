@@ -248,7 +248,10 @@ Args:
         { params }
       );
       const items = data.items ?? [];
-      return jsonResult({ total: items.length, roles: items });
+      return jsonResult(
+        { total: items.length, roles: items },
+        { narrow_with: ["type", "principal_type"], note: "sophos_get_role reads one role." }
+      );
     })
   );
 
@@ -958,7 +961,10 @@ Returns:
         }
         if (!data.pages?.total || page >= data.pages.total) break;
       }
-      return jsonResult({ group_id, total: matches.length, policies: matches });
+      return jsonResult(
+        { group_id, total: matches.length, policies: matches },
+        { narrow_with: [], note: "sophos_list_policies pages through every policy." }
+      );
     })
   );
 }

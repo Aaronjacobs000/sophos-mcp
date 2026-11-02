@@ -257,14 +257,14 @@ Two Fusion case writes, `createCase` and `addEvidenceToCase`, fail 74% of the ti
 
 | Tool | Description |
 |------|-------------|
-| `sophos_list_tenants` | List all managed tenants with IDs, names, and data regions |
+| `sophos_list_tenants` | List all managed tenants with IDs, names, and data regions (`offset` and `limit` page through them) |
 | `sophos_create_tenant` | Create a new managed tenant |
 | `sophos_get_managed_tenant` | Get managed tenant details |
 | `sophos_list_partner_roles` | List partner-level roles |
 | `sophos_get_partner_role` | Get partner role detail |
 | `sophos_create_partner_role` | Create a partner role |
 | `sophos_delete_partner_role` | Delete a partner role |
-| `sophos_list_partner_permission_sets` | List available partner permission sets |
+| `sophos_list_partner_permission_sets` | List available partner permission sets, filtered by type, product or access |
 | `sophos_list_partner_admins` | List partner administrators |
 | `sophos_get_partner_admin` | Get partner admin detail |
 | `sophos_create_partner_admin` | Create a partner admin |
@@ -288,7 +288,7 @@ Two Fusion case writes, `createCase` and `addEvidenceToCase`, fail 74% of the ti
 
 | Tool | Description |
 |------|-------------|
-| `sophos_list_endpoints` | List endpoints with health/OS/hostname/isolation filters |
+| `sophos_list_endpoints` | List endpoints with health/OS/hostname/isolation/last-seen filters (`last_seen_before: "-P30D"` with `limit: 1` counts stale devices) |
 | `sophos_get_endpoint` | Get full endpoint detail |
 | `sophos_scan_endpoint` | Trigger an on-demand scan |
 | `sophos_isolate_endpoint` | Network-isolate a compromised endpoint |
@@ -438,7 +438,7 @@ Web profiles: setting `endpoint.web-control.web-profile-id` also sends `filter-b
 | `sophos_get_role` | Get role detail |
 | `sophos_update_role` | Update a role |
 | `sophos_delete_role` | Delete a role |
-| `sophos_list_permission_sets` | List available permission sets |
+| `sophos_list_permission_sets` | List available permission sets, filtered by type, product or access |
 
 ### Cases (9 tools)
 

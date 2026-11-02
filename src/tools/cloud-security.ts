@@ -106,7 +106,7 @@ Args:
         "/cloud-security/v1/profiles/default-contents"
       );
       const items = data.items ?? [];
-      return jsonResult({ total: items.length, contents: items });
+      return jsonResult({ total: items.length, contents: items }, { narrow_with: [] });
     })
   );
 

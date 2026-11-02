@@ -20,6 +20,25 @@ import type { SophosEndpointPage, SophosEndpoint } from "../types/sophos.js";
 import { itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
+/**
+ * A lastSeenBefore or lastSeenAfter value as the Endpoint API accepts it
+ * (measured 03/11/2026): a UTC date, a UTC date-time ending in Z (seconds and
+ * up to three fraction digits optional), or an ISO 8601 duration from now in
+ * days, hours, minutes and seconds of at most three digits each. Sophos
+ * answers 400 to weeks, months, years, fractions, offsets and four digits.
+ * It takes a duration without the minus sign as a time in the future, which
+ * would make a stale count of every endpoint, so only negative ones pass.
+ */
+const LAST_SEEN =
+  /^(?:\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])(?:T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d{1,3})?)?Z)?|-P(?=\d|T\d)(?:\d{1,3}D)?(?:T(?=\d)(?:\d{1,3}H)?(?:\d{1,3}M)?(?:\d{1,3}S)?)?)$/;
+
+const lastSeenSchema = z
+  .string()
+  .regex(
+    LAST_SEEN,
+    'Use a negative duration from now in days, hours, minutes or seconds, each at most 999 ("-P30D", "-PT12H", "-P1DT6H"), or a UTC date or date-time ending in Z ("2026-10-01", "2026-10-01T00:00:00Z"). Weeks, months and years are refused: "-P90D", not "-P3M".'
+  );
+
 /** The 202 body the bulk endpoint actions (scan, reset health, tamper protection) share. */
 interface BulkActionResponse {
   items?: Array<{ id: string; status: string; requestedAt: string }>;
@@ -53,7 +72,11 @@ export function registerEndpointTools(
       description: `List endpoints (computers and servers) from a Sophos Central tenant.
 
 Supports filtering by health status, hostname, OS platform, type, tamper 
-protection status, and isolation status. Uses cursor-based pagination.
+protection status, isolation status, and when the endpoint was last seen.
+Uses cursor-based pagination.
+
+Stale devices: count them in one call with last_seen_before "-P30D" and
+limit 1, and read total. Do not page through every endpoint to count them.
 
 Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
@@ -62,6 +85,13 @@ Args:
   - type (string, optional): Filter by type: "computer", "server".
   - tamper_protection (boolean, optional): Filter by tamper protection status.
   - isolation_status (string, optional): Filter by isolation: "isolated", "notIsolated".
+  - last_seen_before (string, optional): Last seen before this time (exclusive).
+    A negative ISO 8601 duration from now in days, hours, minutes or seconds,
+    each at most 999 ("-P30D", "-PT12H", "-P1DT6H"), or a UTC date or
+    date-time ending in Z ("2026-10-01", "2026-10-01T00:00:00Z"). No weeks,
+    months or years: "-P90D", not "-P3M".
+  - last_seen_after (string, optional): Last seen at or after this time
+    (inclusive), same formats. "-P7D" is seen in the last 7 days.
   - limit (number, optional): Max results per page (1-100, default 50).
   - cursor (string, optional): Pagination cursor from previous response.
   - fields (string, optional): Comma-separated field list to return only specific fields.
@@ -94,6 +124,16 @@ Returns:
           .string()
           .optional()
           .describe('Filter by isolation: "isolated", "notIsolated"'),
+        last_seen_before: lastSeenSchema
+          .optional()
+          .describe(
+            'Last seen before this time (exclusive): "-P30D" (a negative ISO 8601 duration from now, days, hours, minutes or seconds up to 999 each) or a UTC date or date-time ending in Z. For a stale-device count use "-P30D" with limit 1 and read total.'
+          ),
+        last_seen_after: lastSeenSchema
+          .optional()
+          .describe(
+            'Last seen at or after this time (inclusive), same formats as last_seen_before: "-P7D" is seen in the last 7 days.'
+          ),
         limit: z
           .number()
           .int()
@@ -126,6 +166,8 @@ Returns:
         type,
         tamper_protection,
         isolation_status,
+        last_seen_before,
+        last_seen_after,
         limit,
         cursor,
         fields,
@@ -144,6 +186,8 @@ Returns:
         if (tamper_protection !== undefined)
           params.tamperProtectionEnabled = String(tamper_protection);
         if (isolation_status) params.isolationStatus = isolation_status;
+        if (last_seen_before) params.lastSeenBefore = last_seen_before;
+        if (last_seen_after) params.lastSeenAfter = last_seen_after;
         if (fields) params.fields = fields;
 
         const data = await client.tenantRequest<SophosEndpointPage>(

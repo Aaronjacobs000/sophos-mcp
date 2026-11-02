@@ -47,7 +47,7 @@ Args:
         "/licenses/v1/licenses",
         { headers: { "X-Tenant-ID": resolvedTenantId } }
       );
-      return jsonResult(data);
+      return jsonResult(data, { narrow_with: [] });
     })
   );
 

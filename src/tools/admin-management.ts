@@ -15,6 +15,14 @@ import type { SophosPagedResponse } from "../types/sophos.js";
 import { jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
+// Permission set filters, from the Common API spec (GET /roles/permission-sets).
+const permissionSetTypeSchema = z.enum(["base", "product", "setting"]);
+const permissionSetProductSchema = z.enum([
+  "endpoint", "server", "mobile", "encryption", "emailGateway", "webGateway",
+  "phishThreat", "wireless", "firewall", "optix", "ztna",
+]);
+const permissionSetAccessSchema = z.enum(["admin", "helpdesk", "readOnly"]);
+
 export function registerAdminManagementTools(
   server: McpServer,
   client: SophosClient,
@@ -188,11 +196,14 @@ Returns:
       );
 
       const items = data.items ?? [];
-      return jsonResult({
-        total: data.pages?.items ?? items.length,
-        total_pages: data.pages?.total,
-        role_assignments: items,
-      });
+      return jsonResult(
+        {
+          total: data.pages?.items ?? items.length,
+          total_pages: data.pages?.total,
+          role_assignments: items,
+        },
+        { narrow_with: [], note: "sophos_get_admin_role_assignment reads one assignment." }
+      );
     })
   );
 
@@ -527,12 +538,22 @@ Args:
 Permission sets define granular access levels. Use this to discover what
 permissions are available when creating or updating roles.
 
+Sophos returns the whole list in one response, with no paging, and it can run
+past the response limit (181 sets, about 58,000 characters, on a test tenant
+03/11/2026). Narrow it with type, product or access.
+
 Args:
+  - type (string, optional): "base", "product" or "setting".
+  - product (string, optional): Sets for one product, such as "endpoint" or "firewall".
+  - access (string, optional): "admin", "helpdesk" or "readOnly".
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
   List of available permission sets with their IDs and descriptions.`,
       inputSchema: {
+        type: permissionSetTypeSchema.optional().describe("Permission set type"),
+        product: permissionSetProductSchema.optional().describe("Only sets for this product"),
+        access: permissionSetAccessSchema.optional().describe("Access level"),
         tenant_id: z
           .string()
           .guid()
@@ -546,18 +567,25 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ tenant_id }) => {
+    withErrorHandling(async ({ type, product, access, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const params: Record<string, string> = {};
+      if (type) params.type = type;
+      if (product) params.product = product;
+      if (access) params.access = access;
       const data = await client.tenantRequest<
         { items?: Record<string, unknown>[]; pages?: { current?: number; total?: number; items?: number } }
-      >(resolvedTenantId, "/common/v1/roles/permission-sets");
+      >(resolvedTenantId, "/common/v1/roles/permission-sets", { params });
 
       const items = data.items ?? [];
-      return jsonResult({
-        total: data.pages?.items ?? items.length,
-        total_pages: data.pages?.total,
-        permission_sets: items,
-      });
+      return jsonResult(
+        {
+          total: data.pages?.items ?? items.length,
+          total_pages: data.pages?.total,
+          permission_sets: items,
+        },
+        { narrow_with: ["type", "product", "access"] }
+      );
     })
   );
 

@@ -24,8 +24,14 @@ this response as the tenant_id parameter in other sophos_ tools.
 Only available for partner and organisation-level credentials. Tenant-level 
 credentials operate against a single implicit tenant.
 
+Args:
+  - name_filter (string, optional): Case-insensitive substring of the tenant name.
+  - offset (number, optional): Skip the first N matching tenants (default 0).
+  - limit (number, optional): Return at most N tenants (default: all).
+
 Returns:
-  Array of tenants with: id, name, dataRegion, dataGeography, apiHost
+  Array of tenants with: id, name, dataRegion, dataGeography, apiHost.
+  total is the count of matching tenants; offset and limit page through them.
 
 Examples:
   - "Show me all my Sophos tenants"
@@ -37,6 +43,18 @@ Examples:
           .describe(
             "Optional: filter tenants by name (case-insensitive substring match)"
           ),
+        offset: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("Skip the first N matching tenants (default 0)"),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe("Return at most N tenants (default: all)"),
       },
       annotations: {
         readOnlyHint: true,
@@ -45,7 +63,7 @@ Examples:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ name_filter }) => {
+    withErrorHandling(async ({ name_filter, offset, limit }) => {
       const tenants = await tenantResolver.loadTenants();
 
       let filtered = tenants;
@@ -56,16 +74,21 @@ Examples:
         );
       }
 
-      return jsonResult({
-        total: filtered.length,
-        tenants: filtered.map((t) => ({
-          id: t.id,
-          name: t.name,
-          data_region: t.dataRegion,
-          data_geography: t.dataGeography,
-          api_host: t.apiHost,
-        })),
-      });
+      const start = offset ?? 0;
+      const page = filtered.slice(start, limit !== undefined ? start + limit : undefined);
+      return jsonResult(
+        {
+          total: filtered.length,
+          tenants: page.map((t) => ({
+            id: t.id,
+            name: t.name,
+            data_region: t.dataRegion,
+            data_geography: t.dataGeography,
+            api_host: t.apiHost,
+          })),
+        },
+        { offset: start, limit: limit ?? page.length }
+      );
     })
   );
 }

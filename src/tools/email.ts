@@ -852,7 +852,7 @@ Args:
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
       const mailbox = await client.tenantRequest<Record<string, unknown>>(tenantId, `/email/v1/mailboxes/${mailbox_id}`);
       const items = Array.isArray(mailbox[field]) ? (mailbox[field] as unknown[]) : [];
-      return jsonResult({ mailbox_id, email: mailbox.email ?? null, [field]: items, total: items.length });
+      return jsonResult({ mailbox_id, email: mailbox.email ?? null, [field]: items, total: items.length }, { narrow_with: [] });
     });
   const change = (field: "aliases" | "delegates", op: "add" | "remove") =>
     withErrorHandling(async ({ mailbox_id, addresses, tenant_id }: { mailbox_id: string; addresses: string[]; tenant_id?: string }) => {

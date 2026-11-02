@@ -139,7 +139,7 @@ Args:
         "/web-filters/v1/profiles",
         { params: { pageSize: String(limit), page: String(page), pageTotal: "true" } }
       );
-      return jsonResult(data);
+      return jsonResult(data, { page, limit });
     })
   );
 
