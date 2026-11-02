@@ -537,7 +537,8 @@ sophos_get_policy by ID, which is current at once, rather than re-listing.`,
       );
 
       return jsonResult({
-        total: data.pages.total ?? data.pages.items ?? data.items.length,
+        total: data.pages.items ?? data.items.length,
+        total_pages: data.pages.total,
         page: data.pages.current ?? page,
         policies: data.items.map(formatPolicy),
       });

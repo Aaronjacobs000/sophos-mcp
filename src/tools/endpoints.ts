@@ -153,7 +153,8 @@ Returns:
 
         return jsonResult({
           count: data.items.length,
-          total: data.pages.total ?? data.pages.items ?? null,
+          total: data.pages.items ?? null,
+          total_pages: data.pages.total,
           next_cursor: data.pages.nextKey ?? null,
           endpoints: data.items.map(formatEndpoint),
         });

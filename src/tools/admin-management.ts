@@ -189,7 +189,8 @@ Returns:
 
       const items = data.items ?? [];
       return jsonResult({
-        total: data.pages?.total ?? data.pages?.items ?? items.length,
+        total: data.pages?.items ?? items.length,
+        total_pages: data.pages?.total,
         role_assignments: items,
       });
     })
@@ -553,7 +554,8 @@ Returns:
 
       const items = data.items ?? [];
       return jsonResult({
-        total: data.pages?.total ?? data.pages?.items ?? items.length,
+        total: data.pages?.items ?? items.length,
+        total_pages: data.pages?.total,
         permission_sets: items,
       });
     })

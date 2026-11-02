@@ -115,7 +115,8 @@ Returns:
       );
 
       return jsonResult({
-        total: data.pages.total ?? data.pages.items ?? data.items.length,
+        total: data.pages.items ?? data.items.length,
+        total_pages: data.pages.total,
         page: data.pages.current ?? page,
         users: data.items.map((u) => ({
           id: u.id,
@@ -188,7 +189,8 @@ Args:
 
       const items = data.items ?? [];
       return jsonResult({
-        total: data.pages?.total ?? data.pages?.items ?? items.length,
+        total: data.pages?.items ?? items.length,
+        total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         admins: items.map((a) => ({
           id: a.id,
@@ -537,7 +539,8 @@ Returns:
 
       const items = data.items ?? [];
       return jsonResult({
-        total: data.pages?.total ?? data.pages?.items ?? items.length,
+        total: data.pages?.items ?? items.length,
+        total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         user_groups: items,
       });
@@ -788,7 +791,8 @@ Returns:
 
       const items = data.items ?? [];
       return jsonResult({
-        total: data.pages?.total ?? data.pages?.items ?? items.length,
+        total: data.pages?.items ?? items.length,
+        total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         users: items.map((u) => ({
           id: u.id,

@@ -238,7 +238,8 @@ Args:
         { params: { pageSize: String(limit), page: String(page) } }
       );
       return jsonResult({
-        total: (data.pages as Record<string, unknown>)?.total ?? data.items.length,
+        total: (data.pages as Record<string, unknown>)?.items ?? data.items.length,
+        total_pages: (data.pages as Record<string, unknown>)?.total,
         page: (data.pages as Record<string, unknown>)?.current ?? page,
         runs: data.items.map((r) => ({
           run_id: r.id,

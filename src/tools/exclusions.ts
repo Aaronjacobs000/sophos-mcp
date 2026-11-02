@@ -117,7 +117,8 @@ Returns:
       });
 
       return jsonResult({
-        total: data.pages.total ?? data.pages.items ?? data.items.length,
+        total: data.pages.items ?? data.items.length,
+        total_pages: data.pages.total,
         page: data.pages.current ?? page,
         exclusions: data.items.map(formatExclusion),
       });
@@ -284,7 +285,8 @@ Args:
       });
 
       return jsonResult({
-        total: data.pages.total ?? data.pages.items ?? data.items.length,
+        total: data.pages.items ?? data.items.length,
+        total_pages: data.pages.total,
         page: data.pages.current ?? page,
         items: data.items.map(formatAllowedBlockedItem),
       });
@@ -452,7 +454,8 @@ Args:
       });
 
       return jsonResult({
-        total: data.pages.total ?? data.pages.items ?? data.items.length,
+        total: data.pages.items ?? data.items.length,
+        total_pages: data.pages.total,
         page: data.pages.current ?? page,
         items: data.items.map(formatAllowedBlockedItem),
       });

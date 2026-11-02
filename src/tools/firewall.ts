@@ -105,7 +105,8 @@ Args:
       );
 
       return jsonResult({
-        total: data.pages.total ?? data.pages.items ?? data.items.length,
+        total: data.pages.items ?? data.items.length,
+        total_pages: data.pages.total,
         page: data.pages.current ?? page,
         firewalls: data.items,
       });
@@ -528,7 +529,8 @@ Args:
       );
 
       return jsonResult({
-        total: data.pages.total ?? data.pages.items ?? data.items.length,
+        total: data.pages.items ?? data.items.length,
+        total_pages: data.pages.total,
         page: data.pages.current ?? page,
         groups: data.items,
       });
