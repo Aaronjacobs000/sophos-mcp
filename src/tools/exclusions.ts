@@ -122,7 +122,7 @@ Returns:
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         exclusions: data.items.map(formatExclusion),
-      });
+      }, { page, limit });
     })
   );
 
@@ -290,7 +290,7 @@ Args:
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         items: data.items.map(formatAllowedBlockedItem),
-      });
+      }, { page, limit });
     })
   );
 
@@ -463,7 +463,7 @@ Returns:
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         items: data.items.map(formatAllowedBlockedItem),
-      });
+      }, { page, limit });
     })
   );
 

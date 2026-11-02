@@ -77,7 +77,7 @@ Returns:
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         migrations: data.items,
-      });
+      }, { page, limit });
     })
   );
 
@@ -252,7 +252,7 @@ Returns:
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         endpoints: data.items,
-      });
+      }, { page, limit });
     })
   );
 

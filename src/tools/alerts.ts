@@ -107,7 +107,7 @@ Returns:
           page_size: data.pages.size,
           next_page_from_key: data.pages.nextKey ?? null,
           alerts: data.items.map(formatAlert),
-        });
+        }, { page_from_key, limit });
       }
     )
   );
@@ -258,7 +258,7 @@ Args:
         total: data.pages.items ?? data.items.length,
         next_page_from_key: data.pages.nextKey ?? null,
         alerts: data.items.map(formatAlert),
-      });
+      }, { page_from_key, limit });
     })
   );
 }

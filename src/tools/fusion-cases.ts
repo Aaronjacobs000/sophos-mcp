@@ -266,7 +266,8 @@ Returns:
             cases: data.cases.cases.map(formatCaseSummary),
           },
           warnings
-        )
+        ),
+        { page: args.page, per_page: args.per_page, after: args.after }
       );
     })
   );
@@ -1021,7 +1022,8 @@ Returns:
             comments: data.caseComments.comments.map(formatComment),
           },
           [...resolved.warnings, ...warnings]
-        )
+        ),
+        { page, per_page }
       );
     })
   );
@@ -1441,7 +1443,8 @@ Returns:
             files: visible.map(formatFile),
           },
           warnings
-        )
+        ),
+        { page, per_page }
       );
     })
   );

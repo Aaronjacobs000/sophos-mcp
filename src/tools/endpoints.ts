@@ -158,7 +158,7 @@ Returns:
           total_pages: data.pages.total,
           next_cursor: data.pages.nextKey ?? null,
           endpoints: data.items.map(formatEndpoint),
-        });
+        }, { cursor, limit });
       }
     )
   );
@@ -1136,15 +1136,17 @@ Returns:
   );
 }
 
+// sophos_list_endpoints' fields parameter can leave out any nested object, so
+// every nested read is guarded and a missing value is null.
 function formatEndpoint(ep: SophosEndpoint) {
   return {
     id: ep.id,
     hostname: ep.hostname,
     type: ep.type,
-    health: ep.health.overall,
-    threat_status: ep.health.threats.status,
-    os: `${ep.os.platform} ${ep.os.name} ${ep.os.majorVersion}.${ep.os.minorVersion}`,
-    is_server: ep.os.isServer,
+    health: ep.health?.overall ?? null,
+    threat_status: ep.health?.threats?.status ?? null,
+    os: ep.os ? `${ep.os.platform} ${ep.os.name} ${ep.os.majorVersion}.${ep.os.minorVersion}` : null,
+    is_server: ep.os?.isServer ?? null,
     ipv4: ep.ipv4Addresses ?? [],
     person: ep.associatedPerson?.name ?? null,
     tamper_protection: ep.tamperProtectionEnabled,
@@ -1157,14 +1159,14 @@ function formatEndpoint(ep: SophosEndpoint) {
 function formatEndpointDetailed(ep: SophosEndpoint) {
   return {
     ...formatEndpoint(ep),
-    tenant_id: ep.tenant.id,
+    tenant_id: ep.tenant?.id ?? null,
     group_id: ep.groupId ?? null,
     ipv6: ep.ipv6Addresses ?? [],
     mac_addresses: ep.macAddresses ?? [],
     person_login: ep.associatedPerson?.viaLogin ?? null,
     person_id: ep.associatedPerson?.id ?? null,
-    service_details: ep.health.services.serviceDetails ?? [],
-    services_status: ep.health.services.status,
+    service_details: ep.health?.services?.serviceDetails ?? [],
+    services_status: ep.health?.services?.status ?? null,
     assigned_products:
       ep.assignedProducts?.map((p) => ({
         code: p.code,
@@ -1172,6 +1174,6 @@ function formatEndpointDetailed(ep: SophosEndpoint) {
         status: p.status,
       })) ?? [],
     lockdown_status: ep.lockdown?.status ?? null,
-    os_build: ep.os.build ?? null,
+    os_build: ep.os?.build ?? null,
   };
 }

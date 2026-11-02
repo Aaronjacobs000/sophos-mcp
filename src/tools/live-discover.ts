@@ -87,7 +87,7 @@ Returns:
           description: q.description ?? null,
           template: q.template ?? null,
         })),
-      });
+      }, { page, limit });
     })
   );
 
@@ -347,7 +347,7 @@ Returns:
         next_key: data.pages.nextKey ?? null,
         has_more: !!data.pages.nextKey,
         rows: data.items,
-      });
+      }, { page_from_key, limit });
     })
   );
 }

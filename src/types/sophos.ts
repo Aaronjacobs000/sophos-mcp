@@ -93,12 +93,13 @@ export interface SophosAlertPage {
 export interface SophosEndpoint {
   id: string;
   type: string;
-  tenant: { id: string };
+  // tenant, health and os are missing when a list request's fields parameter leaves them out.
+  tenant?: { id: string };
   hostname: string;
-  health: {
+  health?: {
     overall: string;
-    threats: { status: string };
-    services: {
+    threats?: { status: string };
+    services?: {
       status: string;
       serviceDetails?: Array<{
         name: string;
@@ -106,7 +107,7 @@ export interface SophosEndpoint {
       }>;
     };
   };
-  os: {
+  os?: {
     isServer: boolean;
     platform: string;
     name: string;

@@ -450,7 +450,7 @@ Args:
         "/web-filters/v1/site-lists",
         { params }
       );
-      return jsonResult(data);
+      return jsonResult(data, { page, limit });
     })
   );
 
@@ -684,7 +684,7 @@ Args:
         `/web-filters/v1/site-lists/${site_list_id}/sites`,
         { params: { pageSize: String(limit), page: String(page), pageTotal: "true" } }
       );
-      return jsonResult(data);
+      return jsonResult(data, { page, limit });
     })
   );
 

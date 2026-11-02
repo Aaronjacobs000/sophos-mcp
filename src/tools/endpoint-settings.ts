@@ -122,7 +122,7 @@ Returns:
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,
-      });
+      }, { page, limit });
     })
   );
 
@@ -269,7 +269,7 @@ Returns:
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,
-      });
+      }, { page, limit });
     })
   );
 
@@ -643,7 +643,7 @@ Returns:
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,
-      });
+      }, { page, limit });
     })
   );
 
@@ -819,7 +819,7 @@ Returns:
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,
-      });
+      }, { page, limit });
     })
   );
 
@@ -1005,7 +1005,7 @@ Returns:
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,
-      });
+      }, { page, limit });
     })
   );
 
@@ -1160,7 +1160,7 @@ Returns:
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,
-      });
+      }, { page, limit });
     })
   );
 

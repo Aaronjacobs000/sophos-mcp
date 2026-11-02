@@ -91,7 +91,8 @@ Returns:
             detections: list.map((record) => formatDetection(record)),
           },
           warnings
-        )
+        ),
+        { offset, limit }
       );
     })
   );

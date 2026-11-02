@@ -66,7 +66,7 @@ Args:
           headers: { "X-Tenant-ID": resolvedTenantId },
         }
       );
-      return jsonResult(data);
+      return jsonResult(data, { page, limit });
     })
   );
 

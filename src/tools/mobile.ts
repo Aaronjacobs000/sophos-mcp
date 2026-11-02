@@ -281,7 +281,7 @@ Returns:
           "/mobile/v1/devices",
           { params }
         );
-        return jsonResult(data);
+        return jsonResult(data, { page, page_size });
       }
     )
   );
@@ -798,7 +798,7 @@ Returns:
         "/mobile/v1/device-groups",
         { params }
       );
-      return jsonResult(data);
+      return jsonResult(data, { page, page_size });
     })
   );
 
@@ -1415,7 +1415,7 @@ Returns:
         "/mobile/v1/app-groups",
         { params }
       );
-      return jsonResult(data);
+      return jsonResult(data, { page, page_size });
     })
   );
 

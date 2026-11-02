@@ -128,7 +128,7 @@ Args:
             ...(tenant_id ? { headers: { "X-Tenant-ID": tenant_id } } : {}),
           }
         );
-        return jsonResult(data);
+        return jsonResult(data, { page_from_key, limit });
       }
     )
   );

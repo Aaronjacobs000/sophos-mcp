@@ -146,7 +146,7 @@ Args:
         "/switch/v1/tasks",
         { params }
       );
-      return jsonResult(data);
+      return jsonResult(data, { page, limit });
     })
   );
 }
