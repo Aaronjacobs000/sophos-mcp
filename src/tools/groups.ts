@@ -11,7 +11,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SophosClient } from "../client/sophos-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { SophosPagedResponse } from "../types/sophos.js";
-import { jsonResult, withErrorHandling } from "./helpers.js";
+import { itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
 interface SophosEndpointGroup {
@@ -92,6 +92,7 @@ Returns:
       const params: Record<string, string> = {
         pageSize: String(limit),
         page: String(page),
+        pageTotal: "true",
       };
 
       if (search) params.search = search;
@@ -102,7 +103,7 @@ Returns:
       >(resolvedTenantId, "/endpoint/v1/endpoint-groups", { params });
 
       return jsonResult({
-        total: data.pages.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         groups: data.items.map(formatGroup),
@@ -157,7 +158,7 @@ Args:
         >(
           resolvedTenantId,
           `/endpoint/v1/endpoint-groups/${group_id}/endpoints`,
-          { params: { pageSize: "100" } }
+          { params: { pageSize: "100", pageTotal: "true" } }
         );
 
         return jsonResult({
@@ -167,7 +168,7 @@ Args:
             hostname: e.hostname ?? null,
             type: e.type ?? null,
           })),
-          endpoints_total: endpoints.pages.items ?? endpoints.items.length,
+          endpoints_total: itemTotal(endpoints.pages),
           endpoints_total_pages: endpoints.pages.total,
         });
       }

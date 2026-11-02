@@ -9,7 +9,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SophosClient } from "../client/sophos-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { SophosQueryRun, SophosXdrQueryResultsPage } from "../types/sophos.js";
-import { jsonResult, withErrorHandling } from "./helpers.js";
+import { itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "../config/config.js";
 
 export function registerXdrTools(
@@ -235,10 +235,10 @@ Args:
       const data = await client.tenantRequest<{ items: SophosQueryRun[]; pages: Record<string, unknown> }>(
         resolvedTenantId,
         "/xdr-query/v1/queries/runs",
-        { params: { pageSize: String(limit), page: String(page) } }
+        { params: { pageSize: String(limit), page: String(page), pageTotal: "true" } }
       );
       return jsonResult({
-        total: (data.pages as Record<string, unknown>)?.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: (data.pages as Record<string, unknown>)?.total,
         page: (data.pages as Record<string, unknown>)?.current ?? page,
         runs: data.items.map((r) => ({

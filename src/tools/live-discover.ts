@@ -15,7 +15,7 @@ import type {
   SophosLiveDiscoverRun,
   SophosLiveDiscoverResultsPage,
 } from "../types/sophos.js";
-import { jsonResult, withErrorHandling } from "./helpers.js";
+import { itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "../config/config.js";
 
 export function registerLiveDiscoverTools(
@@ -74,10 +74,10 @@ Returns:
       const data = await client.tenantRequest<SophosLiveDiscoverQueryPage>(
         resolvedTenantId,
         "/live-discover/v1/queries",
-        { params: { pageSize: String(limit), page: String(page) } }
+        { params: { pageSize: String(limit), page: String(page), pageTotal: "true" } }
       );
       return jsonResult({
-        total: data.pages.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         page_size: data.pages.size,

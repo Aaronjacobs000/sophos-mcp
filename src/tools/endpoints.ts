@@ -17,7 +17,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SophosClient } from "../client/sophos-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { SophosEndpointPage, SophosEndpoint } from "../types/sophos.js";
-import { jsonResult, withErrorHandling } from "./helpers.js";
+import { itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
 /** The 202 body the bulk endpoint actions (scan, reset health, tamper protection) share. */
@@ -134,6 +134,7 @@ Returns:
 
         const params: Record<string, string> = {
           pageSize: String(limit),
+          pageTotal: "true",
         };
 
         if (cursor) params.pageFromKey = cursor;
@@ -153,7 +154,7 @@ Returns:
 
         return jsonResult({
           count: data.items.length,
-          total: data.pages.items ?? null,
+          total: itemTotal(data.pages),
           total_pages: data.pages.total,
           next_cursor: data.pages.nextKey ?? null,
           endpoints: data.items.map(formatEndpoint),

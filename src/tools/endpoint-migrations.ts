@@ -10,7 +10,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SophosClient } from "../client/sophos-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { SophosPagedResponse } from "../types/sophos.js";
-import { jsonResult, withErrorHandling } from "./helpers.js";
+import { itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
 export function registerEndpointMigrationTools(
@@ -69,11 +69,11 @@ Returns:
       const data = await client.tenantRequest<
         SophosPagedResponse<Record<string, unknown>>
       >(resolvedTenantId, "/endpoint/v1/migrations", {
-        params: { pageSize: String(limit), page: String(page) },
+        params: { pageSize: String(limit), page: String(page), pageTotal: "true" },
       });
 
       return jsonResult({
-        total: data.pages.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         migrations: data.items,
@@ -244,11 +244,11 @@ Returns:
       const data = await client.tenantRequest<
         SophosPagedResponse<Record<string, unknown>>
       >(resolvedTenantId, `/endpoint/v1/migrations/${migration_id}/endpoints`, {
-        params: { pageSize: String(limit), page: String(page) },
+        params: { pageSize: String(limit), page: String(page), pageTotal: "true" },
       });
 
       return jsonResult({
-        total: data.pages.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         endpoints: data.items,

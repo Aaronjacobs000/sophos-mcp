@@ -16,7 +16,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SophosClient } from "../client/sophos-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
-import { jsonResult, withErrorHandling } from "./helpers.js";
+import { itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
 const partnerRoleAssignmentSchema = z.object({
@@ -388,6 +388,7 @@ Returns:
       const params: Record<string, string> = {
         pageSize: String(limit),
         page: String(page),
+        pageTotal: "true",
       };
 
       const data = await client.globalRequest<{
@@ -397,7 +398,7 @@ Returns:
 
       const items = data.items ?? [];
       return jsonResult({
-        total: data.pages?.items ?? items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         admins: items,

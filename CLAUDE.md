@@ -118,6 +118,7 @@ Schemas are zod 4. ID arguments use `z.string().guid()`, never `.uuid()`: zod 4'
 
 - Endpoint APIs use cursor-based pagination (`pageFromKey` / `nextKey`)
 - Most other REST APIs use offset-based pagination (`page` / `pageSize`)
+- Most REST list APIs return item and page counts only for a request with `pageTotal=true` (measured 02/11/2026; the cases API counts unasked and takes no `pageTotal`), so list tools send it where the spec lists it. `pages.items` is the item count and `pages.total` the page count: report `total` with `itemTotal(pages)` from `helpers.ts`, which is null when Sophos gives no count, never the length of the page
 - Fusion cases accept offset (`page` / `perPage`, max 100) or cursor (`first` / `after`) pagination; cursors are opaque and replayed verbatim
 - `DEFAULT_PAGE_SIZE = 50`, `MAX_PAGE_SIZE = 100` from `src/config/config.ts`
 

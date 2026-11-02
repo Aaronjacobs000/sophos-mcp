@@ -1,12 +1,15 @@
 /**
  * Item and page totals on the REST list tools. A Sophos page object carries
  * `pages.total` (the number of pages) and `pages.items` (the number of items),
- * both only when the API sends them. `total` must be the item count, from
- * `pages.items` or else the length of `items`; `pages.total` is reported only
- * as `total_pages`. Measured on a live tenant (02/11/2026): /cases/v1/cases at
- * pageSize 2 answered `{ current: 1, size: 2, total: 3, items: 5 }` with two
- * cases, and sophos_list_cases reported `total: 1` for five cases at pageSize 50.
- * No network.
+ * both only when the API sends them, and most APIs send them only for a request
+ * with `pageTotal=true`. `total` must be the item count from `pages.items`, 0
+ * when `pages.total` is 0, and otherwise null, never the length of the page;
+ * `pages.total` is reported only as `total_pages`. Measured on a live tenant
+ * (02/11/2026): /cases/v1/cases at pageSize 2 answered
+ * `{ current: 1, size: 2, total: 3, items: 5 }` with two cases unasked, while
+ * /endpoint/v1/policies at pageSize 2 answered `{ current: 1, size: 2 }` without
+ * pageTotal and `{ total: 12, items: 23 }` with it, and /endpoint/v1/endpoints
+ * carried the counts on a pageFromKey page too. No network.
  */
 
 import test from "node:test";
@@ -43,6 +46,7 @@ const OFFSET = {
 
 // Every list tool that reports an item total from a REST page object.
 // [module, registrar, tool, arguments, total field, total_pages field]
+// The request path each one sends pageTotal on is the one that returns ITEMS.
 const TOOLS = [
   ["cases", "registerCaseTools", "sophos_list_cases", {}],
   ["cases", "registerCaseTools", "sophos_list_case_detections", { case_id: "1-598868" }],
@@ -76,15 +80,33 @@ const TOOLS = [
   ["xdr", "registerXdrTools", "sophos_list_xdr_query_runs", {}],
 ];
 
-/** Registers one tools module on a real SophosClient that answers every GET with `answer(path)`. */
+// The cases and detections results APIs take no pageTotal parameter (cases
+// count unasked), and these two return the whole list with no page object.
+const NO_PAGE_TOTAL_PARAM = new Set([
+  "sophos_list_cases",
+  "sophos_list_case_detections",
+  "sophos_list_case_impacted_entities",
+  "sophos_get_detections_results",
+  "sophos_get_detection_groups_results",
+]);
+const WHOLE_LIST = new Set(["sophos_list_admin_role_assignments", "sophos_list_permission_sets"]);
+
+/**
+ * Registers one tools module on a real SophosClient that answers every GET with
+ * `answer(path)`. `requests` records the path and query of each call.
+ */
 async function harness(module, registrar, answer) {
   const mod = await import(`../dist/tools/${module}.js`);
   const realFetch = globalThis.fetch;
-  globalThis.fetch = async (url) =>
-    new Response(JSON.stringify(answer(new URL(String(url)).pathname)), {
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    const u = new URL(String(url));
+    requests.push({ path: u.pathname, query: Object.fromEntries(u.searchParams) });
+    return new Response(JSON.stringify(answer(u.pathname)), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
+  };
   const identity = { id: TENANT, idType: "partner", apiHosts: { global: "https://api.central.sophos.com" } };
   const tenantResolver = {
     resolveApiHost: async () => HOST,
@@ -100,6 +122,7 @@ async function harness(module, registrar, answer) {
   const mcp = new Client({ name: "test-client", version: "0.0.0" });
   await mcp.connect(clientTransport);
   return {
+    requests,
     async call(name, args) {
       const result = await mcp.callTool({ name, arguments: args });
       const text = result.content.map((c) => c.text ?? "").join("\n");
@@ -114,13 +137,23 @@ async function harness(module, registrar, answer) {
   };
 }
 
-async function totalsFor([module, registrar, tool, args], pages) {
+async function totalsFor([module, registrar, tool, args], pages, items = ITEMS) {
+  return (await callWith([module, registrar, tool, args], pages, items)).out;
+}
+
+/** Calls one tool against a single canned page; returns its output and the list request. */
+async function callWith([module, registrar, tool, args], pages, items = ITEMS) {
   // sophos_get_endpoint_group reads the group, then its endpoints page.
   const h = await harness(module, registrar, (path) =>
-    path === `/endpoint/v1/endpoint-groups/${ID}` ? { id: ID, name: "G", type: "computer" } : { items: ITEMS, pages }
+    path === `/endpoint/v1/endpoint-groups/${ID}`
+      ? { id: ID, name: "G", type: "computer" }
+      : { items, ...(pages === undefined ? {} : { pages }) }
   );
   try {
-    return await h.call(tool, { tenant_id: TENANT, ...args });
+    const out = await h.call(tool, { tenant_id: TENANT, ...args });
+    const list = h.requests.filter((r) => r.path !== `/endpoint/v1/endpoint-groups/${ID}`);
+    assert.equal(list.length, 1, `${tool} sends one list request`);
+    return { out, request: list[0] };
   } finally {
     await h.close();
   }
@@ -135,17 +168,45 @@ for (const row of TOOLS) {
     assert.equal(out[pagesField], 3, "page count from pages.total");
   });
 
-  test(`${tool}: ${totalField} falls back to the items on the page when the API sends no totals`, async () => {
+  if (WHOLE_LIST.has(tool)) {
+    test(`${tool}: the API returns the whole list, so ${totalField} is its length`, async () => {
+      const out = await totalsFor(row, undefined);
+      assert.equal(out[totalField], ITEMS.length);
+      assert.equal(out[pagesField], undefined);
+    });
+    continue;
+  }
+
+  test(`${tool}: ${totalField} is null, never the page length, when the API sends no item count`, async () => {
     const out = await totalsFor(row, OFFSET.neither);
-    assert.equal(out[totalField], ITEMS.length);
+    assert.equal(out[totalField], null);
     assert.equal(out[pagesField], undefined);
   });
 
   test(`${tool}: a page count alone never becomes ${totalField}`, async () => {
     const out = await totalsFor(row, OFFSET.pagesOnly);
-    assert.equal(out[totalField], ITEMS.length);
+    assert.equal(out[totalField], null);
     assert.equal(out[pagesField], 3);
   });
+
+  test(`${tool}: no pages at all means ${totalField} is 0`, async () => {
+    // /endpoint/v1/settings/blocked-items answered this for an empty list, pageTotal=true or not.
+    const out = await totalsFor(row, { current: 1, total: 0, maxSize: 50 }, []);
+    assert.equal(out[totalField], 0);
+    assert.equal(out[pagesField], 0);
+  });
+
+  if (NO_PAGE_TOTAL_PARAM.has(tool)) {
+    test(`${tool}: sends no pageTotal, which its API does not take`, async () => {
+      const { request } = await callWith(row, OFFSET.both);
+      assert.equal(request.query.pageTotal, undefined);
+    });
+  } else {
+    test(`${tool}: asks for the counts with pageTotal=true`, async () => {
+      const { request } = await callWith(row, OFFSET.both);
+      assert.equal(request.query.pageTotal, "true");
+    });
+  }
 }
 
 // The endpoint list pages by key and reports the page length as `count`, so
@@ -157,6 +218,32 @@ test("sophos_list_endpoints: total is pages.items and total_pages is pages.total
   assert.equal(out.count, 2);
   assert.equal(out.total, 4);
   assert.equal(out.total_pages, 2);
+});
+
+test("sophos_list_endpoints: asks for the counts with pageTotal=true on the first page and on a cursor page", async () => {
+  const first = await callWith(ENDPOINTS, { nextKey: "k", size: 2, total: 2, items: 4, maxSize: 500 });
+  assert.equal(first.request.query.pageTotal, "true");
+  const next = await callWith(["endpoints", "registerEndpointTools", "sophos_list_endpoints", { cursor: "k" }], {
+    fromKey: "k", nextKey: "l", size: 2, total: 2, items: 4, maxSize: 500,
+  });
+  assert.equal(next.request.query.pageTotal, "true");
+  assert.equal(next.request.query.pageFromKey, "k");
+  assert.equal(next.out.total, 4);
+});
+
+test("sophos_list_admins: a tenant with no admins answers with no items key and reports total 0", async () => {
+  // /common/v1/admins live (02/11/2026): no items key at all; with pageTotal=true the page says items 0.
+  const h = await harness("directory", "registerDirectoryTools", () => ({
+    pages: { current: 1, size: 50, total: 0, items: 0, maxSize: 100 },
+  }));
+  try {
+    const out = await h.call("sophos_list_admins", { tenant_id: TENANT });
+    assert.equal(h.requests[0].query.pageTotal, "true");
+    assert.equal(out.total, 0);
+    assert.deepEqual(out.admins, []);
+  } finally {
+    await h.close();
+  }
 });
 
 test("sophos_list_endpoints: no item count means total is null, never the page count", async () => {

@@ -13,7 +13,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SophosClient } from "../client/sophos-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { SophosPagedResponse } from "../types/sophos.js";
-import { jsonResult, withErrorHandling } from "./helpers.js";
+import { itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
 interface SophosUser {
@@ -103,6 +103,7 @@ Returns:
       const params: Record<string, string> = {
         pageSize: String(limit),
         page: String(page),
+        pageTotal: "true",
       };
 
       if (search) params.search = search;
@@ -115,7 +116,7 @@ Returns:
       );
 
       return jsonResult({
-        total: data.pages.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         users: data.items.map((u) => ({
@@ -179,6 +180,7 @@ Args:
       const params: Record<string, string> = {
         pageSize: String(limit),
         page: String(page),
+        pageTotal: "true",
       };
 
       const data = await client.tenantRequest<SophosPagedResponse<SophosAdmin>>(
@@ -189,7 +191,7 @@ Args:
 
       const items = data.items ?? [];
       return jsonResult({
-        total: data.pages?.items ?? items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         admins: items.map((a) => ({
@@ -529,6 +531,7 @@ Returns:
       const params: Record<string, string> = {
         pageSize: String(limit),
         page: String(page),
+        pageTotal: "true",
       };
 
       if (search) params.search = search;
@@ -539,7 +542,7 @@ Returns:
 
       const items = data.items ?? [];
       return jsonResult({
-        total: data.pages?.items ?? items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         user_groups: items,
@@ -781,6 +784,7 @@ Returns:
       const params: Record<string, string> = {
         pageSize: String(limit),
         page: String(page),
+        pageTotal: "true",
       };
 
       const data = await client.tenantRequest<
@@ -791,7 +795,7 @@ Returns:
 
       const items = data.items ?? [];
       return jsonResult({
-        total: data.pages?.items ?? items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         users: items.map((u) => ({

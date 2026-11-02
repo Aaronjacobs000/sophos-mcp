@@ -22,7 +22,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { errorStatus, type SophosClient } from "../client/sophos-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { SophosPagedResponse } from "../types/sophos.js";
-import { jsonResult, withErrorHandling } from "./helpers.js";
+import { itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
 interface SophosPolicy {
@@ -526,6 +526,7 @@ sophos_get_policy by ID, which is current at once, rather than re-listing.`,
       const params: Record<string, string> = {
         pageSize: String(limit),
         page: String(page),
+        pageTotal: "true",
       };
 
       if (policy_type) params.policyType = policy_type;
@@ -537,7 +538,7 @@ sophos_get_policy by ID, which is current at once, rather than re-listing.`,
       );
 
       return jsonResult({
-        total: data.pages.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         policies: data.items.map(formatPolicy),

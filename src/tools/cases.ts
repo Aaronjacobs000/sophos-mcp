@@ -17,7 +17,7 @@ import type {
   SophosCaseMitreSummary,
 } from "../types/sophos.js";
 import type { FusionMigrationGuard } from "../fusion/migration.js";
-import { jsonResult, withErrorHandling, withWarnings } from "./helpers.js";
+import { itemTotal, jsonResult, withErrorHandling, withWarnings } from "./helpers.js";
 
 // Cases API max page size is 50
 const CASES_MAX_PAGE_SIZE = 50;
@@ -89,7 +89,7 @@ Returns:
         }
       );
       return jsonResult(withWarnings({
-        total: data.pages.items ?? data.items.length,
+        total: itemTotal(data.pages),
         page: data.pages.current ?? page,
         page_size: data.pages.size,
         total_pages: data.pages.total,
@@ -354,7 +354,7 @@ Returns:
       );
       return jsonResult(withWarnings({
         case_id,
-        total: data.pages.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         page_size: data.pages.size,
@@ -466,7 +466,7 @@ Args:
       );
       return jsonResult(withWarnings({
         case_id,
-        total: data.pages.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         impacted_entities: data.items,

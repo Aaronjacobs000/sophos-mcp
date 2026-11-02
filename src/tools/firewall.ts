@@ -24,7 +24,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SophosClient } from "../client/sophos-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { SophosPagedResponse } from "../types/sophos.js";
-import { jsonResult, withErrorHandling } from "./helpers.js";
+import { itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
 import { refuseRedirect } from "../client/redirect.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
@@ -93,6 +93,7 @@ Args:
       const params: Record<string, string> = {
         pageSize: String(limit),
         page: String(page),
+        pageTotal: "true",
       };
 
       if (group_id) params.groupId = group_id;
@@ -105,7 +106,7 @@ Args:
       );
 
       return jsonResult({
-        total: data.pages.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         firewalls: data.items,
@@ -520,6 +521,7 @@ Args:
       const params: Record<string, string> = {
         pageSize: String(limit),
         page: String(page),
+        pageTotal: "true",
       };
 
       const data = await client.tenantRequest<SophosPagedResponse<Record<string, unknown>>>(
@@ -529,7 +531,7 @@ Args:
       );
 
       return jsonResult({
-        total: data.pages.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         groups: data.items,
