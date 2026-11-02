@@ -11,7 +11,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SophosClient } from "../client/sophos-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { SophosPagedResponse } from "../types/sophos.js";
-import { jsonResult, withErrorHandling } from "./helpers.js";
+import { itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
 export function registerEndpointSettingsTools(
@@ -79,7 +79,8 @@ Args:
   - page (number, optional): Page number (default 1).
 
 Returns:
-  Paginated list of blocked addresses with type, value, and comment.`,
+  Paginated list of blocked addresses with type, value, and comment.
+  total is null when Sophos sends no item count, which this API can omit even with pageTotal=true.`,
       inputSchema: {
         tenant_id: z
           .string()
@@ -114,10 +115,10 @@ Returns:
       const data = await client.tenantRequest<
         SophosPagedResponse<Record<string, unknown>>
       >(resolvedTenantId, "/endpoint/v1/settings/blocked-addresses", {
-        params: { pageSize: String(limit), page: String(page) },
+        params: { pageSize: String(limit), page: String(page), pageTotal: "true" },
       });
       return jsonResult({
-        total: data.pages?.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,
@@ -261,10 +262,10 @@ Returns:
       const data = await client.tenantRequest<
         SophosPagedResponse<Record<string, unknown>>
       >(resolvedTenantId, "/endpoint/v1/settings/web-control/local-sites", {
-        params: { pageSize: String(limit), page: String(page) },
+        params: { pageSize: String(limit), page: String(page), pageTotal: "true" },
       });
       return jsonResult({
-        total: data.pages?.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,
@@ -635,10 +636,10 @@ Returns:
       >(
         resolvedTenantId,
         "/endpoint/v1/settings/exploit-mitigation/detected-exploits",
-        { params: { pageSize: String(limit), page: String(page) } }
+        { params: { pageSize: String(limit), page: String(page), pageTotal: "true" } }
       );
       return jsonResult({
-        total: data.pages?.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,
@@ -811,10 +812,10 @@ Returns:
       >(
         resolvedTenantId,
         "/endpoint/v1/settings/exploit-mitigation/applications",
-        { params: { pageSize: String(limit), page: String(page) } }
+        { params: { pageSize: String(limit), page: String(page), pageTotal: "true" } }
       );
       return jsonResult({
-        total: data.pages?.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,
@@ -997,10 +998,10 @@ Returns:
       >(
         resolvedTenantId,
         "/endpoint/v1/settings/exclusions/intrusion-prevention",
-        { params: { pageSize: String(limit), page: String(page) } }
+        { params: { pageSize: String(limit), page: String(page), pageTotal: "true" } }
       );
       return jsonResult({
-        total: data.pages?.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,
@@ -1152,10 +1153,10 @@ Returns:
       const data = await client.tenantRequest<
         SophosPagedResponse<Record<string, unknown>>
       >(resolvedTenantId, "/endpoint/v1/settings/exclusions/isolation", {
-        params: { pageSize: String(limit), page: String(page) },
+        params: { pageSize: String(limit), page: String(page), pageTotal: "true" },
       });
       return jsonResult({
-        total: data.pages?.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages?.total,
         page: data.pages?.current ?? page,
         items: data.items,

@@ -14,7 +14,7 @@ import type {
   SophosDetectionsResultPage,
 } from "../types/sophos.js";
 import type { FusionMigrationGuard } from "../fusion/migration.js";
-import { jsonResult, withErrorHandling, withWarnings } from "./helpers.js";
+import { itemTotal, jsonResult, withErrorHandling, withWarnings } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
 export function registerDetectionTools(
@@ -164,7 +164,8 @@ Args:
   - page (number, optional): Page number (default 1).
 
 Returns:
-  Paginated detections with: id, attackType, detectionRule, severity, sensorGeneratedAt, device, sensor.`,
+  Paginated detections with: id, attackType, detectionRule, severity, sensorGeneratedAt, device, sensor.
+  total is null when Sophos sends no item count: this API takes no pageTotal.`,
       inputSchema: {
         run_id: z.string().guid().describe("Run ID from sophos_run_detections_query"),
         tenant_id: z
@@ -205,7 +206,7 @@ Returns:
       );
       return jsonResult(withWarnings({
         run_id,
-        total: data.pages.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         page_size: data.pages.size,
@@ -360,7 +361,8 @@ Args:
   - page (number, optional): Page number (default 1).
 
 Returns:
-  Paginated detection groups with grouped detection data.`,
+  Paginated detection groups with grouped detection data.
+  total is null when Sophos sends no item count: this API takes no pageTotal.`,
       inputSchema: {
         run_id: z.string().guid().describe("Run ID from sophos_run_detection_groups_query"),
         tenant_id: z
@@ -401,7 +403,7 @@ Returns:
       );
       return jsonResult(withWarnings({
         run_id,
-        total: data.pages.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         page_size: data.pages.size,

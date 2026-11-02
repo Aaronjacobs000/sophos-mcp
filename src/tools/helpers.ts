@@ -58,6 +58,20 @@ export function withErrorHandling<TArgs>(
 }
 
 /**
+ * The item count from a Sophos REST page object. `pages.items` is the count;
+ * most APIs send it only when the request has `pageTotal=true`. `pages.total`
+ * counts pages, so it says only that a list with no pages has no items. Never
+ * the length of the current page: null when Sophos gives no count.
+ */
+export function itemTotal(
+  pages: { total?: unknown; items?: unknown } | null | undefined
+): number | null {
+  if (typeof pages?.items === "number") return pages.items;
+  if (pages?.total === 0) return 0;
+  return null;
+}
+
+/**
  * Attaches non-empty warnings to a result object. Tools surface partial
  * response and migration warnings this way rather than dropping them.
  */

@@ -10,7 +10,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SophosClient } from "../client/sophos-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { SophosPagedResponse } from "../types/sophos.js";
-import { jsonResult, withErrorHandling } from "./helpers.js";
+import { itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
 interface SophosScanningExclusion {
@@ -107,6 +107,7 @@ Returns:
       const params: Record<string, string> = {
         pageSize: String(limit),
         page: String(page),
+        pageTotal: "true",
       };
       if (type) params.type = type;
 
@@ -117,7 +118,7 @@ Returns:
       });
 
       return jsonResult({
-        total: data.pages.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         exclusions: data.items.map(formatExclusion),
@@ -281,11 +282,11 @@ Args:
       const data = await client.tenantRequest<
         SophosPagedResponse<SophosAllowedBlockedItem>
       >(resolvedTenantId, "/endpoint/v1/settings/allowed-items", {
-        params: { pageSize: String(limit), page: String(page) },
+        params: { pageSize: String(limit), page: String(page), pageTotal: "true" },
       });
 
       return jsonResult({
-        total: data.pages.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         items: data.items.map(formatAllowedBlockedItem),
@@ -414,7 +415,11 @@ Returns items that have been explicitly blocked from running.
 Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
   - limit (number, optional): Max results per page (default 50).
-  - page (number, optional): Page number (default 1).`,
+  - page (number, optional): Page number (default 1).
+
+Returns:
+  total, total_pages, page and items.
+  total is null when Sophos sends no item count, which this API can omit even with pageTotal=true.`,
       inputSchema: {
         tenant_id: z
           .string()
@@ -450,11 +455,11 @@ Args:
       const data = await client.tenantRequest<
         SophosPagedResponse<SophosAllowedBlockedItem>
       >(resolvedTenantId, "/endpoint/v1/settings/blocked-items", {
-        params: { pageSize: String(limit), page: String(page) },
+        params: { pageSize: String(limit), page: String(page), pageTotal: "true" },
       });
 
       return jsonResult({
-        total: data.pages.items ?? data.items.length,
+        total: itemTotal(data.pages),
         total_pages: data.pages.total,
         page: data.pages.current ?? page,
         items: data.items.map(formatAllowedBlockedItem),
