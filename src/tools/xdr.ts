@@ -292,7 +292,7 @@ Args:
     withErrorHandling(async ({ tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
       const data = await client.tenantRequest<Record<string, unknown>>(resolvedTenantId, "/xdr-query/v1/queries/categories");
-      return jsonResult(data);
+      return jsonResult(data, { narrow_with: [], note: "sophos_get_xdr_query_category reads one category." });
     })
   );
 

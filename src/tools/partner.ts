@@ -19,6 +19,14 @@ import type { TenantResolver } from "../client/tenant-resolver.js";
 import { itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
+// Permission set filters, from the Partner API spec (GET /roles/permission-sets).
+const permissionSetTypeSchema = z.enum(["base", "product", "setting"]);
+const permissionSetProductSchema = z.enum([
+  "endpoint", "server", "mobile", "encryption", "emailGateway", "webGateway",
+  "phishThreat", "wireless", "firewall", "optix", "ztna",
+]);
+const permissionSetAccessSchema = z.enum(["admin", "helpdesk", "readOnly"]);
+
 const partnerRoleAssignmentSchema = z.object({
   role_id: z.string().guid().describe("Role ID"),
   scope_type: z
@@ -194,7 +202,10 @@ Returns:
       }>("/partner/v1/roles", { params });
 
       const items = data.items ?? [];
-      return jsonResult({ total: items.length, roles: items });
+      return jsonResult(
+        { total: items.length, roles: items },
+        { narrow_with: ["type", "principal_type"], note: "sophos_get_partner_role reads one role." }
+      );
     })
   );
 
@@ -322,9 +333,22 @@ Returns:
 Returns all permission sets that can be assigned to partner roles.
 Use these IDs when creating or updating partner roles.
 
+Sophos returns the whole list in one response, with no paging, and it can run
+past the response limit (175 sets, about 62,000 characters, on a test partner
+03/11/2026). Narrow it with type, product or access.
+
+Args:
+  - type (string, optional): "base", "product" or "setting".
+  - product (string, optional): Sets for one product, such as "endpoint" or "firewall".
+  - access (string, optional): "admin", "helpdesk" or "readOnly".
+
 Returns:
   List of available permission sets with IDs and descriptions.`,
-      inputSchema: {},
+      inputSchema: {
+        type: permissionSetTypeSchema.optional().describe("Permission set type"),
+        product: permissionSetProductSchema.optional().describe("Only sets for this product"),
+        access: permissionSetAccessSchema.optional().describe("Access level"),
+      },
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -332,12 +356,17 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async () => {
+    withErrorHandling(async ({ type, product, access }) => {
+      const params: Record<string, string> = {};
+      if (type) params.type = type;
+      if (product) params.product = product;
+      if (access) params.access = access;
       const data = await client.globalRequest<Record<string, unknown>>(
-        "/partner/v1/roles/permission-sets"
+        "/partner/v1/roles/permission-sets",
+        { params }
       );
 
-      return jsonResult(data);
+      return jsonResult(data, { narrow_with: ["type", "product", "access"] });
     })
   );
 
@@ -565,7 +594,7 @@ Returns:
         `/partner/v1/admins/${admin_id}/role-assignments`
       );
 
-      return jsonResult(data);
+      return jsonResult(data, { narrow_with: [] });
     })
   );
 
@@ -758,6 +787,8 @@ Args:
   - year (number): The year (e.g. 2026).
   - month (number): The month (1-12).
   - limit (number, optional): Return only the top N customers (default: all).
+  - offset (number, optional): Skip the first N customers of the ranking (default 0).
+    With limit, pages through the ranking.
   - compact (boolean, optional): Return coverage flags instead of full product arrays (default: false).
 
 Returns:
@@ -771,6 +802,12 @@ Returns:
           .min(1)
           .optional()
           .describe("Return only the top N customers (default: all)"),
+        offset: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("Skip the first N customers of the ranking (default 0)"),
         compact: z
           .boolean()
           .optional()
@@ -783,7 +820,7 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ year, month, limit, compact }) => {
+    withErrorHandling(async ({ year, month, limit, offset, compact }) => {
       // Auto-paginate to collect ALL billing line items
       const allItems: Array<Record<string, unknown>> = [];
       let cursor: string | undefined;
@@ -897,9 +934,11 @@ Returns:
       }
 
       // Sort by monthly total descending
+      const start = offset ?? 0;
       const sorted = [...customers.values()]
         .sort((a, b) => b.monthlyTotal - a.monthlyTotal)
-        .slice(0, limit ?? customers.size);
+        .slice(start, start + (limit ?? customers.size));
+      const paging = { offset: start, limit: limit ?? sorted.length };
 
       // Build summary
       const grandTotal = [...customers.values()].reduce((sum, c) => sum + c.monthlyTotal, 0);
@@ -907,7 +946,7 @@ Returns:
 
       if (compact) {
         const compactSummary = sorted.map((c, i) => ({
-          rank: i + 1,
+          rank: start + i + 1,
           customer: c.name,
           accountId: c.accountId,
           monthlyAUD: Math.round(c.monthlyTotal * 100) / 100,
@@ -928,11 +967,11 @@ Returns:
           grandTotalMonthlyAUD: Math.round(grandTotal * 100) / 100,
           returnedCustomers: compactSummary.length,
           customers: compactSummary,
-        });
+        }, paging);
       }
 
       const summary = sorted.map((c, i) => ({
-        rank: i + 1,
+        rank: start + i + 1,
         customer: c.name,
         accountId: c.accountId,
         monthlyAUD: Math.round(c.monthlyTotal * 100) / 100,
@@ -959,7 +998,7 @@ Returns:
         grandTotalMonthlyAUD: Math.round(grandTotal * 100) / 100,
         returnedCustomers: summary.length,
         customers: summary,
-      });
+      }, paging);
     })
   );
 

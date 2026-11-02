@@ -742,7 +742,9 @@ Returns whether each firewall's configuration is in sync with Sophos Central.
 
 Args:
   - group_id (string): The firewall group ID.
-  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
+  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
+  - limit (number, optional): Max results per page (1-100, default 50).
+  - page (number, optional): Page number (default 1).`,
       inputSchema: {
         group_id: z.string().guid().describe("Firewall group ID"),
         tenant_id: z
@@ -750,6 +752,21 @@ Args:
           .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .optional()
+          .default(DEFAULT_PAGE_SIZE)
+          .describe("Max results per page (default 50)"),
+        page: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .default(1)
+          .describe("Page number (default 1)"),
       },
       annotations: {
         readOnlyHint: true,
@@ -758,13 +775,14 @@ Args:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ group_id, tenant_id }) => {
+    withErrorHandling(async ({ group_id, tenant_id, limit, page }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
       const data = await client.tenantRequest<Record<string, unknown>>(
         resolvedTenantId,
-        `/firewall/v1/firewall-groups/${group_id}/firewalls/sync-status`
+        `/firewall/v1/firewall-groups/${group_id}/firewalls/sync-status`,
+        { params: { pageSize: String(limit), page: String(page), pageTotal: "true" } }
       );
-      return jsonResult(data);
+      return jsonResult(data, { page, limit });
     })
   );
 
@@ -901,7 +919,7 @@ Args:
         `/firewall/v1/firewall-config/firewalls/${firewall_id}/mdr-threat-feed/indicators/search`,
         { method: "POST", body: { indicatorValues: indicator_values } }
       );
-      return jsonResult(data);
+      return jsonResult(data, { narrow_with: ["indicator_values"], note: "Search fewer values per call." });
     })
   );
 

@@ -27,6 +27,16 @@ export type PageArgs = {
   after?: string;
 };
 
+/**
+ * For a list tool whose Sophos API cannot page: the tool's arguments that
+ * narrow the list (empty when it has none), and an optional note naming
+ * another way to the omitted items, so an oversized list says what to do.
+ */
+export type Narrowing = {
+  narrow_with: string[];
+  note?: string;
+};
+
 const TRUNCATION_NOTICE =
   "\n\n... [TRUNCATED] Response exceeded size limit and was cut mid-JSON. Use filters or pagination to narrow results.";
 
@@ -37,11 +47,13 @@ const TRUNCATION_NOTICE =
  * largest top-level array (the page of items) is cut to the items that fit,
  * the JSON stays valid, and a `truncated` key comes first saying how many were
  * left out and, given the tool's paging arguments, the request that returns
- * them. pageField names the array that holds the page when another array in
- * the result can be larger. Only a result with no such array, or whose first
- * item alone is too big, is cut as text with a notice.
+ * them. A list whose API cannot page passes a Narrowing instead, and the
+ * notice names the arguments that narrow it. pageField names the array that
+ * holds the page when another array in the result can be larger. Only a
+ * result with no such array, or whose first item alone is too big, is cut as
+ * text with a notice.
  */
-export function jsonResult(data: unknown, paging?: PageArgs, pageField?: string): ToolResult {
+export function jsonResult(data: unknown, paging?: PageArgs | Narrowing, pageField?: string): ToolResult {
   const text = JSON.stringify(data, null, 2);
   if (text.length <= CHARACTER_LIMIT) return textResult(text);
   const fitted = fitPage(data, paging, pageField);
@@ -54,7 +66,7 @@ function textResult(text: string): ToolResult {
 }
 
 /** The result with its largest array cut to fit, or null when that can't keep a whole item. */
-function fitPage(data: unknown, paging: PageArgs | undefined, pageField: string | undefined): string | null {
+function fitPage(data: unknown, paging: PageArgs | Narrowing | undefined, pageField: string | undefined): string | null {
   const record: Record<string, unknown> | null = Array.isArray(data)
     ? { items: data }
     : data !== null && typeof data === "object"
@@ -104,13 +116,13 @@ function pageArrayKey(record: Record<string, unknown>, pageField: string | undef
   return field;
 }
 
-function truncation(field: string, kept: number, onPage: number, paging: PageArgs | undefined) {
+function truncation(field: string, kept: number, onPage: number, paging: PageArgs | Narrowing | undefined) {
   return {
     field,
     returned: kept,
     omitted: onPage - kept,
     reason: `The page ran past the ${CHARACTER_LIMIT} character response limit, so only the first ${kept} of its ${onPage} ${field} are here.`,
-    ...nextRequest(kept, onPage, paging),
+    ...(isNarrowing(paging) ? narrowRequest(paging) : nextRequest(kept, onPage, paging)),
   };
 }
 
@@ -122,8 +134,32 @@ type NextRequest = {
   next: Record<string, unknown> | null;
   next_through_page?: number;
   resume?: Record<string, unknown> | null;
+  narrow_with?: string[];
   how: string;
 };
+
+function isNarrowing(paging: PageArgs | Narrowing | undefined): paging is Narrowing {
+  return paging !== undefined && "narrow_with" in paging;
+}
+
+/** "a", "a or b", "a, b, or c" */
+function orList(names: string[]): string {
+  if (names.length < 3) return names.join(" or ");
+  return `${names.slice(0, -1).join(", ")}, or ${names[names.length - 1]}`;
+}
+
+/**
+ * For a list whose API cannot page there is no next request: the notice names
+ * the arguments that narrow the list, or says there are none, plus the tool's
+ * own note on another way to the omitted items.
+ */
+function narrowRequest({ narrow_with, note }: Narrowing): NextRequest {
+  const how =
+    narrow_with.length > 0
+      ? `This tool cannot page to the omitted items. Narrow the request with ${orList(narrow_with)} to see them.`
+      : "This tool cannot page to the omitted items and has no argument that narrows the list.";
+  return { next: null, narrow_with, how: note ? `${how} ${note}` : how };
+}
 
 /**
  * The request that returns the omitted items, under the tool's argument names.

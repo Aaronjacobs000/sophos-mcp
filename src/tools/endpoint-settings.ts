@@ -57,7 +57,7 @@ Returns:
         "/endpoint/v1/downloads",
         {}
       );
-      return jsonResult(data);
+      return jsonResult(data, { narrow_with: [] });
     })
   );
 
@@ -448,7 +448,7 @@ Returns:
         "/endpoint/v1/settings/web-control/categories",
         {}
       );
-      return jsonResult(data);
+      return jsonResult(data, { narrow_with: [] });
     })
   );
 
@@ -716,7 +716,10 @@ Args:
         resolvedTenantId,
         "/endpoint/v1/settings/exploit-mitigation/categories"
       );
-      return jsonResult({ total: data.items?.length ?? 0, items: data.items ?? [] });
+      return jsonResult(
+        { total: data.items?.length ?? 0, items: data.items ?? [] },
+        { narrow_with: [], note: "sophos_get_exploit_mitigation_category reads one category." }
+      );
     })
   );
 

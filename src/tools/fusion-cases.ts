@@ -506,7 +506,7 @@ Returns:
           name: v.name,
           title: v.title,
         })),
-      });
+      }, { narrow_with: [] });
     })
   );
 

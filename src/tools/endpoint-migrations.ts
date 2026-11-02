@@ -288,7 +288,7 @@ Args:
         "/endpoint/v1/software/packages/recommended"
       );
       const items = data.items ?? [];
-      return jsonResult({ total: items.length, packages: items });
+      return jsonResult({ total: items.length, packages: items }, { narrow_with: [] });
     })
   );
 
@@ -335,7 +335,7 @@ Args:
         { params }
       );
       const items = data.items ?? [];
-      return jsonResult({ total: items.length, packages: items });
+      return jsonResult({ total: items.length, packages: items }, { narrow_with: ["endpoint_type", "platform", "type"] });
     })
   );
 }

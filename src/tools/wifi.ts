@@ -65,7 +65,7 @@ Args:
     withErrorHandling(async ({ tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
       const data = await client.tenantRequest<MacFilterSettings>(resolvedTenantId, PATH);
-      return jsonResult({ total: data.macAddresses?.length ?? 0, ...data });
+      return jsonResult({ total: data.macAddresses?.length ?? 0, ...data }, { narrow_with: [] });
     })
   );
 

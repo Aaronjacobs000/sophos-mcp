@@ -28,6 +28,25 @@ import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 const ownershipTypeSchema = z.enum(["corporate", "employee"]);
 const platformSchema = z.enum(["iOS", "macOS", "android", "chrome", "windows"]);
 const logLevelSchema = z.enum(["error", "warn", "info", "debug", "trace"]);
+// Page arguments for the lists that had none, with the devices list's bounds.
+const pageFields = {
+  page: z.number().int().min(1).optional().default(1).describe("Page number (default 1)"),
+  page_size: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .default(DEFAULT_PAGE_SIZE)
+    .describe("Results per page (default 50)"),
+};
+const PAGE_ARGS = `  - page (number, optional): Page number (default 1).
+  - page_size (number, optional): Results per page (1-100, default 50).`;
+const pageParams = (page: number, pageSize: number) => ({
+  page: String(page),
+  pageSize: String(pageSize),
+  pageTotal: "true",
+});
 const appSchema = z.object({
   name: z.string().describe("App name"),
   identifier: z.string().describe("App identifier (bundle ID or package name)"),
@@ -179,6 +198,7 @@ Returns:
 
 Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
+${PAGE_ARGS}
 
 Returns:
   List of supported mobile operating systems.`,
@@ -188,6 +208,7 @@ Returns:
           .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
+        ...pageFields,
       },
       annotations: {
         readOnlyHint: true,
@@ -196,13 +217,14 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ tenant_id }) => {
+    withErrorHandling(async ({ tenant_id, page, page_size }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
-        "/mobile/v1/operating-systems"
+        "/mobile/v1/operating-systems",
+        { params: pageParams(page, page_size) }
       );
-      return jsonResult(data);
+      return jsonResult(data, { page, page_size });
     })
   );
 
@@ -514,6 +536,7 @@ Returns:
 Args:
   - device_id (string): The mobile device ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
+${PAGE_ARGS}
 
 Returns:
   Device property key-value pairs.`,
@@ -524,6 +547,7 @@ Returns:
           .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
+        ...pageFields,
       },
       annotations: {
         readOnlyHint: true,
@@ -532,13 +556,14 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ device_id, tenant_id }) => {
+    withErrorHandling(async ({ device_id, tenant_id, page, page_size }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
-        `/mobile/v1/devices/${device_id}/properties`
+        `/mobile/v1/devices/${device_id}/properties`,
+        { params: pageParams(page, page_size) }
       );
-      return jsonResult(data);
+      return jsonResult(data, { page, page_size });
     })
   );
 
@@ -556,6 +581,7 @@ Returns:
 Args:
   - device_id (string): The mobile device ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
+${PAGE_ARGS}
 
 Returns:
   Compliance status and any violations.`,
@@ -566,6 +592,7 @@ Returns:
           .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
+        ...pageFields,
       },
       annotations: {
         readOnlyHint: true,
@@ -574,13 +601,14 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ device_id, tenant_id }) => {
+    withErrorHandling(async ({ device_id, tenant_id, page, page_size }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
-        `/mobile/v1/devices/${device_id}/compliance-violations`
+        `/mobile/v1/devices/${device_id}/compliance-violations`,
+        { params: pageParams(page, page_size) }
       );
-      return jsonResult(data);
+      return jsonResult(data, { page, page_size });
     })
   );
 
@@ -594,6 +622,7 @@ Returns:
 Args:
   - device_id (string): The mobile device ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
+${PAGE_ARGS}
 
 Returns:
   Scan history and results.`,
@@ -604,6 +633,7 @@ Returns:
           .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
+        ...pageFields,
       },
       annotations: {
         readOnlyHint: true,
@@ -612,13 +642,14 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ device_id, tenant_id }) => {
+    withErrorHandling(async ({ device_id, tenant_id, page, page_size }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
-        `/mobile/v1/devices/${device_id}/scan-results`
+        `/mobile/v1/devices/${device_id}/scan-results`,
+        { params: pageParams(page, page_size) }
       );
-      return jsonResult(data);
+      return jsonResult(data, { page, page_size });
     })
   );
 
@@ -632,6 +663,7 @@ Returns:
 Args:
   - device_id (string): The mobile device ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
+${PAGE_ARGS}
 
 Returns:
   List of policies assigned to the device.`,
@@ -642,6 +674,7 @@ Returns:
           .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
+        ...pageFields,
       },
       annotations: {
         readOnlyHint: true,
@@ -650,13 +683,14 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ device_id, tenant_id }) => {
+    withErrorHandling(async ({ device_id, tenant_id, page, page_size }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
-        `/mobile/v1/devices/${device_id}/policies`
+        `/mobile/v1/devices/${device_id}/policies`,
+        { params: pageParams(page, page_size) }
       );
-      return jsonResult(data);
+      return jsonResult(data, { page, page_size });
     })
   );
 
@@ -670,6 +704,7 @@ Returns:
 Args:
   - device_id (string): The mobile device ID.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
+${PAGE_ARGS}
 
 Returns:
   List of installed applications.`,
@@ -680,6 +715,7 @@ Returns:
           .guid()
           .optional()
           .describe("Tenant ID. Required for partner/org callers."),
+        ...pageFields,
       },
       annotations: {
         readOnlyHint: true,
@@ -688,13 +724,14 @@ Returns:
         openWorldHint: true,
       },
     },
-    withErrorHandling(async ({ device_id, tenant_id }) => {
+    withErrorHandling(async ({ device_id, tenant_id, page, page_size }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
       const data = await client.tenantRequest<Record<string, unknown>>(
         tenantId,
-        `/mobile/v1/devices/${device_id}/installed-apps`
+        `/mobile/v1/devices/${device_id}/installed-apps`,
+        { params: pageParams(page, page_size) }
       );
-      return jsonResult(data);
+      return jsonResult(data, { page, page_size });
     })
   );
 
