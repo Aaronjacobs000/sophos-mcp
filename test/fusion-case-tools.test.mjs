@@ -11,6 +11,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerFusionCaseTools } from "../dist/tools/fusion-cases.js";
+import { CaseReferenceDataCache } from "../dist/fusion/case-reference-data.js";
+import { FusionMigrationGuard } from "../dist/fusion/migration.js";
 
 const CASE_ID = "659240aa-797e-42cf-bb82-cca43c4e80d8";
 const OPEN = { id: "28a4f2df-dd5f-44b5-8316-da1f6cfbd254", name: "in_progress", title: "In Progress", isClosed: false };
@@ -279,4 +281,64 @@ test("create on a type pinned to PROVIDER points to an MDR service request, not 
   assert.match(text, /Raise an MDR service request in Sophos Fusion instead/);
   assert.doesNotMatch(text, /Pass managed_by PROVIDER/);
   assert.equal(documents.length, 0, "no createCase was sent");
+});
+
+/**
+ * sophos_fusion_list_case_reference_data on the real reference data cache and
+ * migration guard, over a client that answers the two reads the way the live
+ * tenants did on 02/11/2026: both list Fusion case types, and only
+ * xdrOwnership tells them apart.
+ */
+async function referenceDataFor(owner) {
+  const documents = [];
+  const client = {
+    query: async (_tenantId, document) => {
+      documents.push(document.match(/^query (\w+)/)?.[1]);
+      if (document.startsWith("query FusionTenantXdrOwnership(")) {
+        return { data: { tenant: { id: "100001", centralTenant: owner === undefined ? null : { xdrOwnership: owner } } }, warnings: [] };
+      }
+      if (document.startsWith("query FusionCaseReferenceData")) {
+        return {
+          data: {
+            caseTypes: { types: [{ id: "dcc5aac7-5aca-4b11-90d6-14ca417307f7", name: "investigation", title: "Investigation", managedBy: null, supportedPrimaryStatusIds: [], supportedPrimaryVerdictIds: [] }] },
+            casePrimaryStatuses: { primaryStatuses: [OPEN, CLOSED] },
+            casePrimaryVerdicts: { primaryVerdicts: [VERDICT] },
+          },
+          warnings: [],
+        };
+      }
+      throw new Error(`unexpected document: ${document.slice(0, 40)}`);
+    },
+  };
+  const cache = new CaseReferenceDataCache(client);
+  const server = new McpServer({ name: "test", version: "0.0.0" });
+  registerFusionCaseTools(server, client, tenantResolver, cache, new FusionMigrationGuard(cache, true));
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  const mcp = new Client({ name: "test-client", version: "0.0.0" });
+  await mcp.connect(clientTransport);
+  const result = await mcp.callTool({ name: "sophos_fusion_list_case_reference_data", arguments: {} });
+  await mcp.close();
+  await server.close();
+  assert.equal(Boolean(result.isError), false);
+  return { json: JSON.parse(result.content[0].text), documents };
+}
+
+test("list_case_reference_data reports the tenant type from xdrOwnership, not from the case types", async () => {
+  const upgraded = await referenceDataFor("securityOperations");
+  assert.equal(upgraded.json.tenant_type, "upgraded");
+  assert.equal(upgraded.json.xdr_ownership, "securityOperations");
+  assert.match(upgraded.json.tenant_type_detail, /upgraded to Sophos Fusion XDR Security Operations/);
+  assert.equal(upgraded.json.types.length, 1);
+
+  const notUpgraded = await referenceDataFor("sophos");
+  assert.equal(notUpgraded.json.tenant_type, "not_upgraded", "case types are listed, but xdrOwnership says not yet upgraded");
+  assert.equal(notUpgraded.json.xdr_ownership, "sophos");
+  assert.match(notUpgraded.json.tenant_type_detail, /Classic Threat Analysis Center/);
+  assert.equal(notUpgraded.json.types.length, 1);
+
+  const unreadable = await referenceDataFor(undefined);
+  assert.equal(unreadable.json.tenant_type, "unknown", "case types alone do not decide it");
+  assert.equal(unreadable.json.xdr_ownership, null);
+  assert.deepEqual(unreadable.documents.sort(), ["FusionCaseReferenceData", "FusionTenantXdrOwnership"]);
 });

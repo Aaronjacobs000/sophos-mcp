@@ -14,8 +14,8 @@
  *   node scripts/fusion-smoke.mjs --all [tenant-id]            everything
  *
  * Read-only:
- *   1. sophos_fusion_list_case_reference_data (also decides whether the tenant
- *      has migrated to Fusion: any case type means yes)
+ *   1. sophos_fusion_list_case_reference_data (its tenant_type, from the
+ *      tenant record's xdrOwnership, says whether the tenant has migrated)
  *   2. sophos_fusion_list_cases (newest 5), plus filter variants
  *   3. sophos_fusion_get_case on the newest case, by short ID
  *   4. sophos_fusion_get_case_evidence and sophos_fusion_get_case_summary
@@ -149,10 +149,11 @@ try {
   const ref = await call("sophos_fusion_list_case_reference_data", scope, { quiet: true });
   check(ref.json?.types?.length > 0, "reference data lists at least one case type");
   check(ref.json?.primary_statuses?.some((s) => s.is_closed), "reference data has a closed status");
-  // Any Fusion case type means the tenant has migrated and the Classic
-  // case and detection tools must refuse it.
-  const migrated = (ref.json?.types?.length ?? 0) > 0;
-  console.log(`\nTenant ${migrated ? "has" : "has not"} migrated to Fusion (by the case type signal).`);
+  // tenant_type comes from xdrOwnership. Case types don't decide it: a tenant
+  // not yet upgraded can list them too. On an upgraded tenant the Classic
+  // case and detection tools must refuse.
+  const migrated = ref.json?.tenant_type === "upgraded";
+  console.log(`\nTenant type: ${ref.json?.tenant_type} (${ref.json?.tenant_type_detail}).`);
 
   const list = await call("sophos_fusion_list_cases", { ...scope, per_page: 5 }, { quiet: true });
   check(typeof list.json?.total === "number", "list_cases returns a total");

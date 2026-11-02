@@ -264,6 +264,20 @@ export const CASE_REFERENCE_DATA = `query FusionCaseReferenceData {
   }
 }`;
 
+/**
+ * Who owns the tenant's XDR data, from its Sophos tenant record. Not part of
+ * the Cases v2 schema: the tenants service answers it on the same endpoint.
+ * "sophos" means the tenant is not yet upgraded (Classic Threat Analysis
+ * Center); an upgraded tenant answers "securityOperations" (live, 27/09/2026
+ * and 02/11/2026).
+ */
+export const TENANT_XDR_OWNERSHIP = `query FusionTenantXdrOwnership($id: ID!) {
+  tenant(id: $id) {
+    id
+    centralTenant { xdrOwnership }
+  }
+}`;
+
 /** Verdicts valid for closing a case of a given type into a given closed status. */
 export const CASE_PRIMARY_VERDICTS_FOR = `query FusionCasePrimaryVerdictsFor($arguments: CasePrimaryVerdictsArguments!) {
   casePrimaryVerdicts(arguments: $arguments) {

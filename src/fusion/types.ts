@@ -30,6 +30,10 @@ export interface FusionCaseReferenceDataResponse {
   casePrimaryVerdicts: { primaryVerdicts: FusionReferenceItem[] } | null;
 }
 
+export interface FusionTenantXdrOwnershipResponse {
+  tenant: { id: string; centralTenant: { xdrOwnership: string | null } | null } | null;
+}
+
 export interface FusionCasePrimaryVerdictsResponse {
   casePrimaryVerdicts: { primaryVerdicts: FusionReferenceItem[] } | null;
 }

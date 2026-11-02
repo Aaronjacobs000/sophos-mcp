@@ -1,7 +1,8 @@
 /**
  * Pure helpers behind the Fusion case tools: severity, timestamps, ID checks,
  * resource names, mentions, tag merging, the QL builder, the reference-data
- * cache, the migration guard and the MITRE roll-up.
+ * cache, the migration guard (tenant type from xdrOwnership) and the MITRE
+ * roll-up.
  */
 
 import test from "node:test";
@@ -22,7 +23,7 @@ import {
 } from "../dist/fusion/format.js";
 import { buildCasesQl } from "../dist/fusion/cases-ql.js";
 import { CaseReferenceDataCache, matchReference } from "../dist/fusion/case-reference-data.js";
-import { FusionMigrationGuard, UPGRADE_CENTRE_URL } from "../dist/fusion/migration.js";
+import { FusionMigrationGuard, UPGRADE_CENTRE_URL, tenantTypeOf } from "../dist/fusion/migration.js";
 import { FusionClient, FusionTenantNotOnFusionError } from "../dist/client/fusion-client.js";
 import { buildMitreSummary } from "../dist/tools/fusion-cases.js";
 
@@ -286,29 +287,51 @@ test("matchReference prefers name over title", () => {
 
 // --- migration.ts ---
 
-function fakeReferenceData(types, { throws } = {}) {
+/**
+ * owner is the tenant record's xdrOwnership (null: the record has no value);
+ * ownerThrows makes that read fail with the given message.
+ */
+function fakeReferenceData(types, { throws, owner = null, ownerThrows } = {}) {
   let calls = 0;
+  let ownershipCalls = 0;
   return {
     get calls() {
       return calls;
+    },
+    get ownershipCalls() {
+      return ownershipCalls;
     },
     get: async () => {
       calls += 1;
       if (throws) throw new Error(throws);
       return { types, primaryStatuses: [], primaryVerdicts: [], fetchedAt: "" };
     },
+    xdrOwnership: async () => {
+      ownershipCalls += 1;
+      if (ownerThrows) throw new Error(ownerThrows);
+      return owner;
+    },
   };
 }
 
-test("migration guard refuses a migrated tenant and names the Fusion tool", async () => {
-  const guard = new FusionMigrationGuard(fakeReferenceData([{ id: TYPE_ID, name: "investigation" }]), true);
+const FIVE_CASE_TYPES = ["investigation", "threat_hunt", "other", "incident", "health_check"].map((name, i) => ({
+  id: `${i}1111111-1111-4111-8111-111111111111`,
+  name,
+}));
+
+test("migration guard refuses an upgraded tenant (xdrOwnership securityOperations) and names the Fusion tool", async () => {
+  const referenceData = fakeReferenceData([{ id: TYPE_ID, name: "investigation" }], { owner: "securityOperations" });
+  const guard = new FusionMigrationGuard(referenceData, true);
   const status = await guard.status("t1");
   assert.equal(status.migrated, true);
-  assert.deepEqual(status.caseTypes, ["investigation"]);
+  assert.equal(status.xdrOwnership, "securityOperations");
+  assert.equal(tenantTypeOf(status), "upgraded");
+  assert.equal(referenceData.calls, 0, "xdrOwnership decides; case types are not read");
   await assert.rejects(
     () => guard.assertClassic("t1", "sophos_list_cases", "sophos_fusion_list_cases"),
     (error) => {
       assert.match(error.message, /Tenant t1 has migrated to Sophos Fusion/);
+      assert.match(error.message, /xdrOwnership is "securityOperations"/);
       assert.match(error.message, /sophos_list_cases calls the Classic Sophos Central API/);
       assert.match(error.message, /Use sophos_fusion_list_cases/);
       assert.ok(error.message.includes(UPGRADE_CENTRE_URL));
@@ -325,7 +348,7 @@ test("migration guard lets an unmigrated tenant through with no warning", async 
 
 test("migration guard warns instead of blocking when Fusion cannot be reached", async () => {
   const guard = new FusionMigrationGuard(
-    fakeReferenceData([], { throws: "Sophos Fusion API error 503: down" }),
+    fakeReferenceData([], { throws: "Sophos Fusion API error 503: down", ownerThrows: "Sophos Fusion API error 503: down" }),
     true
   );
   assert.equal((await guard.status("t1")).migrated, null);
@@ -348,6 +371,10 @@ function notOnFusionReferenceData() {
       return calls;
     },
     get: async (tenantId) => {
+      calls += 1;
+      throw new FusionTenantNotOnFusionError(`Sophos Fusion API error 503: tenant ${tenantId} is not on Sophos Fusion`, tenantId);
+    },
+    xdrOwnership: async (tenantId) => {
       calls += 1;
       throw new FusionTenantNotOnFusionError(`Sophos Fusion API error 503: tenant ${tenantId} is not on Sophos Fusion`, tenantId);
     },
@@ -418,7 +445,7 @@ test("on the real client and cache, repeated Classic checks on a tenant Fusion d
       assert.equal(warnings.length, 1);
       assert.match(warnings[0], /Could not confirm whether tenant tenant-2 has migrated/);
     }
-    assert.equal(calls.length, 6, "three attempts on each of the two checks");
+    assert.equal(calls.length, 12, "three attempts on each read (xdrOwnership, then the case type fallback) on each of the two checks");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -430,6 +457,110 @@ test("migration guard is inert when disabled and never calls Fusion", async () =
   assert.deepEqual(await guard.assertClassic("t1", "sophos_list_cases", "sophos_fusion_list_cases"), []);
   assert.equal((await guard.status("t1")).migrated, null);
   assert.equal(referenceData.calls, 0);
+  assert.equal(referenceData.ownershipCalls, 0);
+});
+
+test("a tenant not yet upgraded runs the Classic tools even when it lists Fusion case types (xdrOwnership sophos)", async () => {
+  // The bug fixed in 0.10.5: a partner's test tenant lists five Fusion case
+  // types, reads "sophos" and holds five live Classic cases (02/11/2026).
+  const referenceData = fakeReferenceData(FIVE_CASE_TYPES, { owner: "sophos" });
+  const guard = new FusionMigrationGuard(referenceData, true);
+  const status = await guard.status("t1");
+  assert.equal(status.migrated, false);
+  assert.equal(status.xdrOwnership, "sophos");
+  assert.equal(tenantTypeOf(status), "not_upgraded");
+  assert.match(status.detail, /xdrOwnership is "sophos": not yet upgraded/);
+  assert.deepEqual(await guard.assertClassic("t1", "sophos_list_cases", "sophos_fusion_list_cases"), []);
+  assert.deepEqual(await guard.assertClassic("t1", "sophos_get_case", "sophos_fusion_get_case"), []);
+  assert.equal(referenceData.calls, 0, "case types are never read when xdrOwnership answers");
+  assert.equal(referenceData.ownershipCalls, 1, "the answer is held across checks");
+});
+
+test("without xdrOwnership, case types are only a fallback: none means not upgraded, some means unknown, never a refusal", async () => {
+  for (const [label, options] of [
+    ["no value on the record", {}],
+    ["the read failed", { ownerThrows: "Sophos Fusion API error 400: Cannot query field \"tenant\"" }],
+  ]) {
+    const empty = new FusionMigrationGuard(fakeReferenceData([], options), true);
+    const emptyStatus = await empty.status("t1");
+    assert.equal(emptyStatus.migrated, false, label);
+    assert.match(emptyStatus.detail, /no case types for this tenant, so it is not upgraded/, label);
+    assert.deepEqual(await empty.assertClassic("t1", "sophos_list_cases", "sophos_fusion_list_cases"), [], label);
+
+    const listed = new FusionMigrationGuard(fakeReferenceData(FIVE_CASE_TYPES, options), true);
+    const listedStatus = await listed.status("t1");
+    assert.equal(listedStatus.migrated, null, label);
+    assert.equal(tenantTypeOf(listedStatus), "unknown", label);
+    assert.deepEqual(listedStatus.caseTypes, FIVE_CASE_TYPES.map((t) => t.name), label);
+    const warnings = await listed.assertClassic("t1", "sophos_list_cases", "sophos_fusion_list_cases");
+    assert.equal(warnings.length, 1, `${label}: runs with a warning rather than being refused`);
+    assert.match(warnings[0], /Could not confirm whether tenant t1 has migrated/, label);
+    assert.match(warnings[0], /which a tenant not yet upgraded can list too/, label);
+  }
+});
+
+test("an xdrOwnership answer is held per tenant for 15 minutes; detect with refresh asks again and runs with the check disabled", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 0 });
+  const referenceData = fakeReferenceData([], { owner: "securityOperations" });
+  const guard = new FusionMigrationGuard(referenceData, true);
+  await guard.status("t1");
+  t.mock.timers.tick(15 * 60_000 - 1);
+  assert.equal((await guard.status("t1")).migrated, true);
+  assert.equal(referenceData.ownershipCalls, 1);
+  t.mock.timers.tick(1);
+  await guard.status("t1");
+  assert.equal(referenceData.ownershipCalls, 2, "asked again once the 15 minutes are up");
+  await guard.detect("t1", { refresh: true });
+  assert.equal(referenceData.ownershipCalls, 3, "refresh ignores the held answer");
+
+  const off = fakeReferenceData([], { owner: "sophos" });
+  const disabled = new FusionMigrationGuard(off, false);
+  assert.equal((await disabled.detect("t1")).migrated, false, "the tenant type is still reported when the Classic check is off");
+  assert.equal(tenantTypeOf(await disabled.status("t1")), "unknown");
+});
+
+test("on the real client and cache, xdrOwnership decides both tenant types with one GraphQL call each", async () => {
+  const NOT_UPGRADED = "aaaaaaaa-0000-4000-8000-000000000001";
+  const UPGRADED = "bbbbbbbb-0000-4000-8000-000000000002";
+  const owners = { [NOT_UPGRADED]: "sophos", [UPGRADED]: "securityOperations" };
+  const originalFetch = globalThis.fetch;
+  const sent = [];
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    const tenant = init.headers["X-Tenant-ID"];
+    sent.push({ tenant, operation: /^query (\w+)/.exec(body.query)?.[1], variables: body.variables });
+    if (body.query.includes("xdrOwnership")) {
+      return Response.json({ data: { tenant: { id: "100001", centralTenant: { xdrOwnership: owners[tenant] } } } });
+    }
+    // Both tenants list Fusion case types, as both did live on 02/11/2026.
+    return Response.json({
+      data: {
+        caseTypes: { types: FIVE_CASE_TYPES.map((t) => ({ ...t, title: t.name, managedBy: null, supportedPrimaryStatusIds: [], supportedPrimaryVerdictIds: [] })) },
+        casePrimaryStatuses: { primaryStatuses: [] },
+        casePrimaryVerdicts: { primaryVerdicts: [] },
+      },
+    });
+  };
+  try {
+    const client = new FusionClient({ getToken: async () => "test-token" }, { url: "https://fusion.test/graphql", backoffBaseMs: 1, retries: 2 });
+    const guard = new FusionMigrationGuard(new CaseReferenceDataCache(client), true);
+
+    assert.deepEqual(await guard.assertClassic(NOT_UPGRADED, "sophos_list_cases", "sophos_fusion_list_cases"), []);
+    assert.deepEqual(await guard.assertClassic(NOT_UPGRADED, "sophos_get_case", "sophos_fusion_get_case"), []);
+    await assert.rejects(
+      () => guard.assertClassic(UPGRADED, "sophos_list_cases", "sophos_fusion_list_cases"),
+      /has migrated to Sophos Fusion \(xdrOwnership is "securityOperations"/
+    );
+    assert.equal(tenantTypeOf(await guard.status(NOT_UPGRADED)), "not_upgraded");
+    assert.equal(tenantTypeOf(await guard.status(UPGRADED)), "upgraded");
+
+    assert.deepEqual(sent, [
+      { tenant: NOT_UPGRADED, operation: "FusionTenantXdrOwnership", variables: { id: NOT_UPGRADED } },
+      { tenant: UPGRADED, operation: "FusionTenantXdrOwnership", variables: { id: UPGRADED } },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 // --- MITRE roll-up ---
