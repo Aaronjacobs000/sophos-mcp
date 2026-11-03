@@ -72,6 +72,7 @@ Transport failures (expired token, 429, 5xx) use the usual non-2xx status and th
 - `cases-ql.ts`: builds the QL string for `cases(arguments: { query })` from the list tool's filters. Names never reach QL; only `*Id` columns are searchable.
 - `format.ts`: severity scales (case 2 to 10 integer; detection 0 to 1 float; Classic REST detection 0 to 10; never converted), `{ seconds, nanos }` to ISO 8601, ID shape checks (UUID, `CSE#####` short ID, legacy `1-598868`, six section resource names for detection and event IDs), QL quoting, comment mention parsing, tag merging, the detection row formatter.
 - `migration.ts`: the migration guard (above).
+- `inventory.ts`: the endpoint inventory QL, the reduction to each device's latest snapshot and the stale flag behind `sophos_fusion_endpoint_inventory`.
 - `types.ts`: response types for the selected fields.
 - `schemas/fusion/*.graphql` (repo root): the six schemas exactly as downloaded from the developer portal (five on 21/09/2026, `search-v1` on 29/10/2026), for reference and diffing. Do not edit them; re-download to update.
 
@@ -81,9 +82,11 @@ Measured case rules the tools enforce or explain (live tenant, 22/09/2026): `man
 
 Measured Search rules (Search GraphQL v1, live tenant, 29/10/2026): no `X-GraphQL-Schema` header is needed; `createSearch` without `text` is refused ("exactly one of text or spec", though the published input has no `spec`); `searchResults` takes `limit` 1 to 1000 and returns 100 when it is omitted; cursors look like row offsets but are replayed verbatim; a partition URN reads the same rows as its search when there is one partition; results expire 30 days after creation; `getOrCreateSearch` returns the same search only for absolute time bounds (`earliest='2026-10-28T00:00:00Z'`), and a relative bound (`earliest=-1h`) starts a new search every call; an unprojected `from process` search returns 861 fields (about 150,000 characters), so field metadata is opt-in.
 
+Measured inventory rules (`softwareinfo`, `patchstate`, `inventoryinfo`, two tenants, 03/11/2026): a search returns at most 10,000 rows, newest first (an aggregate counted 16,098); `| aggregate max(time), count by host_id` works and names its columns `max_time` and `row_count`; `contains` and `=` are case-insensitive; projecting a nested leaf returns its whole parent object, and `device.storage_volumes` can't be projected; `host_id` is the Endpoint API endpoint ID, while hostnames repeat (five `DC01` records on one tenant); the rows carry no last seen (`device.last_seen_time` is null); snapshots arrive in one daily batch, a device's rows milliseconds apart, and keep coming for 30 days after the device was last seen; `inventoryinfo` also holds `device_discovery` events from `sophos-xdr-telemetry-normalizer` filed under the reporting endpoint's `host_id`. The Endpoint API list takes `ids` as a comma list (unknown IDs are dropped, a non-UUID is a 400, 501 IDs overflow the URL) and `pageSize` up to 500.
+
 ### Tool registration pattern
 
-Each file in `src/tools/` exports a `register*Tools(server, client, tenantResolver)` function (`cases.ts` and `detections.ts` take the migration guard as a fourth parameter; `fusion-cases.ts` takes `(server, fusionClient, tenantResolver, caseReferenceData, migrationGuard)`; `fusion-detections.ts` and `fusion-search.ts` take `(server, fusionClient, tenantResolver)`). Tools follow this pattern:
+Each file in `src/tools/` exports a `register*Tools(server, client, tenantResolver)` function (`cases.ts` and `detections.ts` take the migration guard as a fourth parameter; `fusion-cases.ts` takes `(server, fusionClient, tenantResolver, caseReferenceData, migrationGuard)`; `fusion-detections.ts` and `fusion-search.ts` take `(server, fusionClient, tenantResolver)`; `fusion-inventory.ts` takes `(server, fusionClient, sophosClient, tenantResolver)`). Tools follow this pattern:
 
 ```typescript
 server.registerTool(

@@ -5,7 +5,7 @@
 > Sophos. It calls the public Sophos APIs using credentials you supply. Use it at your own
 > risk, and raise problems as issues on this repository rather than with Sophos support.
 
-MCP (Model Context Protocol) server for the Sophos Fusion and Sophos Central APIs. Supports partner, organisation, and single-tenant credential types with automatic region routing. **333 tools** covering 23 Sophos API namespaces: the Sophos Central REST APIs plus the Sophos Fusion GraphQL APIs (`sophos_fusion_*`). Install it as a Claude Desktop extension (`.mcpb`), run it with npx, or host it yourself over streamable HTTP.
+MCP (Model Context Protocol) server for the Sophos Fusion and Sophos Central APIs. Supports partner, organisation, and single-tenant credential types with automatic region routing. **334 tools** covering 23 Sophos API namespaces: the Sophos Central REST APIs plus the Sophos Fusion GraphQL APIs (`sophos_fusion_*`). Install it as a Claude Desktop extension (`.mcpb`), run it with npx, or host it yourself over streamable HTTP.
 
 The npm package, the `.mcpb` bundle and the binaries keep the `sophos-central-mcp-server` name so existing installs update in place.
 
@@ -170,7 +170,7 @@ The script:
 npm test
 ```
 
-Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, the policy assignment and web profile writes (body shapes, refusals, target lookups and read-back) against an in-memory policy store, the no-retry rule for a POST or mutation after a 5xx, the read-modify-write and PATCH update tools, the request shapes of the tools checked against the published specs, the request shapes of the October 2026 bulk endpoint, S/MIME and Search tools, the item and page totals the REST list tools report, a registration check that lists all 333 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
+Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, the policy assignment and web profile writes (body shapes, refusals, target lookups and read-back) against an in-memory policy store, the no-retry rule for a POST or mutation after a 5xx, the read-modify-write and PATCH update tools, the request shapes of the tools checked against the published specs, the request shapes of the October 2026 bulk endpoint, S/MIME and Search tools, the item and page totals the REST list tools report, the endpoint inventory's reduction to the latest snapshot and its stale flag, a registration check that lists all 334 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
 
 To exercise the Fusion tools against a live tenant, put credentials in `.env` (or export them) and run:
 
@@ -198,7 +198,7 @@ It spawns the built server over stdio and calls the tools through an MCP client,
 - **One-click install**: Ships as a Claude Desktop extension (`.mcpb`) with credentials held in the OS secure store
 - **Two API generations**: the Sophos Central REST APIs and the Sophos Fusion GraphQL APIs on one credential, with `sophos_fusion_*` tools for the GraphQL side
 - **Migration aware**: the Classic case and detection tools refuse a tenant that has moved to Sophos Fusion and name the `sophos_fusion_*` tool to use instead; `sophos_fusion_list_case_reference_data` reports the tenant type
-- **Full API coverage**: 333 tools across endpoints, alerts, policies, firewalls, web filtering, licensing, audit events, email (including S/MIME), mobile, XDR, Data Lake search, cases, SIEM, and more
+- **Full API coverage**: 334 tools across endpoints, alerts, policies, firewalls, web filtering, licensing, audit events, email (including S/MIME), mobile, XDR, Data Lake search, cases, SIEM, and more
 
 ## Screenshots
 
@@ -498,7 +498,7 @@ Sophos Fusion Detections GraphQL API v2. One QL search replaces the Classic run,
 
 Sophos Fusion Search GraphQL API v1 (12/10/2026): Data Lake searches in QL, the counterpart of the SQL XDR Query tools. Asynchronous: start a search, poll it by its URN until `COMPLETE`, check `outcome.success` (`ALL`, `PARTIAL` or `NONE`), then page the rows by cursor (up to 1000 per page). Working example `from process earliest=-1h | fields host_id, image_path`. Project with `| fields`: an unprojected search returns over 800 fields, so field metadata is off unless asked for. Results expire (30 days in testing). `sophos_fusion_get_or_create_search` reuses a matching search only when the query has absolute time bounds; a relative one (`earliest=-1h`) starts a new search each call.
 
-Endpoint inventory: `softwareinfo` (installed applications), `patchstate` (installed OS patches, one row per KB) and `inventoryinfo` (device record). One snapshot per device per day, offline devices included, so check last seen with `sophos_list_endpoints`. Example `from softwareinfo where product.name contains 'Chrome' earliest=-1d | fields host_id, device.hostname, product.name, product.version`.
+Endpoint inventory: `softwareinfo` (installed applications), `patchstate` (installed OS patches, one row per KB) and `inventoryinfo` (device record). One snapshot per device per day, offline devices included, so check last seen with `sophos_list_endpoints`, or use `sophos_fusion_endpoint_inventory` below, which does that for you. Example `from softwareinfo where product.name contains 'Chrome' earliest=-1d | fields host_id, device.hostname, product.name, product.version`.
 
 | Tool | Description |
 |------|-------------|
@@ -506,6 +506,16 @@ Endpoint inventory: `softwareinfo` (installed applications), `patchstate` (insta
 | `sophos_fusion_get_or_create_search` | Return a matching running or complete search, or start one |
 | `sophos_fusion_get_search` | Status, outcome, partition diagnostics and expiry of a search |
 | `sophos_fusion_get_search_results` | One page of rows from a search or partition, with totals and the next cursor |
+
+### Fusion Endpoint Inventory (1 tool)
+
+Installed applications (`softwareinfo`), installed OS patches (`patchstate`) or the device record (`inventoryinfo`) from the Data Lake, reduced to each device's latest snapshot and flagged by when the device was last seen. The Data Lake keeps writing a daily snapshot for about 30 days after a device goes offline, so a snapshot dated today can describe a device that has been offline for weeks. Each device is matched on `host_id` (its endpoint ID) to `lastSeenAt` from the Endpoint API and marked `stale` (last seen more than `stale_after_days` ago, default 3), `fresh`, or `unmatched` (deleted, re-registered, or a third-party sensor). It shows what is installed, not what is missing: there is no CVE or missing-patch field.
+
+Filter by `endpoint_id`, `hostname`, `software_name` (softwareinfo) or `kb` (patchstate), and return only `stale`, `fresh` or `unmatched` devices with `status`. The summary counts every device. For example, `{ schema: "softwareinfo", software_name: "Chrome" }` lists each device's Chrome versions with its last seen. Calls with the same arguments in the same UTC hour reuse the same searches, so paging with `offset` is quick.
+
+| Tool | Description |
+|------|-------------|
+| `sophos_fusion_endpoint_inventory` | Latest inventory snapshot per device, with stale, fresh and unmatched counts |
 
 ### Detections (6 tools)
 
@@ -833,6 +843,7 @@ src/
 │   ├── queries/cases.ts         # Cases v2 GraphQL documents
 │   ├── queries/detections.ts    # Detections v2 documents: the case summary lookup and the QL search
 │   ├── queries/search.ts        # Search v1 documents: create, get-or-create, status, results
+│   ├── inventory.ts             # Inventory QL, latest snapshot per device, stale flag
 │   ├── case-reference-data.ts   # Per-tenant cache of case types, statuses, verdicts
 │   ├── cases-ql.ts              # QL builder for the cases search
 │   ├── format.ts                # Severity scales, timestamps, ID checks, mentions, tags, detection rows
@@ -843,6 +854,7 @@ src/
 │   ├── fusion-cases.ts          # Sophos Fusion cases (GraphQL)
 │   ├── fusion-detections.ts     # Sophos Fusion detection search (GraphQL)
 │   ├── fusion-search.ts         # Sophos Fusion Data Lake search (GraphQL)
+│   ├── fusion-inventory.ts      # Sophos Fusion endpoint inventory with last seen
 │   ├── tenants.ts               # Tenant listing (partner/org only)
 │   ├── partner.ts               # Partner admin, roles, billing (partner/org only)
 │   ├── alerts.ts                # Alert list, get, acknowledge, search
