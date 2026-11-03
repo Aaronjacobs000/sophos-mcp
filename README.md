@@ -498,6 +498,8 @@ Sophos Fusion Detections GraphQL API v2. One QL search replaces the Classic run,
 
 Sophos Fusion Search GraphQL API v1 (12/10/2026): Data Lake searches in QL, the counterpart of the SQL XDR Query tools. Asynchronous: start a search, poll it by its URN until `COMPLETE`, check `outcome.success` (`ALL`, `PARTIAL` or `NONE`), then page the rows by cursor (up to 1000 per page). Working example `from process earliest=-1h | fields host_id, image_path`. Project with `| fields`: an unprojected search returns over 800 fields, so field metadata is off unless asked for. Results expire (30 days in testing). `sophos_fusion_get_or_create_search` reuses a matching search only when the query has absolute time bounds; a relative one (`earliest=-1h`) starts a new search each call.
 
+Endpoint inventory: `softwareinfo` (installed applications), `patchstate` (installed OS patches, one row per KB) and `inventoryinfo` (device record). One snapshot per device per day, offline devices included, so check last seen with `sophos_list_endpoints`. Example `from softwareinfo where product.name contains 'Chrome' earliest=-1d | fields host_id, device.hostname, product.name, product.version`.
+
 | Tool | Description |
 |------|-------------|
 | `sophos_fusion_create_search` | Start a QL search; returns its search URN and partitions |

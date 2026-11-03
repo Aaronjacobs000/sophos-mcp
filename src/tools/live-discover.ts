@@ -101,6 +101,9 @@ Returns:
 Live Discover queries run directly on live endpoints (not historical Data Lake data).
 Rate limited to 10 runs/minute, 500 runs/day.
 
+For installed software, patches or device inventory, try sophos_fusion_create_search first;
+Live Discover reaches only devices that are online.
+
 You can run either a saved query (by query_id) or an ad hoc SQL query.
 Target endpoints using endpoint_ids (specific endpoints), hostname_contains (partial match),
 or all_endpoints=true (all endpoints in the tenant).
