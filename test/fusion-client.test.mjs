@@ -314,6 +314,33 @@ test("a hung request is aborted at the timeout and reported as such", async () =
   );
 });
 
+test("a per-call timeout replaces the client's: a slow answer under it lands on the first attempt", async () => {
+  const slow = (ms) => (_attempt, init) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => resolve(json({ data: { ok: true } })), ms);
+      init.signal.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(new DOMException("The operation was aborted", "AbortError"));
+      });
+    });
+  const client = makeClient({ timeoutMs: 5 });
+
+  let calls = stubFetch(slow(40));
+  const result = await client.query("tenant-1", "query { ok }", {}, { timeoutMs: 1000 });
+  assert.deepEqual(result.data, { ok: true });
+  assert.equal(calls.length, 1, "not aborted at the client's 5 ms and re-run");
+
+  calls = stubFetch(slow(40));
+  await assert.rejects(() => client.query("tenant-1", "query { ok }"), /timed out after 5ms/);
+  assert.equal(calls.length, 3, "without it the client's timeout and retries apply");
+
+  calls = stubFetch(slow(1000));
+  await assert.rejects(
+    () => makeClient({ timeoutMs: 1000, retries: 0 }).query("tenant-1", "query { ok }", {}, { timeoutMs: 10 }),
+    /timed out after 10ms/
+  );
+});
+
 test("interpretGraphQLBody rejects a body with neither data nor errors", () => {
   assert.throws(() => interpretGraphQLBody({}), /neither data nor errors/);
   assert.throws(() => interpretGraphQLBody(null), /neither data nor errors/);

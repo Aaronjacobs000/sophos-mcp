@@ -19,6 +19,7 @@ import {
   GET_OR_CREATE_SEARCH,
   GET_SEARCH,
   SEARCH_RESULTS,
+  SEARCH_RESULTS_TIMEOUT_MS,
   SEARCH_RESULTS_WITH_FIELDS,
 } from "../fusion/queries/search.js";
 import type { FusionSearch, FusionSearchResultPage } from "../fusion/types.js";
@@ -68,7 +69,9 @@ Asynchronous: poll sophos_fusion_get_search with the urn until status is COMPLET
 
 Working example: "${EXAMPLE_SEARCH_QUERY}". Set an explicit earliest, and project with | fields: an unprojected search returns hundreds of fields per row. hostname and enrichSummary are derived fields and cannot be named in | fields; keep host_id to get hostname.
 
-Endpoint inventory: softwareinfo (installed applications), patchstate (installed OS patches, one row per KB) and inventoryinfo (device record). One snapshot per device per day, offline devices included, so check last seen with sophos_list_endpoints, or use sophos_fusion_endpoint_inventory, which does. Example: "from softwareinfo where product.name contains 'Chrome' earliest=-1d | fields host_id, device.hostname, product.name, product.version".
+Row cap: a search returns at most 10,000 rows, newest first, and its total then reads 10,000 however many rows matched (an aggregate counted 69,323 behind one, 03/11/2026). A total of 10,000 means rows may be missing: count with | aggregate count, and narrow the time range or the where clause.
+
+Endpoint inventory: softwareinfo (installed applications), patchstate (installed OS patches, one row per KB) and inventoryinfo (device record). One snapshot per device per day, offline devices included, so check last seen with sophos_list_endpoints, or use sophos_fusion_endpoint_inventory, which does. Example: "from softwareinfo where product.name contains 'Chrome' earliest=-1d | fields host_id, device.hostname, product.name, product.version". inventoryinfo also holds device discovery events (metadata.event_code 'device_discovery', normalizer 'sophos-xdr-telemetry-normalizer'): a device the endpoint saw on its network, filed under the reporting endpoint's host_id, with the seen device's IP and MAC and no hostname or OS. Drop them with "where normalizer != 'sophos-xdr-telemetry-normalizer'", as sophos_fusion_endpoint_inventory does.
 
 Every call starts a new execution. After a timeout, check before repeating it, or use sophos_fusion_get_or_create_search.
 
@@ -110,7 +113,7 @@ Returns:
 
 Measured 29/10/2026: a query with relative time bounds (earliest=-1h) starts a new search on every call; one with absolute bounds (earliest='2026-10-28T00:00:00Z' and latest='2026-10-28T01:00:00Z') returns the same search. A reused search is not a fresh run.
 
-Same QL rules as sophos_fusion_create_search, for example "${EXAMPLE_SEARCH_QUERY}". Poll with sophos_fusion_get_search, read rows with sophos_fusion_get_search_results.
+Same QL rules and 10,000 row cap as sophos_fusion_create_search, for example "${EXAMPLE_SEARCH_QUERY}". Poll with sophos_fusion_get_search, read rows with sophos_fusion_get_search_results.
 
 Args:
   - query (string): QL query.
@@ -184,6 +187,8 @@ Returns:
 
 values is an array of JSON row objects; a row can omit a field or hold null, nested objects or lists. total counts the whole result set, not this page. Pass next_cursor back unchanged as cursor for the next page; there are no more pages when it is null.
 
+A search returns at most 10,000 rows, newest first, so total stops at 10,000 however many rows matched. A total of 10,000 means rows may be missing: count with | aggregate count, and narrow the query.
+
 include_fields adds field metadata (name, baseType for timestamp units and list or map shapes, logicalType, enumValues, originSchemaTypes). It is off by default because an unprojected search returns over 800 fields (about 150,000 characters measured), more than one response holds; project with | fields in the query first.
 
 Args:
@@ -223,7 +228,8 @@ Returns:
       const { data, warnings } = await client.query<{ searchResults: FusionSearchResultPage | null }>(
         tenantId,
         include_fields ? SEARCH_RESULTS_WITH_FIELDS : SEARCH_RESULTS,
-        variables
+        variables,
+        { timeoutMs: SEARCH_RESULTS_TIMEOUT_MS }
       );
       const page = data.searchResults;
       if (!page) throw new Error(`searchResults returned nothing for ${urn}.`);

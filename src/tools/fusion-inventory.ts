@@ -17,7 +17,13 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { FusionClient } from "../client/fusion-client.js";
 import type { SophosClient } from "../client/sophos-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
-import { CREATE_SEARCH, GET_OR_CREATE_SEARCH, GET_SEARCH, SEARCH_RESULTS } from "../fusion/queries/search.js";
+import {
+  CREATE_SEARCH,
+  GET_OR_CREATE_SEARCH,
+  GET_SEARCH,
+  SEARCH_RESULTS,
+  SEARCH_RESULTS_TIMEOUT_MS,
+} from "../fusion/queries/search.js";
 import type { FusionSearch, FusionSearchResultPage } from "../fusion/types.js";
 import type { SophosEndpointPage } from "../types/sophos.js";
 import {
@@ -94,7 +100,9 @@ async function readResults(
   do {
     const variables: Record<string, unknown> = { urn, limit: Math.min(PAGE_ROWS, maxRows - rows.length) };
     if (cursor) variables.cursor = cursor;
-    const result = await client.query<{ searchResults: FusionSearchResultPage | null }>(tenantId, SEARCH_RESULTS, variables);
+    const result = await client.query<{ searchResults: FusionSearchResultPage | null }>(tenantId, SEARCH_RESULTS, variables, {
+      timeoutMs: SEARCH_RESULTS_TIMEOUT_MS,
+    });
     warnings.push(...result.warnings);
     const page = result.data.searchResults;
     if (!page) throw new Error(`searchResults returned nothing for ${urn}.`);
