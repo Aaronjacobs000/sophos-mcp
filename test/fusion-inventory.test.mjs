@@ -16,6 +16,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { SophosClient } from "../dist/client/sophos-client.js";
 import { registerFusionInventoryTools } from "../dist/tools/fusion-inventory.js";
+import { SEARCH_RESULTS_TIMEOUT_MS } from "../dist/fusion/queries/search.js";
 import {
   DAY_MS,
   SNAPSHOT_SPREAD_MS,
@@ -249,9 +250,9 @@ function fakeFusion({ devices, rows, pending = 0, success = "ALL" }) {
   const status = (urn) => ((polls.get(urn) ?? 0) >= pending ? "COMPLETE" : "IN_PROGRESS");
   return {
     calls,
-    query: async (tenantId, document, variables) => {
+    query: async (tenantId, document, variables, options) => {
       const operation = document.match(/^(query|mutation) (\w+)/)[2];
-      calls.push({ tenantId, operation, variables });
+      calls.push({ tenantId, operation, variables, options });
       if (operation === "FusionGetOrCreateSearch" || operation === "FusionCreateSearch") {
         const urn = urnFor(variables.input.text);
         const record = searchRecord(urn, variables.input.text, status(urn), success);
@@ -381,6 +382,15 @@ test("the tool: two reused searches, the latest snapshot per device, statuses fr
     ]);
     assert.ok(fusion.calls.some((c) => c.operation === "FusionSearch"), "polled while the searches ran");
     assert.equal(fusion.calls.filter((c) => c.operation === "FusionCreateSearch").length, 0, "reuses, never forces a new search");
+    const pages = fusion.calls.filter((c) => c.operation === "FusionSearchResults");
+    assert.equal(pages.length, 2, "one page from each search");
+    for (const page of pages) {
+      assert.deepEqual(page.options, { timeoutMs: SEARCH_RESULTS_TIMEOUT_MS }, "a results page waits past the client's 30 s");
+    }
+    assert.ok(
+      fusion.calls.filter((c) => c.operation !== "FusionSearchResults").every((c) => c.options === undefined),
+      "starts and polls keep the client's timeout"
+    );
 
     // One Endpoint API call for the three UUID host IDs; the CrowdStrike ID is not sent.
     assert.equal(h.rest.length, 1);

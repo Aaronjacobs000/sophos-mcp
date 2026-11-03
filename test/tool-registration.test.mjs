@@ -210,6 +210,21 @@ test("the October 2026 tools: dash-free prose, destructive marks on the risky wr
   assert.equal(byName.get("sophos_fusion_get_search_results").inputSchema.properties.limit.maximum, 1000);
 });
 
+test("the search tools state the 10,000 row cap, and the create tool the discovery events in inventoryinfo", async () => {
+  const { tools } = await listAllTools();
+  const byName = new Map(tools.map((t) => [t.name, t]));
+  for (const name of ["sophos_fusion_create_search", "sophos_fusion_get_or_create_search", "sophos_fusion_get_search_results"]) {
+    assert.match(byName.get(name).description, /10,000 row/, `${name} names the row cap`);
+    assert.doesNotMatch(byName.get(name).description, /[–—]/, `${name} description has no en or em dash`);
+  }
+  assert.match(byName.get("sophos_fusion_create_search").description, /A total of 10,000 means rows may be missing/);
+  assert.match(byName.get("sophos_fusion_get_search_results").description, /total stops at 10,000/);
+  assert.match(
+    byName.get("sophos_fusion_create_search").description,
+    /metadata\.event_code 'device_discovery', normalizer 'sophos-xdr-telemetry-normalizer'.*where normalizer != 'sophos-xdr-telemetry-normalizer'/
+  );
+});
+
 test("the endpoint inventory tool states the staleness and no-CVE caveats and caps its reads", async () => {
   const { tools } = await listAllTools();
   const tool = tools.find((t) => t.name === "sophos_fusion_endpoint_inventory");

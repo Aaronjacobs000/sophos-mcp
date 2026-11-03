@@ -74,6 +74,12 @@ export interface FusionClientOptions {
   transientBackoffMs?: number;
 }
 
+/** Options for one query() call. */
+export interface FusionQueryOptions {
+  /** Per-attempt timeout for this call, in place of the client's. */
+  timeoutMs?: number;
+}
+
 const TRANSIENT_BACKOFF_CAP_MS = 2000;
 
 /** Thrown when the GraphQL layer returns errors and no usable data. */
@@ -163,14 +169,17 @@ export class FusionClient {
    * FusionGraphQLError when the response carries errors and no usable data,
    * and a plain Error for transport failures. The transient partnerPreferences
    * fault is retried up to transientAttempts times; every other GraphQL-layer
-   * error surfaces at once.
+   * error surfaces at once. options.timeoutMs replaces the per-attempt timeout
+   * for this call, for an operation known to run longer (a Search results page).
    */
   async query<T extends object>(
     tenantId: string,
     document: string,
-    variables: Record<string, unknown> = {}
+    variables: Record<string, unknown> = {},
+    options: FusionQueryOptions = {}
   ): Promise<FusionQueryResult<T>> {
     const token = await this.tokenManager.getToken();
+    const timeoutMs = options.timeoutMs ?? this.timeoutMs;
 
     const fetchOptions: globalThis.RequestInit = {
       method: "POST",
@@ -185,7 +194,7 @@ export class FusionClient {
 
     const mutation = isMutation(document);
     for (let attempt = 1; ; attempt++) {
-      const body = await this.executeWithRetry<GraphQLResponseBody<T>>(fetchOptions, mutation);
+      const body = await this.executeWithRetry<GraphQLResponseBody<T>>(fetchOptions, mutation, timeoutMs);
       try {
         return interpretGraphQLBody<T>(body);
       } catch (error) {
@@ -250,13 +259,17 @@ export class FusionClient {
    * mutation that failed that way may already have taken effect (a case
    * created, evidence attached), so it is not repeated.
    */
-  private async executeWithRetry<T>(options: globalThis.RequestInit, mutation = false): Promise<T> {
+  private async executeWithRetry<T>(
+    options: globalThis.RequestInit,
+    mutation = false,
+    timeoutMs = this.timeoutMs
+  ): Promise<T> {
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= this.retries; attempt++) {
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
         let response: globalThis.Response;
         try {
           // A redirect is refused rather than followed: the request carries the tenant's ID and the query or mutation to the new host.
@@ -320,7 +333,7 @@ export class FusionClient {
       } catch (error) {
         lastError =
           error instanceof Error && error.name === "AbortError"
-            ? new Error(`Sophos Fusion API request timed out after ${this.timeoutMs}ms`)
+            ? new Error(`Sophos Fusion API request timed out after ${timeoutMs}ms`)
             : error instanceof Error
               ? error
               : new Error(String(error));

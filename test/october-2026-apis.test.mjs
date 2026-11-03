@@ -16,6 +16,7 @@ import { SophosClient } from "../dist/client/sophos-client.js";
 import { registerEndpointTools } from "../dist/tools/endpoints.js";
 import { registerEmailSmimeTools } from "../dist/tools/email-smime.js";
 import { registerFusionSearchTools } from "../dist/tools/fusion-search.js";
+import { SEARCH_RESULTS_TIMEOUT_MS } from "../dist/fusion/queries/search.js";
 
 const TENANT = "00000000-0000-4000-8000-000000000001";
 const HOST = "https://api-au01.central.sophos.com";
@@ -433,8 +434,8 @@ function searchRecord(overrides = {}) {
 async function searchHarness(answer) {
   const calls = [];
   const fusion = {
-    query: async (tenantId, document, variables) => {
-      calls.push({ tenantId, operation: document.match(/^(query|mutation) (\w+)/)[2], document, variables });
+    query: async (tenantId, document, variables, options) => {
+      calls.push({ tenantId, operation: document.match(/^(query|mutation) (\w+)/)[2], document, variables, options });
       return { data: answer(document, variables), warnings: [] };
     },
   };
@@ -472,6 +473,7 @@ test("Search: create and get-or-create send the QL text and metadata; get polls 
         { operation: "FusionSearch", variables: { urn: URN } },
       ]
     );
+    assert.ok(h.calls.every((call) => call.options === undefined), "only results pages take the longer timeout");
     assert.ok(h.calls[0].document.startsWith("mutation FusionCreateSearch($input: CreateSearchInput)"));
     assert.ok(h.calls[2].document.startsWith("query FusionSearch($urn: URN!)"));
     assert.equal(created.json.search.urn, URN);
@@ -508,6 +510,10 @@ test("Search results page by cursor, cap the limit at 1000, and add field metada
         { operation: "FusionSearchResultsWithFields", variables: { urn: URN, limit: 1000, cursor: "2" } },
       ]
     );
+    for (const call of h.calls) {
+      assert.deepEqual(call.options, { timeoutMs: SEARCH_RESULTS_TIMEOUT_MS }, "a results page waits past the client's 30 s");
+    }
+    assert.equal(SEARCH_RESULTS_TIMEOUT_MS, 120_000);
     assert.equal(first.json.returned, 1);
     assert.equal(first.json.total, 178);
     assert.equal(first.json.next_cursor, "2");

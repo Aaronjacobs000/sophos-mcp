@@ -59,6 +59,14 @@ const RESULT_PAGE_FIELDS = `
     previousCursor
     hostnameMappings { hostname hostIds }`;
 
+/**
+ * Per-attempt timeout for a searchResults page, in place of the client's 30 s.
+ * A page can take longer than 30 s, the first or a later one: 31.6 s, 35.2 s
+ * and 37.0 s for 1000 rows of patchstate over 30 days (live tenant,
+ * 03/11/2026). At 30 s the client aborted the page and ran it again.
+ */
+export const SEARCH_RESULTS_TIMEOUT_MS = 120_000;
+
 export const SEARCH_RESULTS = `query FusionSearchResults($urn: URN!, $cursor: String, $limit: Int) {
   searchResults(urn: $urn, cursor: $cursor, limit: $limit) {${RESULT_PAGE_FIELDS}
   }
