@@ -3,8 +3,8 @@
  * over an in-memory transport and lists the tools. No credentials and no
  * network: registration never calls Sophos. Proves the server still exposes
  * the 307 Classic tools plus the 21 Fusion case tools, the Fusion detection
- * search and the 4 Fusion search tools, and that the descriptions carry the
- * measured warnings.
+ * search, the 4 Fusion search tools and the Fusion endpoint inventory, and
+ * that the descriptions carry the measured warnings.
  */
 
 import test from "node:test";
@@ -46,6 +46,8 @@ const FUSION_SEARCH_TOOLS = [
   "sophos_fusion_get_search",
   "sophos_fusion_get_search_results",
 ];
+
+const FUSION_INVENTORY_TOOLS = ["sophos_fusion_endpoint_inventory"];
 
 // Endpoint API bulk actions and Email API S/MIME, released October 2026
 const OCTOBER_2026_REST_TOOLS = [
@@ -139,22 +141,24 @@ async function listAllTools() {
   return { modules, tools };
 }
 
-test("tools/list exposes the 307 Classic tools plus the 26 Fusion tools", async () => {
+test("tools/list exposes the 307 Classic tools plus the 27 Fusion tools", async () => {
   const { modules, tools } = await listAllTools();
   const names = new Set(tools.map((t) => t.name));
 
   assert.ok(modules.includes("fusion-cases"), "fusion-cases is imported by src/index.ts");
   assert.ok(modules.includes("fusion-detections"), "fusion-detections is imported by src/index.ts");
   assert.ok(modules.includes("fusion-search"), "fusion-search is imported by src/index.ts");
+  assert.ok(modules.includes("fusion-inventory"), "fusion-inventory is imported by src/index.ts");
   assert.ok(modules.includes("email-smime"), "email-smime is imported by src/index.ts");
-  assert.equal(tools.length, 333);
-  assert.equal(names.size, 333, "tool names are unique");
+  assert.equal(tools.length, 334);
+  assert.equal(names.size, 334, "tool names are unique");
 
   for (const name of CLASSIC_CASE_TOOLS) assert.ok(names.has(name), `${name} still registered`);
   for (const name of CLASSIC_DETECTION_TOOLS) assert.ok(names.has(name), `${name} still registered`);
   for (const name of FUSION_CASE_TOOLS) assert.ok(names.has(name), `${name} registered`);
   for (const name of FUSION_DETECTION_TOOLS) assert.ok(names.has(name), `${name} registered`);
   for (const name of FUSION_SEARCH_TOOLS) assert.ok(names.has(name), `${name} registered`);
+  for (const name of FUSION_INVENTORY_TOOLS) assert.ok(names.has(name), `${name} registered`);
   for (const name of OCTOBER_2026_REST_TOOLS) assert.ok(names.has(name), `${name} registered`);
 
   const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
@@ -173,7 +177,7 @@ test("every Fusion case tool has a schema, annotations and dash-free prose", asy
     assert.doesNotMatch(tool.description, /[\u2013\u2014]/, `${tool.name} description has no en or em dash`);
   }
   const readOnly = tools.filter((t) => t.name.startsWith("sophos_fusion_") && t.annotations.readOnlyHint);
-  assert.equal(readOnly.length, 12, "twelve Fusion tools are read-only");
+  assert.equal(readOnly.length, 13, "thirteen Fusion tools are read-only");
 });
 
 test("the October 2026 tools: dash-free prose, destructive marks on the risky writes, read-only reads", async () => {
@@ -204,6 +208,23 @@ test("the October 2026 tools: dash-free prose, destructive marks on the risky wr
   assert.ok(byName.get("sophos_reset_smime_config").inputSchema.required.includes("delete_token"));
   assert.match(byName.get("sophos_fusion_create_search").description, /from process earliest=-1h \| fields host_id, image_path/);
   assert.equal(byName.get("sophos_fusion_get_search_results").inputSchema.properties.limit.maximum, 1000);
+});
+
+test("the endpoint inventory tool states the staleness and no-CVE caveats and caps its reads", async () => {
+  const { tools } = await listAllTools();
+  const tool = tools.find((t) => t.name === "sophos_fusion_endpoint_inventory");
+  assert.equal(tool.annotations.readOnlyHint, true);
+  assert.equal(tool.annotations.destructiveHint, false);
+  assert.deepEqual(tool.inputSchema.properties.schema.enum, ["softwareinfo", "patchstate", "inventoryinfo"]);
+  assert.ok(tool.inputSchema.required.includes("schema"));
+  assert.equal(tool.inputSchema.properties.max_rows.maximum, 10000);
+  assert.equal(tool.inputSchema.properties.days.maximum, 30);
+  assert.equal(tool.inputSchema.properties.stale_after_days.default, 3);
+  assert.match(tool.description, /keeps writing them for about 30 days after a device goes offline/);
+  assert.match(tool.description, /no CVE or missing patch field/);
+  assert.match(tool.description, /lastSeenAt from the Endpoint API/);
+  assert.match(tool.description, /CrowdStrike only softwareinfo/);
+  assert.doesNotMatch(tool.description, /[\u2013\u2014]/);
 });
 
 test("a tool that writes a local file is not marked read-only", async () => {

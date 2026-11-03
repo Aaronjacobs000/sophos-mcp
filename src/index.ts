@@ -69,6 +69,7 @@ import { registerBusinessAutomationTools } from "./tools/business-automation.js"
 import { registerFusionCaseTools } from "./tools/fusion-cases.js";
 import { registerFusionDetectionTools } from "./tools/fusion-detections.js";
 import { registerFusionSearchTools } from "./tools/fusion-search.js";
+import { registerFusionInventoryTools } from "./tools/fusion-inventory.js";
 
 async function main(): Promise<void> {
   // Load and validate config
@@ -167,6 +168,7 @@ async function main(): Promise<void> {
     registerFusionCaseTools(server, fusionClient, tenantResolver, caseReferenceData, migrationGuard);
     registerFusionDetectionTools(server, fusionClient, tenantResolver);
     registerFusionSearchTools(server, fusionClient, tenantResolver);
+    registerFusionInventoryTools(server, fusionClient, sophosClient, tenantResolver);
 
     return server;
   };
