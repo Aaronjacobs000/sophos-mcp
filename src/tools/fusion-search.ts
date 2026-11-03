@@ -68,6 +68,8 @@ Asynchronous: poll sophos_fusion_get_search with the urn until status is COMPLET
 
 Working example: "${EXAMPLE_SEARCH_QUERY}". Set an explicit earliest, and project with | fields: an unprojected search returns hundreds of fields per row. hostname and enrichSummary are derived fields and cannot be named in | fields; keep host_id to get hostname.
 
+Endpoint inventory: softwareinfo (installed applications), patchstate (installed OS patches, one row per KB) and inventoryinfo (device record). One snapshot per device per day, offline devices included, so check last seen with sophos_list_endpoints. Example: "from softwareinfo where product.name contains 'Chrome' earliest=-1d | fields host_id, device.hostname, product.name, product.version".
+
 Every call starts a new execution. After a timeout, check before repeating it, or use sophos_fusion_get_or_create_search.
 
 Args:

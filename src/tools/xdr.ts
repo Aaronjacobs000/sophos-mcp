@@ -24,11 +24,14 @@ export function registerXdrTools(
       title: "Run XDR Data Lake Query",
       description: `Start an asynchronous SQL query against the Sophos XDR Data Lake.
 
-The Data Lake contains historical telemetry data from endpoints. You can query tables such as:
+The Data Lake contains historical telemetry data from endpoints. Query the xdr_data table and
+pick the data set with a WHERE filter on its query_name column, with values such as:
 running_processes_windows_sophos, network_interfaces, open_sockets, listening_ports,
 authentication_activity, runtime_activity, installed_applications, service_activity,
 scheduled_task_activity, browser_plugins, chrome_extensions, changed_files_windows_sophos,
-sophos_detections_linux, sophos_ips_windows, and many more.
+sophos_detections_linux, sophos_ips_windows, and many more. These are filter values, not table
+names. The query_name column is unrelated to this tool's query_name argument, which only
+labels the run.
 
 This is an async API. Returns a run_id. Use sophos_get_xdr_query_run to poll status,
 then sophos_get_xdr_query_results to fetch results once finished.
@@ -44,7 +47,7 @@ Returns:
   run_id and initial status. Poll with sophos_get_xdr_query_run.
 
 Example SQL:
-  SELECT endpoint_id, name, path, sha256 FROM running_processes_windows_sophos LIMIT 100`,
+  SELECT meta_hostname, name, path, sha256 FROM xdr_data WHERE query_name = 'running_processes_windows_sophos' LIMIT 100`,
       inputSchema: {
         tenant_id: z
           .string()
