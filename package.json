@@ -1,6 +1,6 @@
 {
   "name": "sophos-central-mcp-server",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "files": [
     "dist",
     "docs"

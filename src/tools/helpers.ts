@@ -47,11 +47,13 @@ const TRUNCATION_NOTICE =
  * largest top-level array (the page of items) is cut to the items that fit,
  * the JSON stays valid, and a `truncated` key comes first saying how many were
  * left out and, given the tool's paging arguments, the request that returns
- * them. A list whose API cannot page passes a Narrowing instead, and the
- * notice names the arguments that narrow it. pageField names the array that
- * holds the page when another array in the result can be larger. Only a
- * result with no such array, or whose first item alone is too big, is cut as
- * text with a notice.
+ * them. The page's own has_next_page, has_more, next_offset and the cursors
+ * beside those flags are changed to agree with it (see pageSignals), so a page
+ * that lost items never says it is the last. A list whose API cannot page
+ * passes a Narrowing instead, and the notice names the arguments that narrow
+ * it. pageField names the array that holds the page when another array in the
+ * result can be larger. Only a result with no such array, or whose first item
+ * alone is too big, is cut as text with a notice.
  */
 export function jsonResult(data: unknown, paging?: PageArgs | Narrowing, pageField?: string): ToolResult {
   const text = JSON.stringify(data, null, 2);
@@ -82,7 +84,9 @@ function fitPage(data: unknown, paging: PageArgs | Narrowing | undefined, pageFi
   // with its own truncated key cannot replace it.
   const render = (kept: number) => {
     const notice = truncation(field, kept, items.length, paging);
-    const out: Record<string, unknown> = { truncated: notice, ...record, [field]: items.slice(0, kept) };
+    const signals = pageSignals(record, notice.next);
+    if (signals.said) notice.how = `${notice.how} ${signals.said}`;
+    const out: Record<string, unknown> = { truncated: notice, ...record, ...signals.fields, [field]: items.slice(0, kept) };
     out.truncated = notice;
     return JSON.stringify(out, null, 2);
   };
@@ -126,9 +130,46 @@ function truncation(field: string, kept: number, onPage: number, paging: PageArg
   };
 }
 
+/** A page's own flags for whether more items follow. */
+const MORE_KEYS = ["has_next_page", "has_more"] as const;
+/** A page's own cursors, which point after the last item Sophos sent. */
+const POINTER_KEYS = ["end_cursor", "next_cursor", "next_key"] as const;
+
+/**
+ * The page's own paging fields, changed to agree with truncated.next once
+ * items are left out, so a client that trusts them neither stops early nor
+ * skips the omitted items: has_next_page and has_more read true, next_offset
+ * reads the next request's offset, and a cursor beside has_next_page or
+ * has_more reads null, since it points past the omitted items. A cursor with
+ * no such flag beside it is the page's only end marker (null there means the
+ * end), so it is left as Sophos sent it.
+ */
+function pageSignals(
+  record: Record<string, unknown>,
+  next: Record<string, unknown> | null
+): { fields: Record<string, unknown>; said: string } {
+  const fields: Record<string, unknown> = {};
+  const said: string[] = [];
+  const flags = MORE_KEYS.filter((key) => typeof record[key] === "boolean");
+  if (flags.length > 0) {
+    for (const key of flags) fields[key] = true;
+    said.push(`${orList([...flags])} ${flags.length === 1 ? "is" : "are"} true, since items were left out`);
+    const pointers = POINTER_KEYS.filter((key) => record[key] !== undefined && record[key] !== null);
+    for (const key of pointers) fields[key] = null;
+    if (pointers.length > 0) {
+      said.push(`${orList([...pointers])} ${pointers.length === 1 ? "is null, since it" : "are null, since they"} pointed past them`);
+    }
+  }
+  if ("next_offset" in record && typeof next?.offset === "number") {
+    fields.next_offset = next.offset;
+    said.push(`next_offset is ${next.offset}, the first omitted item`);
+  }
+  return { fields, said: said.length > 0 ? `To match, this response's ${said.join("; ")}.` : "" };
+}
+
 const SIZE_KEYS = ["limit", "page_size", "per_page"] as const;
 const CURSOR_KEYS = ["cursor", "page_from_key", "after"] as const;
-const SKIPS_AHEAD = "Do not follow this response's own next page, offset or cursor: it starts after the omitted items.";
+const SKIPS_AHEAD = "Do not follow a next page, offset or cursor Sophos sent with this page: it starts after the omitted items.";
 
 type NextRequest = {
   next: Record<string, unknown> | null;
