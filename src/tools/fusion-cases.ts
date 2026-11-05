@@ -29,7 +29,7 @@ import { FusionGraphQLError, type FusionClient } from "../client/fusion-client.j
 import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { CaseReferenceDataCache } from "../fusion/case-reference-data.js";
 import { tenantTypeOf, type FusionMigrationGuard } from "../fusion/migration.js";
-import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "../config/config.js";
+import { CHARACTER_LIMIT, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "../config/config.js";
 import { buildCasesQl } from "../fusion/cases-ql.js";
 import {
   CASE_SEVERITY_NAMES,
@@ -185,7 +185,7 @@ Args:
   - page (number, optional, default 1) and per_page (number, optional, 1-100, default 50), or after (string, optional): the endCursor from a previous page for cursor pagination.
 
 Returns:
-  total, page info (has_next_page, end_cursor), the QL string used, and cases with id, short_id, title, severity, type, status, tags, assignee_id, managed_by, timestamps.`,
+  total, page info (has_next_page, end_cursor), the QL string used, and cases with id, short_id, title, severity, type, status, tags, assignee_id, managed_by, timestamps. A page too big for the response limit is cut to the cases that fit and leads with truncated: has_next_page then reads true and end_cursor null, and truncated.next is the request that returns the rest. Follow it, not page + 1.`,
       inputSchema: {
         tenant_id: tenantIdField,
         query: z.string().optional().describe("Raw QL predicate, optionally with | sort"),
@@ -360,7 +360,7 @@ Args:
   - max_detections (number, optional, 1-100, default 50): Cap on detections resolved (one API call regardless).
 
 Returns:
-  case (key findings capped at 4000 characters here; sophos_fusion_get_case returns the full text), evidence counts, detections_resolved vs detections_total, mitre_summary, then detections (id, title, severity_0_to_1, status, detector, entities, timestamps).`,
+  case (key findings capped at 4000 characters here; sophos_fusion_get_case returns the full text), evidence counts, detections_resolved vs detections_total, mitre_summary, then detections (id, title, severity_0_to_1, status, detector, entities, timestamps). A summary too big for the response limit has its biggest lists (evidence.event_ids, evidence.asset_ids, detections) cut first, and a leading truncated key names each cut and where the rest is.`,
       inputSchema: {
         case_id: z.string().describe(ID_NOTE),
         tenant_id: tenantIdField,
@@ -427,26 +427,29 @@ Returns:
       // and a real case's key findings alone ran to 20 KB, which pushed the
       // MITRE roll-up (last key) past the cap. Key findings are capped with a
       // pointer to sophos_fusion_get_case, and the roll-up precedes the list.
+      // The ID lists and detections are cut to fit by fitSummary.
       return jsonResult(
-        withWarnings(
-          {
-            case: capKeyFindings(formatCaseDetail(caseResult.data.case)),
-            evidence: evidence
-              ? {
-                  detections: evidence.detectionsEvidenceCount,
-                  events: evidence.eventsEvidenceCount,
-                  assets: evidence.assetsEvidenceCount,
-                  search_queries: evidence.searchQueriesEvidenceCount,
-                  event_ids: (evidence.eventsEvidence ?? []).map((e) => e.eventId),
-                  asset_ids: (evidence.assetsEvidence ?? []).map((a) => a.assetId),
-                }
-              : null,
-            detections_total: detectionIds.length,
-            detections_resolved: detections.length,
-            mitre_summary: mitreSummary,
-            detections,
-          },
-          warnings
+        fitSummary(
+          withWarnings(
+            {
+              case: capKeyFindings(formatCaseDetail(caseResult.data.case)),
+              evidence: evidence
+                ? {
+                    detections: evidence.detectionsEvidenceCount,
+                    events: evidence.eventsEvidenceCount,
+                    assets: evidence.assetsEvidenceCount,
+                    search_queries: evidence.searchQueriesEvidenceCount,
+                    event_ids: (evidence.eventsEvidence ?? []).map((e) => e.eventId),
+                    asset_ids: (evidence.assetsEvidence ?? []).map((a) => a.assetId),
+                  }
+                : null,
+              detections_total: detectionIds.length,
+              detections_resolved: detections.length,
+              mitre_summary: mitreSummary,
+              detections,
+            },
+            warnings
+          )
         )
       );
     })
@@ -2005,6 +2008,91 @@ function sleep(ms: number): Promise<void> {
 }
 
 const SUMMARY_KEY_FINDINGS_CHARS = 4000;
+
+type SummaryLists = {
+  evidence: { event_ids: string[]; asset_ids: string[] } | null;
+  detections: unknown[];
+  detections_resolved: number;
+};
+
+/**
+ * The case summary cut to fit CHARACTER_LIMIT as whole JSON. jsonResult cuts
+ * only a top-level array, and evidence.event_ids sits inside evidence: on a
+ * case with 1,693 attached events it alone ran past the limit, so the response
+ * was cut mid-JSON whatever max_detections was. Here the biggest of
+ * evidence.event_ids, evidence.asset_ids and detections is cut first, to the
+ * items that fit, then the next if it still does not fit, and a truncated key
+ * comes first naming each cut and where the rest is.
+ */
+function fitSummary<T extends SummaryLists>(summary: T): T | ({ truncated: unknown } & T) {
+  const lists = [
+    {
+      field: "evidence.event_ids",
+      items: summary.evidence?.event_ids ?? [],
+      how: "evidence.events is the full count. sophos_fusion_get_case_evidence lists the event IDs with attachment details, as many as fit its own response: Fusion returns case evidence as one list with no paging.",
+    },
+    {
+      field: "evidence.asset_ids",
+      items: summary.evidence?.asset_ids ?? [],
+      how: "evidence.assets is the full count. sophos_fusion_get_case_evidence lists the asset IDs, as many as fit its own response.",
+    },
+    {
+      field: "detections",
+      items: summary.detections,
+      how: `detections_resolved and mitre_summary still cover all ${summary.detections_resolved} resolved detections; the list holds the first in evidence order. sophos_fusion_get_case_evidence lists every attached detection ID.`,
+    },
+  ];
+  const kept = new Map(lists.map((list) => [list.field, list.items.length]));
+
+  const build = () => {
+    const cuts = lists
+      .filter((list) => kept.get(list.field)! < list.items.length)
+      .map((list) => ({
+        field: list.field,
+        returned: kept.get(list.field)!,
+        omitted: list.items.length - kept.get(list.field)!,
+        how: list.how,
+      }));
+    const slice = (list: (typeof lists)[number]) => list.items.slice(0, kept.get(list.field));
+    const out = {
+      ...summary,
+      evidence: summary.evidence
+        ? { ...summary.evidence, event_ids: slice(lists[0]), asset_ids: slice(lists[1]) }
+        : null,
+      detections: slice(lists[2]),
+    };
+    if (cuts.length === 0) return out;
+    return {
+      truncated: {
+        reason: `The summary ran past the ${CHARACTER_LIMIT} character response limit, so its largest lists were cut to the items that fit, biggest first.`,
+        fields: cuts,
+      },
+      ...out,
+    };
+  };
+  const fits = () => JSON.stringify(build(), null, 2).length <= CHARACTER_LIMIT;
+  if (fits()) return summary;
+
+  const bySize = lists
+    .filter((list) => list.items.length > 0)
+    .sort((a, b) => JSON.stringify(b.items).length - JSON.stringify(a.items).length);
+  for (const list of bySize) {
+    // The largest count that fits: low always fits, high never does.
+    kept.set(list.field, 0);
+    if (!fits()) continue;
+    let low = 0;
+    let high = list.items.length;
+    while (high - low > 1) {
+      const mid = Math.floor((low + high) / 2);
+      kept.set(list.field, mid);
+      if (fits()) low = mid;
+      else high = mid;
+    }
+    kept.set(list.field, low);
+    break;
+  }
+  return build();
+}
 
 /** Caps key findings in the summary; sophos_fusion_get_case returns the full text. */
 function capKeyFindings<T extends { key_findings: { document_type: string; content: string } | null }>(
