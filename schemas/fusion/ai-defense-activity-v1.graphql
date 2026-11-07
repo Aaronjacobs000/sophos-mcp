@@ -1,0 +1,1037 @@
+"ISO 8601 timestamp."
+scalar Time
+
+"64-bit signed integer. Use instead of `Int` when values may exceed the GraphQL Int 32-bit range."
+scalar Int64
+
+"""
+The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf).
+"""
+scalar JSON
+
+"Authorization directive — guards a field on the named permission grant (resource + action)."
+directive @hasAuthzPermissionGrant(resource: String!, action: String!) on FIELD_DEFINITION
+
+"""
+Authorization directive with tenant expansion — expands a single requested tenant to
+the tenants beneath it (partner → children), narrows the result to the tenants the caller
+may perform the named permission grant on. A multi-tenant request is narrowed without expansion.
+"""
+directive @hasAuthzPermissionGrantWithExpansion(resource: String!, action: String!) on FIELD_DEFINITION
+
+"Outcome of policy enforcement applied to an AI activity."
+enum Action {
+  "Source did not report an enforcement action."
+  UNKNOWN
+  "Activity was permitted by policy."
+  ALLOWED
+  "Activity was blocked by policy."
+  BLOCKED
+  "Activity was permitted but the user was shown a warning."
+  WARNED
+  "Activity was permitted with content modification."
+  MODIFIED
+}
+
+"""
+Risk classification shared across Secure AI activities, top apps, top users,
+the inventory views, and the AI Risk Assessment reports.
+"""
+enum RiskLevel {
+  "Risk was not classified."
+  UNKNOWN
+  "Informational only."
+  INFO
+  "Low risk."
+  LOW
+  "Medium risk."
+  MEDIUM
+  "High risk."
+  HIGH
+  "Critical risk."
+  CRITICAL
+  """
+  The Secure AI catalog risk lookup could not resolve a usable risk for this
+  app.
+  """
+  ERROR
+}
+
+"""
+3-state app-risk signal (SAFE / CHECK_POLICY / DANGEROUS) surfaced on
+`SecureAiActivity.appRisk`. Derived from the activity's runtime `risk`:
+HIGH/CRITICAL → DANGEROUS, MEDIUM/UNKNOWN → CHECK_POLICY, INFO/LOW → SAFE.
+"""
+enum AppRisk {
+  "Risk is below the review threshold (INFO/LOW)."
+  SAFE
+  "Severity is borderline or undetermined (MEDIUM/UNKNOWN) — review policy."
+  CHECK_POLICY
+  "Elevated risk (HIGH/CRITICAL)."
+  DANGEROUS
+}
+
+"Type of actor that performed an activity."
+enum ActorType {
+  "Actor type was not reported or could not be resolved."
+  UNKNOWN
+  "OS or platform-level actor (e.g. kernel, service host)."
+  SYSTEM
+  "Service account or daemon."
+  SERVICE
+  "Human user."
+  USER
+  "Running process — `Actor.name` is the executable name, `Actor.id` is the process UUID."
+  PROCESS
+  "Non-user network entity — `Actor.name` is a hostname or IP; `Actor.id` is a stable host id or `address:port`."
+  NETWORK_ENTITY
+}
+
+"Endpoint device kind on which an activity was observed."
+enum DeviceType {
+  COMPUTER
+  SERVER
+  SECURITY_VM
+  UNKNOWN
+}
+
+"Operating-system platform on which an activity was observed."
+enum DevicePlatform {
+  WINDOWS
+  LINUX
+  MACOS
+  IOS
+  ANDROID
+  UNKNOWN
+}
+
+"""
+Enforcement sensor category. Null on `Sensor.type` when the source value is
+missing or unclassified.
+"""
+enum SensorType {
+  "Sophos Endpoint Web Control."
+  ENDPOINT
+  "SFOS web filtering."
+  FIREWALL
+  "DNS Protection (SWG)."
+  DNS
+  "Protected Browser."
+  BROWSER
+}
+
+"""
+Product the user selected on the onboarding Sensor Selector step — not
+`SensorType`, since Server has no telemetry counterpart. `ENDPOINT`/`FIREWALL`
+reuse `SensorType`'s string values.
+"""
+enum ProductKey {
+  ENDPOINT
+  FIREWALL
+  SERVER
+}
+
+"Time interval associated with an observed activity."
+type SecureAITimestamp {
+  "Inclusive start of the activity interval."
+  startTime: Time!
+  "Inclusive end of the activity interval."
+  endTime: Time!
+}
+
+"Entity (typically a user) that performed an activity."
+type Actor {
+  "Display name of the actor."
+  name: String!
+  "Kind of actor."
+  type: ActorType!
+  """
+  Public actor id: the stable actor identifier (e.g. a user SID) when resolved,
+  otherwise an opaque temporary id derived from the actor's name and type.
+  """
+  id: String!
+}
+
+"""
+Company that owns/ships the AI application (e.g. OpenAI for ChatGPT, Anthropic
+for Claude, Cursor Inc. for Cursor). Sourced from the AI Defense
+provider catalog. Distinct from `ModelProvider`, which describes the LLM-serving
+org for an individual activity.
+"""
+type ApplicationProvider {
+  "Stable provider identifier (slug)."
+  id: String!
+  "Provider display name (e.g. 'OpenAI', 'Anthropic')."
+  name: String!
+}
+
+"""
+Company providing the LLM used for inference in this specific activity. Distinct
+from `ApplicationProvider`: for first-party apps (ChatGPT) they coincide; for
+model-agnostic apps (Cursor) the activity's `modelProvider` may differ from the
+application's provider — or be null when the provider can't be determined.
+"""
+type ModelProvider {
+  "Model provider name (e.g. 'OpenAI', 'Anthropic')."
+  name: String!
+}
+
+"The concrete LLM model used in this activity. Null when undeterminable."
+type AiModel {
+  "Stable model identifier from the provider API (e.g. 'gpt-4o-2024-08-06'). Empty when not reported."
+  id: String!
+  "Human-readable model name (e.g. 'GPT-4o', 'Claude Sonnet'). Empty when not reported."
+  name: String!
+  "Model version identifier. Empty when not reported."
+  version: String!
+}
+
+"Sensor that observed an activity."
+type Sensor {
+  "Unique sensor identifier."
+  id: String!
+  "Sensor display name."
+  name: String!
+  """
+  Normalized sensor category when classified; null when missing or unclassified
+  in source data.
+  """
+  type: SensorType
+  "Sensor vendor (e.g. 'Sophos'). Empty when not reported."
+  vendor: String!
+}
+
+"""
+AI application accessed during an activity (e.g. ChatGPT, Claude, Cursor).
+Includes the application's stable identity and the catalog attributes available
+for the activity.
+"""
+type Application {
+  "Stable application identifier (slug)."
+  id: String!
+  "Application display name."
+  name: String!
+  "Primary application categories (functional use cases — e.g. 'general_assistant', 'code_assistant')."
+  categories: [String!]!
+  "Training-data policies (e.g. 'opt_out_available', 'no_training', 'enterprise_no_training')."
+  trainingPolicies: [String!]!
+  "Compliance certifications (e.g. 'soc2_type2', 'gdpr_compliant')."
+  compliance: [String!]!
+}
+
+"Endpoint device on which an activity was observed."
+type Device {
+  "Unique device identifier."
+  id: String!
+  "Device kind."
+  type: DeviceType!
+  "Device operating-system platform."
+  platform: DevicePlatform!
+  "Device display name. Empty when not resolved."
+  name: String!
+}
+
+"A single observed Secure AI activity event."
+type SecureAiActivity {
+  "Unique activity identifier."
+  id: ID!
+  "Time interval the activity covered."
+  timestamp: SecureAITimestamp!
+  "Actor that performed the activity."
+  actor: Actor!
+  "AI application accessed during the activity (always present, derived from the HOST participant)."
+  application: Application!
+  "Company that owns/ships the application. Null when the provider can't be determined for the activity."
+  applicationProvider: ApplicationProvider
+  "Company providing the LLM used in this activity. Null when undeterminable (e.g. Cursor)."
+  modelProvider: ModelProvider
+  "Concrete LLM model used in this activity. Null when undeterminable."
+  model: AiModel
+  "Sensors that observed the activity."
+  sensors: [Sensor!]!
+  "Enforcement action applied. Null if the source did not report one."
+  action: Action
+  """
+  Stable identifier of the policy that produced the action. Null for older
+  activities that do not record it. Use this for filtering. Use `policy`
+  as the human-readable name.
+  """
+  policyId: String
+  "Name of the policy that produced the action. Empty string when not populated."
+  policy: String!
+  "Endpoint device on which the activity was observed."
+  device: Device!
+  "Risk classification for the activity (full-fidelity severity)."
+  risk: RiskLevel!
+  "App-level risk signal (SAFE/CHECK_POLICY/DANGEROUS), derived from `risk`."
+  appRisk: AppRisk!
+  """
+  Per-activity enrichment signals:
+  
+  * `sourceAddresses` — originating IP(s) observed for the activity.
+  
+  Get-only: populated by the single-activity query (`Query.activity(id)`); the
+  list query (`Query.activities`) clears this field and returns an empty object
+  to keep list responses small. Use the single-activity query to fetch
+  enrichment.
+  """
+  additionalData: JSON!
+  "Number of correlated telemetry records assembled into this activity. Minimum 1."
+  aggregationCount: Int64!
+  """
+  True when no policy covers the AI app for the tenant and the activity was
+  allowed. False for covered apps, for uncovered activity that was warned,
+  blocked, or modified, and for unclassified activity.
+  """
+  isUnsanctioned: Boolean!
+}
+
+"Relay-style paginated list of activities returned by `Query.activities`."
+type SecureAiActivityConnection {
+  "Activities on the current page."
+  activities: [SecureAiActivity!]!
+  "Cursor pagination metadata."
+  pageInfo: PageInfo!
+  """
+  Total number of activities matching the current filter across all pages.
+  """
+  totalCount: Int64!
+}
+
+"Filter predicates for `Query.activities`. All fields are AND-combined; within an array, values are OR-combined (`IN`-clause semantics). An empty/null array applies no constraint."
+input SecureAiActivityFilter {
+  """
+  Case-insensitive literal substring match across activity id, application
+  id/name, application-provider id/name, model id/name/provider, actor id/name,
+  device id/name, and policy name. The search fields are OR-combined; this
+  predicate remains AND-combined with every other filter field. Blank input
+  applies no constraint.
+  """
+  search: String
+  "Match against actor type."
+  actorType: ActorType
+  "Match against the model provider name (e.g. 'OpenAI', 'Anthropic') — the LLM-serving org."
+  modelProviderName: String
+  "Match against application's category list. Matches activities whose application has any of these."
+  applicationCategories: [String!]
+  "Match against application's compliance posture."
+  applicationCompliance: [String!]
+  "Match against application's training policies. Matches activities having any of the given policies."
+  applicationTrainingPolicies: [String!]
+  """Keep only activities where at least one sensor has one of these types."""
+  sensorTypes: [SensorType!]
+  "Filter by enforcement actions. Matches when an activity's action is in this list."
+  actions: [Action!]
+  "Filter by risk levels. Matches when an activity's risk is in this list."
+  risks: [RiskLevel!]
+  "Filter by public actor ids (`Actor.id`, stable or temporary fallback). Case-significant exact match."
+  actorIds: [String!]
+  "Filter by application identifiers (Application.id — slug). Case-significant exact match."
+  applicationIds: [ID!]
+  "Filter by device identifiers (`Device.id`). Case-significant exact match."
+  deviceIds: [String!]
+  "Filter by observed device kinds (Device.type)."
+  deviceTypes: [DeviceType!]
+  "Filter by observed device platforms (Device.platform)."
+  devicePlatforms: [DevicePlatform!]
+  "Filter by stable policy identifiers. Matches when an activity's matched policy id is in this list. Names can change and historical events may carry prior names — filter by id."
+  policyIds: [ID!]
+  """
+  Match activities by their isUnsanctioned value. True matches allowed
+  activities for AI apps not covered by a policy; false matches every other
+  activity. Omit for no filter.
+  """
+  isUnsanctioned: Boolean
+  "When true, match activities with a policy attribution; when false, match activities without a policy attribution. Omit for no filter."
+  hasPolicy: Boolean
+  """
+  Provide absolute times or a relative preset. Default cannot live on the
+  `relative` field itself because it would auto-fill when only startTime/endTime
+  is provided, triggering the mutual-exclusivity error.
+  """
+  timeRange: SecureAITimeRange = {relative: SINCE_BEGINNING_OF_DAY}
+}
+
+"""
+Reuses the platform-wide ReportRelativeTimeFramePeriodV2 enum defined by
+report-service / reporting-api so that Apollo Federation merges cleanly.
+"""
+enum ReportRelativeTimeFramePeriodV2 {
+  "Midnight UTC of the current day to now."
+  SINCE_BEGINNING_OF_DAY
+  "Most recent Sunday 00:00 UTC to now."
+  SINCE_BEGINNING_OF_WEEK_SUNDAY
+  "Most recent Monday 00:00 UTC to now."
+  SINCE_BEGINNING_OF_WEEK_MONDAY
+  "First day of the current month 00:00 UTC to now."
+  SINCE_BEGINNING_OF_MONTH
+  "First day of the current quarter 00:00 UTC to now."
+  SINCE_BEGINNING_OF_QUARTER
+  "First day of the current year 00:00 UTC to now."
+  SINCE_BEGINNING_OF_YEAR
+  "Entirety of the previous calendar month."
+  LAST_MONTH
+  "Entirety of the previous calendar quarter."
+  LAST_QUARTER
+  "Entirety of the previous calendar year."
+  LAST_YEAR
+}
+
+"""
+Time range filter for activities. When omitted, the API defaults to
+SINCE_BEGINNING_OF_DAY.
+
+Provide **either** absolute times (startTime/endTime) **or** a relative preset
+— not both. Using both returns a validation error.
+"""
+input SecureAITimeRange {
+  "Absolute start time. Cannot be combined with `relative`."
+  startTime: Time
+  "Absolute end time. Cannot be combined with `relative`."
+  endTime: Time
+  """
+  Relative preset (e.g. SINCE_BEGINNING_OF_DAY). Cannot be combined with
+  startTime/endTime.
+  """
+  relative: ReportRelativeTimeFramePeriodV2
+}
+
+"Field by which `Query.activities` can be sorted."
+enum SecureAISortField {
+  "Sort by activity timestamp."
+  TIMESTAMP
+  "Sort by enforcement action."
+  ACTION
+  "Sort by actor name."
+  ACTOR_NAME
+  "Sort by provider name."
+  PROVIDER_NAME
+  DEVICE_NAME
+}
+
+"Sort direction."
+enum SecureAISortOrder {
+  "Ascending order."
+  ASC
+  "Descending order."
+  DESC
+}
+
+"Sort specification — field and direction."
+input SortInput {
+  "Field to sort by."
+  field: SecureAISortField!
+  "Sort direction. Defaults to descending."
+  order: SecureAISortOrder! = DESC
+}
+
+"""
+Filter predicates for `Query.appInventory`. All fields are AND-combined.
+Mirrors the filter shape of [SecureAiActivityFilter] but scoped to the
+per-app inventory dimensions.
+"""
+input SecureAIAppInventoryFilter {
+  "Case-insensitive literal substring match against app id, name, or provider. Blank input applies no constraint."
+  search: String
+  "Match apps with at least one of these risk levels."
+  riskLevels: [RiskLevel!]
+  "Match apps with at least one of these application categories."
+  categories: [String!]
+  "Match apps with at least one of these compliance certifications."
+  complianceCertificates: [String!]
+  "Match apps with at least one of these training policies."
+  trainingPolicies: [String!]
+  "When true, match apps whose trainingPolicies indicate training by default (`trains_on_input` or `opt_out_available`); when false, match apps with known no-training policies."
+  trainsOnUserData: Boolean
+  "Match apps by their exact id."
+  appId: String
+  "When true, match only apps with at least one unsanctioned (NOT_COVERED and allowed) activity; when false, match only sanctioned apps. Omit for no filter."
+  isUnsanctioned: Boolean
+  """
+  Provide absolute times or a relative preset. Default cannot live on the
+  `relative` field itself because it would auto-fill when only
+  startTime/endTime is provided, triggering the mutual-exclusivity error.
+  """
+  timeRange: SecureAITimeRange = {relative: SINCE_BEGINNING_OF_DAY}
+}
+
+"Filter predicates for `Query.userInventory`. All fields are AND-combined."
+input SecureAIUserInventoryFilter {
+  "Case-insensitive literal substring match against user id or name. Blank input applies no constraint."
+  search: String
+  "Match users with at least one of these risk levels."
+  riskLevels: [RiskLevel!]
+  "Match users whose derived top app id is one of these values."
+  topAppIds: [ID!]
+  """
+  Match users who used at least one of these AI apps in the window, regardless
+  of whether it is their top app. Use it to list
+  the users of an app. Unlike `topAppIds`, this matches any app the user touched, and the
+  matched-user count equals the app's unique-user total.
+  """
+  usedAppIds: [ID!]
+  "When true, match only users with at least one unsanctioned (NOT_COVERED and allowed) activity; when false, match only sanctioned users. Omit for no filter."
+  isUnsanctioned: Boolean
+  """
+  Provide absolute times or a relative preset. Default cannot live on the
+  `relative` field itself because it would auto-fill when only
+  startTime/endTime is provided, triggering the mutual-exclusivity error.
+  """
+  timeRange: SecureAITimeRange = {relative: SINCE_BEGINNING_OF_DAY}
+}
+
+"Filter predicates for `Query.inventorySummary`."
+input SecureAIInventorySummaryFilter {
+  timeRange: SecureAITimeRange = {relative: SINCE_BEGINNING_OF_DAY}
+}
+
+"""One AI application in the tenant inventory."""
+type SecureAIAppInventoryEntry {
+  "Stable AI app identifier for the grouped app."
+  id: ID!
+  "Human-readable AI app name (e.g. 'ChatGPT', 'Claude')."
+  name: String!
+  "AI service provider/vendor (e.g. 'OpenAI', 'Anthropic')."
+  provider: String!
+  """Risk classification for the app."""
+  risk: RiskLevel!
+  """
+  Whether this provider uses customer input data to train or improve models.
+  """
+  trainingPolicy: String
+  "True when `trainingPolicies` indicates training by default (`trains_on_input` or `opt_out_available`); false for known no-training policies; null when unknown or ambiguous."
+  trainsOnUserData: Boolean
+  """Compliance certifications the AI app holds."""
+  complianceCertificates: [String!]!
+  """Functional categories describing the AI application."""
+  categories: [String!]!
+  """Training policies for this provider."""
+  trainingPolicies: [String!]!
+  "Total number of activities/events for this app in the time window."
+  usage: Int64!
+  "Distinct users that interacted with this app in the time window."
+  uniqueUsers: Int64!
+  """
+  Most recent activity timestamp for this app in the time window.
+  Null when the app has no observed activity in the window (catalog-only entry).
+  """
+  lastSeen: Time
+  "Number of this app's activities in the time window that are unsanctioned."
+  unsanctionedCount: Int64!
+}
+
+"""
+One user in the tenant inventory, grouped by stable actor id or,
+when that is missing, by actor name and type. Activities with neither an actor
+id nor an actor name are excluded. Shape follows the Top Users
+aggregation but removes trend fields — inventory is "who is using AI", not
+"who is trending".
+"""
+type SecureAIUserInventoryEntry {
+  """
+  Public actor id: the stable actor identifier (e.g. a user SID) when resolved,
+  otherwise an opaque temporary id derived from the actor's name and type.
+  Matches `ActivityFilter.actorIds`, defines the inventory row's grouping
+  identity, and can be used to drill down into the user's activity.
+  """
+  id: String!
+  "Most-common non-empty actor name observed for this id, typically an email address."
+  name: String!
+  """
+  Worst-observed full-fidelity risk classification for the user over the time
+  window.
+  """
+  risk: RiskLevel!
+  """
+  Number of distinct AI applications used by this user in the time window. Use
+  the `userApps` query to page the actual app breakdown for one user.
+  """
+  appsUsed: Int64!
+  "Total number of this user's activities in the time window."
+  usage: Int64!
+  """
+  Number of activities where the security infrastructure took a non-allowed
+  action against the user.
+  """
+  policyViolations: Int64!
+  """
+  Stable id of the AI app the user interacted with most often in the time
+  window. Null when the user has no activity with a usable app identifier.
+  """
+  topAppId: ID
+  """
+  Name of the AI app the user interacted with most often in the time window.
+  Null when the user has no activity carrying a usable app participant.
+  """
+  topApp: String
+  "First observed activity timestamp for this user in the time window."
+  firstSeen: Time
+  "Most recent activity timestamp for this user in the time window."
+  lastSeen: Time
+  "Number of this user's activities in the time window that are unsanctioned."
+  unsanctionedCount: Int64!
+}
+
+"Offset/limit paginated list of inventory entries returned by `Query.appInventory`."
+type SecureAIAppInventoryPage {
+  "Entries on the current page."
+  entries: [SecureAIAppInventoryEntry!]!
+  "Total number of entries matching the current filter across all pages."
+  totalCount: Int64!
+  "Zero-based offset applied to this page after filtering and sorting."
+  offset: Int64!
+  "Maximum number of entries requested for this page, after server-side capping."
+  limit: Int64!
+  "True if more results exist after the current offset/limit window."
+  hasNextPage: Boolean!
+  "True if results exist before the current offset."
+  hasPreviousPage: Boolean!
+}
+
+"Offset/limit paginated list of inventory entries returned by `Query.userInventory`."
+type SecureAIUserInventoryPage {
+  "Entries on the current page."
+  entries: [SecureAIUserInventoryEntry!]!
+  "Total number of entries matching the current filter across all pages."
+  totalCount: Int64!
+  "Zero-based offset applied to this page after filtering and sorting."
+  offset: Int64!
+  "Maximum number of entries requested for this page, after server-side capping."
+  limit: Int64!
+  "True if more results exist after the current offset/limit window."
+  hasNextPage: Boolean!
+  "True if results exist before the current offset."
+  hasPreviousPage: Boolean!
+}
+
+"""Aggregate counts for AI applications in the inventory window."""
+type SecureAIAppInventorySummary {
+  "Total number of AI applications observed in the window."
+  totalApps: Int64!
+  "Apps whose Secure AI catalog risk band is CRITICAL."
+  criticalRisk: Int64!
+  "Apps whose Secure AI catalog risk band is HIGH."
+  highRisk: Int64!
+  "Apps whose Secure AI catalog risk band is MEDIUM."
+  mediumRisk: Int64!
+  "Apps whose Secure AI catalog risk band is LOW."
+  lowRisk: Int64!
+  "Apps whose Secure AI catalog risk band is INFO."
+  infoRisk: Int64!
+  "Apps explicitly classified UNKNOWN. Always zero on a successful response."
+  unknownRisk: Int64!
+  "Apps whose Secure AI catalog risk could not be resolved."
+  errorRisk: Int64!
+  """
+  Number of AI applications known to train on user data, including apps that
+  train by default with an opt-out available.
+  """
+  trainsOnData: Int64
+  "Number of apps with at least one unsanctioned (NOT_COVERED and allowed) activity in the window."
+  unsanctionedCount: Int64!
+}
+
+"""
+Aggregate counts for actors represented in the user inventory window. An actor is eligible when both its stable ID and display
+name are present, regardless of actor type, and is grouped by stable ID. Each
+eligible actor is counted once under its worst-observed risk level, so the six
+per-level counts sum to `totalUsers`.
+"""
+type SecureAIUserInventorySummary {
+  "Total number of distinct eligible actor IDs observed in the window."
+  totalUsers: Int64!
+  "Users whose worst-observed risk level is CRITICAL."
+  criticalRisk: Int64!
+  "Users whose worst-observed risk level is HIGH."
+  highRisk: Int64!
+  "Users whose worst-observed risk level is MEDIUM."
+  mediumRisk: Int64!
+  "Users whose worst-observed risk level is LOW."
+  lowRisk: Int64!
+  "Users whose worst-observed risk level is INFO."
+  infoRisk: Int64!
+  "Users whose worst-observed risk level is UNKNOWN (severity undetermined)."
+  unknownRisk: Int64!
+  "Number of observed users with at least one blocked, modified, or warned activity."
+  withViolations: Int64!
+  "Number of users with at least one unsanctioned (NOT_COVERED and allowed) activity in the window."
+  unsanctionedCount: Int64!
+}
+
+"Combined inventory summary for apps and users."
+type SecureAIInventorySummary {
+  "Application inventory aggregate counts."
+  apps: SecureAIAppInventorySummary!
+  "User inventory aggregate counts."
+  users: SecureAIUserInventorySummary!
+}
+
+"Field by which `Query.appInventory` can be sorted."
+enum SecureAIAppInventorySortField {
+  "Sort by app name."
+  NAME
+  "Sort by risk level."
+  RISK
+  "Sort by activity volume in the window."
+  USAGE
+  "Sort by distinct user count in the window."
+  UNIQUE_USERS
+  "Sort by most recent observed activity timestamp."
+  LAST_SEEN
+  "Sort by unsanctioned activity count in the window."
+  UNSANCTIONED_COUNT
+  "Sort by whether the app trains on user data."
+  TRAINS_ON_USER_DATA
+}
+
+"Field by which `Query.userInventory` can be sorted."
+enum SecureAIUserInventorySortField {
+  "Sort by user name."
+  NAME
+  "Sort by risk level."
+  RISK
+  "Sort by apps used."
+  APPS_USED
+  "Sort by activity volume in the window."
+  USAGE
+  "Sort by most recent observed activity timestamp."
+  LAST_SEEN
+  "Sort by unsanctioned activity count in the window."
+  UNSANCTIONED_COUNT
+  "Sort by policy violation count in the window."
+  POLICY_VIOLATIONS
+}
+
+"Sort specification for `Query.appInventory` — field and direction."
+input SecureAIAppInventorySortInput {
+  "Field to sort by."
+  field: SecureAIAppInventorySortField!
+  "Sort direction. Defaults to descending."
+  order: SecureAISortOrder! = DESC
+}
+
+"Sort specification for `Query.userInventory` — field and direction."
+input SecureAIUserInventorySortInput {
+  "Field to sort by."
+  field: SecureAIUserInventorySortField!
+  "Sort direction. Defaults to descending."
+  order: SecureAISortOrder! = DESC
+}
+
+"""
+A single AI application a specific user interacted with, returned by
+`userApps`. Lightweight reference (identity, provider, risk) — one entry for
+each app counted in a user inventory entry's `appsUsed`.
+"""
+type SecureAIUserApp {
+  "Stable AI app identifier."
+  id: ID!
+  "Display name of the AI app."
+  name: String!
+  "AI service provider/vendor (e.g. 'OpenAI', 'Anthropic'). Empty when unknown."
+  provider: String!
+  """Risk classification for the app."""
+  risk: RiskLevel!
+  "Number of this user's activities with this app in the time window."
+  usage: Int64!
+  """
+  Number of this user's activities with this app where the security
+  infrastructure took a non-allowed action.
+  """
+  policyViolations: Int64!
+  "Number of this user's activities with this app in the time window that are unsanctioned (not covered by a policy and allowed)."
+  notCoveredCount: Int64!
+  "First observed activity timestamp for this user with this app in the time window."
+  firstUsed: Time
+  "Most recent activity timestamp for this user with this app in the time window."
+  lastUsed: Time
+}
+
+"Field to sort a `userApps` result by."
+enum SecureAIUserAppsSortField {
+  "Sort by the number of the user's activities with the app (default)."
+  USAGE
+  "Sort by app display name."
+  NAME
+  "Sort by app worst-observed risk level."
+  RISK
+  "Sort by policy violation count in the window."
+  POLICY_VIOLATIONS
+  "Sort by unsanctioned (shadow AI) activity count in the window."
+  NOT_COVERED_COUNT
+  "Sort by first observed activity timestamp with the app."
+  FIRST_USED
+  "Sort by most recent observed activity timestamp with the app."
+  LAST_USED
+}
+
+"Sort specification for `Query.userApps` — field and direction."
+input SecureAIUserAppsSortInput {
+  "Field to sort by."
+  field: SecureAIUserAppsSortField!
+  "Sort direction. Defaults to descending."
+  order: SecureAISortOrder! = DESC
+}
+
+"Filter predicates for `Query.userApps`. All fields are AND-combined."
+input SecureAIUserAppsFilter {
+  "Case-insensitive literal substring match against app id, name, or provider. Blank input applies no constraint."
+  search: String
+  "Match apps with at least one of these risk levels."
+  riskLevels: [RiskLevel!]
+  "When true, match only apps with at least one policy violation for this user; when false, match only apps with none. Omit for no filter."
+  hasPolicyViolations: Boolean
+  "When true, match only apps with at least one unsanctioned (NOT_COVERED and allowed) activity for this user; when false, match only apps with none. Omit for no filter."
+  hasNotCoveredCount: Boolean
+  """
+  Provide absolute times or a relative preset. Default cannot live on the
+  `relative` field itself because it would auto-fill when only
+  startTime/endTime is provided, triggering the mutual-exclusivity error.
+  """
+  timeRange: SecureAITimeRange = {relative: SINCE_BEGINNING_OF_DAY}
+}
+
+"Offset/limit paginated list of one user's apps returned by `Query.userApps`."
+type SecureAIUserAppsPage {
+  "Entries on the current page."
+  entries: [SecureAIUserApp!]!
+  "Total number of apps the user used across all pages."
+  totalCount: Int64!
+  "Zero-based offset applied to this page after sorting."
+  offset: Int64!
+  "Maximum number of entries requested for this page, after server-side capping."
+  limit: Int64!
+  "True if more results exist after the current offset/limit window."
+  hasNextPage: Boolean!
+  "True if results exist before the current offset."
+  hasPreviousPage: Boolean!
+}
+
+"Top-level Secure AI API queries."
+type Query {
+  "Fetch a single activity by ID."
+  activity(id: ID!): SecureAiActivity @hasAuthzPermissionGrant(resource: "SecureAI", action: "read")
+  "List activities matching the filter, sorted as requested, with cursor pagination."
+  activities(filter: SecureAiActivityFilter, sort: SortInput, first: Int64 = 20, after: String, last: Int64, before: String): SecureAiActivityConnection! @hasAuthzPermissionGrant(resource: "SecureAI", action: "read")
+  """
+  List AI applications in the tenant inventory matching the filter, sorted
+  as requested, with offset/limit pagination over the current result ordering.
+  """
+  appInventory(filter: SecureAIAppInventoryFilter, sort: SecureAIAppInventorySortInput, limit: Int64 = 20, offset: Int64 = 0): SecureAIAppInventoryPage! @hasAuthzPermissionGrant(resource: "SecureAI", action: "read")
+  """
+  List users in the tenant inventory matching the filter, sorted as requested, with
+  offset/limit pagination over the current result ordering.
+  """
+  userInventory(filter: SecureAIUserInventoryFilter, sort: SecureAIUserInventorySortInput, limit: Int64 = 20, offset: Int64 = 0): SecureAIUserInventoryPage! @hasAuthzPermissionGrant(resource: "SecureAI", action: "read")
+  """
+  List the AI applications a single user interacted with in the window, sorted
+  as requested, with offset/limit pagination. Identify the user
+  by the public actor ID from the user inventory.
+  """
+  userApps(userId: ID!, filter: SecureAIUserAppsFilter, sort: SecureAIUserAppsSortInput, limit: Int64 = 20, offset: Int64 = 0): SecureAIUserAppsPage! @hasAuthzPermissionGrant(resource: "SecureAI", action: "read")
+  """
+  Fetch aggregate counts for AI apps and users in the requested
+  inventory window.
+  """
+  inventorySummary(filter: SecureAIInventorySummaryFilter): SecureAIInventorySummary! @hasAuthzPermissionGrant(resource: "SecureAI", action: "read")
+}
+
+"""Tenant onboarding status. COMPLETED means onboarding is finished."""
+enum SecureAITenantOnboardingStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+"Organization-details selections captured during onboarding."
+type SecureAIOrganizationDetails {
+  "The user's role in the organization."
+  role: String
+  "User-count range bucket (e.g. 1-50, 51-200)."
+  numberOfUsers: String
+  "Self-reported familiarity with AI tools (none/basic/intermediate/advanced)."
+  aiFamiliarity: String
+  "The organization's industry/sector."
+  industry: String
+}
+
+"Product-integration selections captured during onboarding — fields grow additively."
+type SecureAIProductIntegration {
+  "Keys of the product-integration readiness checks the user has acknowledged."
+  acknowledgedCheckKeys: [String!]!
+  """
+  Products the user picked on the Sensor Selector onboarding step (see
+  `ProductKey`). Null until the step has been captured; an empty list means
+  the user visited the step without selecting anything.
+  """
+  selectedProductKeys: [ProductKey!]
+}
+
+"""
+All onboarding selections a tenant has captured. Each field is a step's typed
+selection and is null until that step captures input.
+"""
+type SecureAITenantOnboardingSelections {
+  "Organization-details selections. Null until captured."
+  organizationDetails: SecureAIOrganizationDetails
+  "Product-integration selections. Null until captured."
+  productIntegration: SecureAIProductIntegration
+  """
+  Keys of onboarding steps the user has advanced past via Continue.
+  Grows monotonically during the flow; entries are pruned when a step's
+  key drops from the composed flow (e.g. deselecting a sensor removes
+  its setup step). Empty for tenants who haven't advanced any step yet.
+  """
+  passedStepKeys: [String!]!
+}
+
+"The onboarding portion of a tenant's settings: status plus captured selections."
+type SecureAITenantOnboarding {
+  "Onboarding status. COMPLETED means onboarding is finished."
+  status: SecureAITenantOnboardingStatus!
+  "Selections captured across the onboarding flow. Null until anything is captured."
+  selections: SecureAITenantOnboardingSelections
+}
+
+"Audit classification derived from authentication metadata."
+enum SecureAIAuditActorType {
+  UNKNOWN
+  INTERNAL
+  EXTERNAL
+}
+
+"""
+License lifecycle state for the tenant's Secure AI entitlement, independent of
+onboarding progress. Set by Sophos from the tenant's license.
+API calls cannot change it.
+"""
+enum SecureAILicenseState {
+  ACTIVE
+  GRACE_PERIOD
+  EXPIRED
+}
+
+"""
+Persisted AI Defense settings for the calling tenant. Onboarding today; extended
+with new fields as more tenant settings land.
+"""
+type SecureAITenantSettings {
+  "Onboarding portion of the tenant's settings."
+  onboarding: SecureAITenantOnboarding!
+  "License lifecycle state, independent of onboarding progress. Null until the license is synced for this tenant."
+  licenseState: SecureAILicenseState
+  "When the current grace period ends. Null when not in a grace period."
+  gracePeriodEndsAt: Time
+  "The underlying license's expiry date. Null if not tracked/known."
+  licenseExpiryDate: Time
+  "License type when known/retained by the sync source (e.g. TRIAL). Null if not tracked."
+  licenseType: String
+  "Identifier of the license record, when known/retained by the sync source. Null if not tracked."
+  licenseId: String
+  "When the license details were last fetched. Null until the first successful fetch."
+  refreshedAt: Time
+  """
+  True when a license renewal has been detected (a genuinely different
+  license than before) that is not acknowledged yet. False both when there is
+  no pending renewal and when the license has never been synced for this tenant.
+  """
+  renewalPending: Boolean!
+  "Opaque subject ID of the creator (server-set from the JWT, never input)."
+  createdBy: String!
+  "Audit classification of the creator, derived from auth metadata when available."
+  createdByType: SecureAIAuditActorType!
+  "Opaque subject ID of the last editor. Null until the first update."
+  updatedBy: String
+  "Audit classification of the last editor. Null until the first update."
+  updatedByType: SecureAIAuditActorType
+  "When the settings record was first created."
+  createdAt: Time!
+  "When the settings record was last updated."
+  updatedAt: Time!
+}
+
+"Organization-details selections to persist."
+input SecureAIOrganizationDetailsInput {
+  role: String
+  numberOfUsers: String
+  aiFamiliarity: String
+  industry: String
+}
+
+"Product-integration selections to persist."
+input SecureAIProductIntegrationInput {
+  acknowledgedCheckKeys: [String!]!
+  "Products the user picked on the Sensor Selector onboarding step (see `ProductKey`). Omit or send null to leave unset; empty list means visited-but-no-selection."
+  selectedProductKeys: [ProductKey!]
+}
+
+"Full replacement set of onboarding selections. Omit a field to leave it empty."
+input SecureAITenantOnboardingSelectionsInput {
+  organizationDetails: SecureAIOrganizationDetailsInput
+  productIntegration: SecureAIProductIntegrationInput
+  "Full replacement set of passed step keys. Omit (or send null) to leave the persisted value unchanged; send an empty list to clear."
+  passedStepKeys: [String!]
+}
+
+"""
+A PolicyCreateInput from the AI Defense Policy GraphQL API, as a JSON
+object. It is passed to createPolicy unchanged, which validates it.
+"""
+scalar SecureAIPolicyDefinition
+
+"Onboarding section of a settings update: the new status and current selections."
+input SecureAITenantOnboardingInput {
+  status: SecureAITenantOnboardingStatus!
+  selections: SecureAITenantOnboardingSelectionsInput
+  """
+  Base policy to create when completing onboarding for a tenant that has none:
+  a PolicyCreateInput whose kind must be TENANT_BASE. Accepted
+  only with status COMPLETED and never persisted with the settings.
+  
+  With this set, the base policy is created with
+  createPolicy before completion is recorded. When omitted, completion is
+  recorded without checking for a base policy. On failure the status is not changed and
+  the error carries extensions.code:
+  - BASE_POLICY_REQUIRED: reserved; not returned while omitted definitions skip
+    the base policy check.
+  - BASE_POLICY_REJECTED: createPolicy rejected the request; the message and
+    extensions.upstreamErrors ([{message, code}]) carry its errors verbatim.
+  """
+  basePolicy: SecureAIPolicyDefinition
+}
+
+"""
+Settings to update for the calling tenant. Each section is optional so a caller
+can update just the parts it owns; an omitted section is left untouched. Today
+only onboarding exists.
+"""
+input SecureAIUpdateTenantSettingsInput {
+  onboarding: SecureAITenantOnboardingInput
+}
+
+extend type Query {
+  "AI Defense settings for the calling tenant. Null when the tenant has no settings record yet."
+  secureAITenantSettings: SecureAITenantSettings @hasAuthzPermissionGrant(resource: "SecureAI", action: "read")
+}
+
+"Top-level Secure AI API mutations."
+type Mutation {
+  """
+  Idempotent upsert of the calling tenant's settings: creates the record on the
+  first update and updates it thereafter. The client does not need to choose
+  between creating and updating. An omitted section is left untouched.
+  """
+  updateSecureAITenantSettings(input: SecureAIUpdateTenantSettingsInput!): SecureAITenantSettings! @hasAuthzPermissionGrant(resource: "SecureAI", action: "write")
+}
+
+"Cursor-based pagination metadata following the Relay Connections spec."
+type PageInfo {
+  "True if more results exist after the current page."
+  hasNextPage: Boolean!
+  "True if results exist before the current page."
+  hasPreviousPage: Boolean!
+  "Cursor of the first item in the current page, if any."
+  startCursor: String
+  "Cursor of the last item in the current page, if any."
+  endCursor: String
+}

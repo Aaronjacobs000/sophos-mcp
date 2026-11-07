@@ -5,7 +5,7 @@
 > Sophos. It calls the public Sophos APIs using credentials you supply. Use it at your own
 > risk, and raise problems as issues on this repository rather than with Sophos support.
 
-MCP (Model Context Protocol) server for the Sophos Fusion and Sophos Central APIs. Supports partner, organisation, and single-tenant credential types with automatic region routing. **334 tools** covering 23 Sophos API namespaces: the Sophos Central REST APIs plus the Sophos Fusion GraphQL APIs (`sophos_fusion_*`). Install it as a Claude Desktop extension (`.mcpb`), run it with npx, or host it yourself over streamable HTTP.
+MCP (Model Context Protocol) server for the Sophos Fusion and Sophos Central APIs. Supports partner, organisation, and single-tenant credential types with automatic region routing. **360 tools** covering 25 Sophos API namespaces: the Sophos Central REST APIs plus the Sophos Fusion GraphQL APIs (`sophos_fusion_*`). Install it as a Claude Desktop extension (`.mcpb`), run it with npx, or host it yourself over streamable HTTP.
 
 The npm package, the `.mcpb` bundle and the binaries keep the `sophos-central-mcp-server` name so existing installs update in place.
 
@@ -170,7 +170,7 @@ The script:
 npm test
 ```
 
-Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, the policy assignment and web profile writes (body shapes, refusals, target lookups and read-back) against an in-memory policy store, the no-retry rule for a POST or mutation after a 5xx, the read-modify-write and PATCH update tools, the request shapes of the tools checked against the published specs, the request shapes of the October 2026 bulk endpoint, S/MIME and Search tools, the item and page totals the REST list tools report, the endpoint inventory's reduction to the latest snapshot and its stale flag, a registration check that lists all 334 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
+Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, the policy assignment and web profile writes (body shapes, refusals, target lookups and read-back) against an in-memory policy store, the no-retry rule for a POST or mutation after a 5xx, the read-modify-write and PATCH update tools, the request shapes of the tools checked against the published specs, the request shapes of the October 2026 bulk endpoint, S/MIME and Search tools, the item and page totals the REST list tools report, the endpoint inventory's reduction to the latest snapshot and its stale flag, the AI Defense tools (request shapes, the HTTP 200 with `errors` case, not-found and deleted policies, the stale version hint, and the input checks that refuse before any call), a registration check that lists all 360 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
 
 To exercise the Fusion tools against a live tenant, put credentials in `.env` (or export them) and run:
 
@@ -179,10 +179,11 @@ node scripts/fusion-smoke.mjs                  # read-only, tenant credential
 node scripts/fusion-smoke.mjs <tenant-id>      # read-only, partner or organisation credential
 node scripts/fusion-smoke.mjs --write          # plus the Fusion write tools on one new case
 node scripts/fusion-smoke.mjs --write-classic  # plus the Classic case tools on one new case
+node scripts/fusion-smoke.mjs --write-ai-defense  # plus the AI Defense policy writes on test policies
 node scripts/fusion-smoke.mjs --all            # everything
 ```
 
-It spawns the built server over stdio and calls the tools through an MCP client, so what runs is what a host runs. Read-only mode covers the reference data, the case list with filter and cursor variants, the newest case by short ID, its evidence, summary, comments and files, the detection search, a small Data Lake search (start, poll, one page of results), the not-found and legacy-ID refusals, and the Classic side: on a migrated tenant the migration refusal, otherwise the six Classic read tools. `--write` creates one case titled `MCP smoke test <timestamp>` (managed_by CUSTOMER), exercises comment add, edit and delete with the mention read-back, link create, update and delete, tag merge and replace, evidence add and remove_all, file upload, list and soft delete, the verdict clear on reopen, the one way door on new and the closed-case freeze, then closes it with a verdict and archives it (Fusion has no delete). `--write-classic` creates, updates and deletes one Classic case; the Cases API requires an assignee and a detection that still exists, so set `SMOKE_CLASSIC_ASSIGNEE` (a tenant admin email) and, if needed, `SMOKE_CLASSIC_DETECTION_ID` (a recent detection ID). Every write is listed at the end. Existing cases are never modified.
+It spawns the built server over stdio and calls the tools through an MCP client, so what runs is what a host runs. Read-only mode covers the reference data, the case list with filter and cursor variants, the newest case by short ID, its evidence, summary, comments and files, the detection search, a small Data Lake search (start, poll, one page of results), the not-found and legacy-ID refusals, the AI Defense reads (policies, previews, templates, activities, inventories, settings), and the Classic side: on a migrated tenant the migration refusal, otherwise the six Classic read tools. `--write` creates one case titled `MCP smoke test <timestamp>` (managed_by CUSTOMER), exercises comment add, edit and delete with the mention read-back, link create, update and delete, tag merge and replace, evidence add and remove_all, file upload, list and soft delete, the verdict clear on reopen, the one way door on new and the closed-case freeze, then closes it with a verdict and archives it (Fusion has no delete). `--write-ai-defense` creates policies named `ZZ Claude MCP test <timestamp> ...`, scoped to a made-up user so they enforce on nobody, then updates, enables, disables, clones and moves them (and reorders them when they are the only reorderable policies on the tenant), reads each write back and deletes them; it never writes the tenant settings. `--write-classic` creates, updates and deletes one Classic case; the Cases API requires an assignee and a detection that still exists, so set `SMOKE_CLASSIC_ASSIGNEE` (a tenant admin email) and, if needed, `SMOKE_CLASSIC_DETECTION_ID` (a recent detection ID). Every write is listed at the end. Existing cases are never modified.
 
 **Cutting a release:** bump `version` in `package.json`, run `npm run build:mcpb`, commit `package.json`, `package-lock.json`, and `manifest.json`, tag, and attach the `.mcpb` from `release/` to the GitHub release. Publish to npm as before so the Claude Code and self-hosted options pick up the same version.
 
@@ -198,7 +199,7 @@ It spawns the built server over stdio and calls the tools through an MCP client,
 - **One-click install**: Ships as a Claude Desktop extension (`.mcpb`) with credentials held in the OS secure store
 - **Two API generations**: the Sophos Central REST APIs and the Sophos Fusion GraphQL APIs on one credential, with `sophos_fusion_*` tools for the GraphQL side
 - **Migration aware**: the Classic case and detection tools refuse a tenant that has moved to Sophos Fusion and name the `sophos_fusion_*` tool to use instead; `sophos_fusion_list_case_reference_data` reports the tenant type
-- **Full API coverage**: 334 tools across endpoints, alerts, policies, firewalls, web filtering, licensing, audit events, email (including S/MIME), mobile, XDR, Data Lake search, cases, SIEM, and more
+- **Full API coverage**: 360 tools across endpoints, alerts, policies, firewalls, web filtering, licensing, audit events, email (including S/MIME), mobile, XDR, Data Lake search, cases, AI Defense, SIEM, and more
 
 ## Screenshots
 
@@ -247,7 +248,7 @@ The server speaks to two Sophos API generations on one credential:
 - **Sophos Central REST APIs** (retained). Every tool without the `fusion` prefix. Regional hosts, discovered from `/whoami/v1`.
 - **Sophos Fusion GraphQL APIs** (new, 18/09/2026). The `sophos_fusion_*` tools. One endpoint, `https://api.taegis.sophos.com/graphql`, same token, same `X-Tenant-ID` header. Filters are written in Fusion Query Language (QL). Case types, statuses and verdicts are tenant reference data resolved to IDs at runtime, case severity is an integer (2 to 10), and assignees are Subject IDs, not email addresses. A GraphQL failure arrives as HTTP 200 with an `errors` array; the client treats that as an error, and a partial response (data plus errors) is returned with a `warnings` list rather than as a clean result.
 
-Sophos is moving tenants to Fusion over the coming months (the [upgrade centre](https://community.sophos.com/sophos-xdr/sophos-xdr-mdr-expansion/upgrade-center) announces each account's slot). This is a point in time change, not a fallback: once a tenant has moved, the Classic Cases and Detections REST APIs reference the pre-migration Sophos Central objects, so their answers are wrong rather than stale. The Classic tools therefore check which world a tenant is in before every call, using the tenant record's `xdrOwnership` from the Fusion GraphQL endpoint (`sophos` means not yet upgraded, `securityOperations` means upgraded; case types don't decide it, because a tenant not yet upgraded can list them too; a tenant Fusion does not hold at all gets a 503 "not found or not accessible", which reads as not moved; each answer is held for 15 minutes, and when `xdrOwnership` can't be read, an empty case type list still means not moved and anything else runs the Classic tool with a warning), and refuse a migrated tenant with a message naming the `sophos_fusion_*` tool to use. For a tenant that has not moved they stay correct and carry no deprecation label. Fusion holds a separate case set (a UUID plus a `CSE#####` short ID) and neither ID form resolves in the other API. Live Discover and XDR Query are unaffected. Data Lake search over GraphQL shipped on 12/10/2026 as the Search GraphQL API (`sophos_fusion_create_search` and friends); the SQL XDR Query API stays available, and `sophos_run_xdr_query` stays on it. Fusion tools for events, threat timeline and live endpoint search are planned.
+Sophos is moving tenants to Fusion over the coming months (the [upgrade centre](https://community.sophos.com/sophos-xdr/sophos-xdr-mdr-expansion/upgrade-center) announces each account's slot). This is a point in time change, not a fallback: once a tenant has moved, the Classic Cases and Detections REST APIs reference the pre-migration Sophos Central objects, so their answers are wrong rather than stale. The Classic tools therefore check which world a tenant is in before every call, using the tenant record's `xdrOwnership` from the Fusion GraphQL endpoint (`sophos` means not yet upgraded, `securityOperations` means upgraded; case types don't decide it, because a tenant not yet upgraded can list them too; a tenant Fusion does not hold at all gets a 503 "not found or not accessible", which reads as not moved; each answer is held for 15 minutes, and when `xdrOwnership` can't be read, an empty case type list still means not moved and anything else runs the Classic tool with a warning), and refuse a migrated tenant with a message naming the `sophos_fusion_*` tool to use. For a tenant that has not moved they stay correct and carry no deprecation label. Fusion holds a separate case set (a UUID plus a `CSE#####` short ID) and neither ID form resolves in the other API. Live Discover and XDR Query are unaffected. Data Lake search over GraphQL shipped on 12/10/2026 as the Search GraphQL API (`sophos_fusion_create_search` and friends); the SQL XDR Query API stays available, and `sophos_run_xdr_query` stays on it. The AI Defense Policy and Activity GraphQL APIs shipped on 15/10/2026 and run on the same endpoint (`sophos_fusion_ai_defense_*`). Fusion tools for events, threat timeline and live endpoint search are planned.
 
 Two Fusion case writes, `createCase` and `addEvidenceToCase`, fail 74% of the time with `not allowed` on `partnerPreferences` from `investigations-v2`. It is an intermittent downstream fault, not authorisation: the identical call succeeds on retry, and `updateCase` does not carry the fault at all. Measured on a live tenant 22/09/2026: 111 faults in 150 calls, drifting from 60% to 85% across four samples six minutes apart. The client retries a call whose first error path is `partnerPreferences`, and only that, up to 20 times with a short backoff, which leaves about 1 call in 410 failing at the measured rate and about 1 in 26 at the worst rate observed; an error naming the operation in its path is a real input or permission error and surfaces at once.
 
@@ -516,6 +517,52 @@ Filter by `endpoint_id`, `hostname`, `software_name` (softwareinfo) or `kb` (pat
 | Tool | Description |
 |------|-------------|
 | `sophos_fusion_endpoint_inventory` | Latest inventory snapshot per device, with stale, fresh and unmatched counts |
+
+### AI Defense Policies (18 tools)
+
+Sophos AI Defense Policy GraphQL API v1 (15/10/2026), on the Fusion GraphQL endpoint with the same credential. Policies run in priority order (rank 1 first) and rules run top to bottom within a policy; the first matching rule wins. One base policy (kind `TENANT_BASE`) sits last as the catch-all. Rules, sensors and the base rule keep the API's own field names, so you can read a policy with `sophos_fusion_ai_defense_get_policy`, edit it and send it back. A rule targets the app catalog with conditions such as `{ dimension: "risk_level", operator: "IN", values: ["critical"] }`. A misspelled dimension matches nothing and raises no error, so preview a rule before you save it.
+
+Measured on live tenants (07/11/2026): at least one sensor must be enabled. An empty Endpoint scope means everyone, which only the base policy may use, so enabling a policy with one is refused. Tag values must be strings. A new policy or clone lands at rank 1, disabled unless created enabled. Every write raises the policy's `version`, enable and disable included, and an update that sends a stale version is refused. On update, `rules` and `tags` replace the whole list or map. `sophos_fusion_ai_defense_reorder_policies` needs every reorderable policy ID. Deletion can't be undone. The base policy can't be disabled, deleted, cloned or moved, so creating one needs `confirm_base_policy`.
+
+| Tool | Description |
+|------|-------------|
+| `sophos_fusion_ai_defense_list_policies` | Policies in priority order with rules, sensors and scope; filter by state, origin, kind or name |
+| `sophos_fusion_ai_defense_get_policy` | One policy, optionally with the applications each rule matches |
+| `sophos_fusion_ai_defense_get_app_sanctioning` | Approved, blocked, warned or not covered, per app and per enforcement target |
+| `sophos_fusion_ai_defense_preview_rule_target` | The catalog apps one rule matches (up to 500) and the domains and apps it enforces |
+| `sophos_fusion_ai_defense_preview_rule_targets` | An ordered rule list, with what each rule acts on after the rules above it |
+| `sophos_fusion_ai_defense_preview_impact` | Blocked, warned and allowed counts for a rule list against the catalog |
+| `sophos_fusion_ai_defense_list_templates` | The starter templates Sophos ships, optionally with their impact |
+| `sophos_fusion_ai_defense_get_template` | One starter template with its impact |
+| `sophos_fusion_ai_defense_list_mechanisms` | The enforcement mechanisms (web control and app control) |
+| `sophos_fusion_ai_defense_get_policy_activity` | Which enabled policies matched activity in a window, and which blocked the most |
+| `sophos_fusion_ai_defense_create_policy` | Create a policy, optionally from a starter template |
+| `sophos_fusion_ai_defense_update_policy` | Change name, description, rules, base rule, sensors or tags (needs the current version) |
+| `sophos_fusion_ai_defense_delete_policy` | Delete a policy (no restore) |
+| `sophos_fusion_ai_defense_enable_policy` | Enable a policy and distribute it to its sensors |
+| `sophos_fusion_ai_defense_disable_policy` | Disable a policy and remove its enforcement |
+| `sophos_fusion_ai_defense_move_policy` | Move one policy to the top or straight after another |
+| `sophos_fusion_ai_defense_reorder_policies` | Set the whole priority order |
+| `sophos_fusion_ai_defense_clone_policy` | Copy a policy into a new disabled one |
+
+### AI Defense Activity (8 tools)
+
+Sophos AI Defense Activity GraphQL API v1 (15/10/2026): the AI activity AI Defense observes, the app and user inventory built from it, and the tenant's AI Defense settings. The window defaults to since 00:00 UTC today. Set a relative `time_range` (such as `SINCE_BEGINNING_OF_MONTH` or `LAST_MONTH`) or `start_time` and `end_time`, not both. Activities page by cursor and the inventories by offset, up to 100 a page. A year of data took up to 22 seconds on a busy tenant, so the server waits up to 90 seconds for these reads.
+
+The live API differs from the published reference in two places (07/11/2026). It does not serve the per-app training, compliance and category fields the reference lists on the app inventory, so the tool leaves them out; filter on them instead, or read them on an activity. The activities list returns `additionalData` as null where the reference says empty, and that fails the whole page, so source IP addresses come only from `sophos_fusion_ai_defense_get_activity`.
+
+`sophos_fusion_ai_defense_update_settings` replaces the onboarding selections as a whole, and an update with no selections clears them as well, so the tool requires them. Read the settings first and send back what you keep.
+
+| Tool | Description |
+|------|-------------|
+| `sophos_fusion_ai_defense_list_activities` | AI activity with action, policy, risk, user, app, model and device; filter by any of them |
+| `sophos_fusion_ai_defense_get_activity` | One activity with its source IP addresses |
+| `sophos_fusion_ai_defense_list_app_inventory` | AI apps seen, with risk, usage, users, last seen and unsanctioned use |
+| `sophos_fusion_ai_defense_list_user_inventory` | Users seen, with worst risk, apps used, violations and top app |
+| `sophos_fusion_ai_defense_list_user_apps` | The apps one user used |
+| `sophos_fusion_ai_defense_inventory_summary` | App and user counts by risk level |
+| `sophos_fusion_ai_defense_get_settings` | Onboarding status and selections, and the AI Defense license state |
+| `sophos_fusion_ai_defense_update_settings` | Set the onboarding status and selections |
 
 ### Detections (6 tools)
 
@@ -843,6 +890,9 @@ src/
 │   ├── queries/cases.ts         # Cases v2 GraphQL documents
 │   ├── queries/detections.ts    # Detections v2 documents: the case summary lookup and the QL search
 │   ├── queries/search.ts        # Search v1 documents: create, get-or-create, status, results
+│   ├── queries/ai-defense-policy.ts    # AI Defense Policy v1 documents
+│   ├── queries/ai-defense-activity.ts  # AI Defense Activity v1 documents
+│   ├── ai-defense.ts            # AI Defense input schemas, time window, error translation
 │   ├── inventory.ts             # Inventory QL, latest snapshot per device, stale flag
 │   ├── case-reference-data.ts   # Per-tenant cache of case types, statuses, verdicts
 │   ├── cases-ql.ts              # QL builder for the cases search
@@ -855,6 +905,8 @@ src/
 │   ├── fusion-detections.ts     # Sophos Fusion detection search (GraphQL)
 │   ├── fusion-search.ts         # Sophos Fusion Data Lake search (GraphQL)
 │   ├── fusion-inventory.ts      # Sophos Fusion endpoint inventory with last seen
+│   ├── fusion-ai-defense-policies.ts  # Sophos AI Defense policies, previews, templates (GraphQL)
+│   ├── fusion-ai-defense-activity.ts  # Sophos AI Defense activity, inventory, settings (GraphQL)
 │   ├── tenants.ts               # Tenant listing (partner/org only)
 │   ├── partner.ts               # Partner admin, roles, billing (partner/org only)
 │   ├── alerts.ts                # Alert list, get, acknowledge, search
@@ -883,7 +935,7 @@ src/
 └── types/sophos.ts              # Sophos API response types
 ```
 
-Packaging files at the repo root: `manifest.json` (MCPB manifest, regenerated by the build), `scripts/build-mcpb.mjs` (bundle builder), and `.mcpbignore` (extra exclusions applied when packing). `schemas/fusion/` holds the six Fusion GraphQL schemas as downloaded from `https://developer.sophos.com/assets/graphql/<api>.graphql` (five on 21/09/2026, `search-v1` on 29/10/2026), unmodified, for reference and for diffing when Sophos changes them. `test/` holds the `node:test` suites and `scripts/fusion-smoke.mjs` the live check.
+Packaging files at the repo root: `manifest.json` (MCPB manifest, regenerated by the build), `scripts/build-mcpb.mjs` (bundle builder), and `.mcpbignore` (extra exclusions applied when packing). `schemas/fusion/` holds the eight Fusion GraphQL schemas as downloaded from `https://developer.sophos.com/assets/graphql/<api>.graphql` (five on 21/09/2026, `search-v1` on 29/10/2026, the two AI Defense schemas on 07/11/2026), unmodified, for reference and for diffing when Sophos changes them. `test/` holds the `node:test` suites and `scripts/fusion-smoke.mjs` the live check.
 
 ## Security
 

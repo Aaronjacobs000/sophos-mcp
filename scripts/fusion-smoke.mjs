@@ -11,6 +11,7 @@
  *   node scripts/fusion-smoke.mjs [tenant-id]                  read-only Fusion checks
  *   node scripts/fusion-smoke.mjs --write [tenant-id]          plus the Fusion write tools
  *   node scripts/fusion-smoke.mjs --write-classic [tenant-id]  plus the Classic REST case tools
+ *   node scripts/fusion-smoke.mjs --write-ai-defense [tenant-id]  plus the AI Defense policy writes
  *   node scripts/fusion-smoke.mjs --all [tenant-id]            everything
  *
  * Read-only:
@@ -23,7 +24,12 @@
  *   6. sophos_fusion_search_detections
  *   7. sophos_fusion_create_search, sophos_fusion_get_search and
  *      sophos_fusion_get_search_results on a small process search
- *   8. Classic: on a migrated tenant, the migration refusal on sophos_list_cases
+ *   8. AI Defense: policies (list, cursor, get with rule previews), app
+ *      sanctioning, rule and impact previews, starter templates, mechanisms,
+ *      policy activity, activities (list, cursor, get), app and user
+ *      inventory, user apps, inventory summary, settings, and the not-found
+ *      and both-windows refusals
+ *   9. Classic: on a migrated tenant, the migration refusal on sophos_list_cases
  *      and sophos_run_detections_query; otherwise sophos_list_cases, sophos_get_case,
  *      sophos_list_case_detections, sophos_get_case_detection,
  *      sophos_get_case_mitre_summary, sophos_list_case_impacted_entities
@@ -38,6 +44,15 @@
  * the newest existing case or the detection search and detached again; no
  * existing case is modified.
  *
+ * --write-ai-defense creates AI Defense policies named "ZZ Claude MCP test
+ * <timestamp> ..." scoped to a made-up user, so they enforce on nobody: one from
+ * the education-v1 starter template, one ENABLED, one with an empty scope (to
+ * check that enabling it is refused). It updates, enables, disables, clones and
+ * moves them, reorders only when every reorderable policy on the tenant is one
+ * of its own, reads each write back, then deletes them all and reads the
+ * deletion back. No other policy is changed, and the tenant settings are never
+ * written.
+ *
  * --write-classic creates ONE Classic case, updates it, then deletes it. The
  * Cases API requires an assignee and a detection that still exists, so set
  * SMOKE_CLASSIC_ASSIGNEE (a tenant admin email) and, when the newest Classic
@@ -49,6 +64,7 @@
  */
 
 import "dotenv/config";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -69,6 +85,7 @@ const tenantId = process.argv.slice(2).find((a) => !a.startsWith("--"));
 const scope = tenantId ? { tenant_id: tenantId } : {};
 const writeFusion = flags.has("--write") || flags.has("--all");
 const writeClassic = flags.has("--write-classic") || flags.has("--all");
+const writeAiDefense = flags.has("--write-ai-defense") || flags.has("--all");
 
 const transport = new StdioClientTransport({
   command: process.execPath,
@@ -252,6 +269,73 @@ try {
     { expectError: true }
   );
   await call("sophos_fusion_get_case", { ...scope, case_id: "1-598868" }, { expectError: true });
+
+  // AI Defense Policy and Activity GraphQL v1, read-only
+  const AID = "sophos_fusion_ai_defense_";
+  const aiPolicies = await call(`${AID}list_policies`, { ...scope, limit: 2 }, { quiet: true });
+  check(typeof aiPolicies.json?.total === "number", "AI Defense list_policies returns a total");
+  if (aiPolicies.json?.has_next_page) {
+    const next = await call(`${AID}list_policies`, { ...scope, limit: 2, after: aiPolicies.json.end_cursor }, { quiet: true });
+    check(next.json?.policies?.every((p) => !aiPolicies.json.policies.some((q) => q.id === p.id)), "AI Defense policy cursor page 2 has new policies");
+  }
+  const aiPolicy = aiPolicies.json?.policies?.find((p) => p.rules.length > 0);
+  if (aiPolicy) {
+    const got = await call(`${AID}get_policy`, { ...scope, policy_id: aiPolicy.id, include_rule_previews: true }, { quiet: true });
+    check(got.json?.policy?.rules?.every((r) => typeof r.targetPreviewV2?.matchedCount === "number"), "AI Defense rule previews present");
+    const impact = await call(`${AID}preview_impact`, { ...scope, rules: got.json?.policy?.rules ?? [] }, { quiet: true });
+    check(impact.json?.impact?.totalApps > 0, "AI Defense preview_impact takes rules as get_policy returns them");
+  }
+  await call(`${AID}get_policy`, { ...scope, policy_id: "00000000-0000-4000-8000-000000000000" }, { expectError: true });
+  const sanction = await call(`${AID}get_app_sanctioning`, { ...scope, app_ids: ["chatgpt", "no-such-app"] }, { quiet: true });
+  check(sanction.json?.entries?.find((e) => e.appId === "no-such-app")?.status === "NOT_COVERED", "an unknown app is NOT_COVERED");
+  const critical = [{ dimension: "risk_level", operator: "IN", values: ["critical"] }];
+  const target = await call(`${AID}preview_rule_target`, { ...scope, conditions: critical, action: "BLOCK" }, { quiet: true });
+  check(target.json?.preview?.matchedCount > 0, "AI Defense preview_rule_target matches the critical apps");
+  const sequence = await call(
+    `${AID}preview_rule_targets`,
+    {
+      ...scope,
+      rules: [
+        { conditions: [{ dimension: "app", operator: "IN", values: ["chatgpt"] }], action: "ALLOW" },
+        { conditions: [{ dimension: "category", operator: "IN", values: ["general_assistant"] }], action: "BLOCK" },
+      ],
+    },
+    { quiet: true }
+  );
+  check(sequence.json?.previews?.length === 2, "AI Defense preview_rule_targets returns one preview per rule");
+  const templates = await call(`${AID}list_templates`, scope, { quiet: true });
+  check(templates.json?.templates?.length > 0, "AI Defense starter templates listed");
+  if (templates.json?.templates?.[0]) {
+    const template = await call(`${AID}get_template`, { ...scope, key: templates.json.templates[0].key }, { quiet: true });
+    check(typeof template.json?.template?.impact?.totalApps === "number", "AI Defense get_template carries its impact");
+  }
+  await call(`${AID}list_mechanisms`, scope, { quiet: true });
+  await call(`${AID}get_policy_activity`, scope, { quiet: true });
+  await call(`${AID}get_policy_activity`, { ...scope, time_range: "SINCE_BEGINNING_OF_MONTH", start_time: "2026-11-01T00:00:00Z" }, { expectError: true });
+  const activities = await call(`${AID}list_activities`, { ...scope, time_range: "SINCE_BEGINNING_OF_WEEK_MONDAY", limit: 2 }, { quiet: true });
+  check(typeof activities.json?.total === "number", "AI Defense list_activities returns a total");
+  if (activities.json?.has_next_page) {
+    const next = await call(
+      `${AID}list_activities`,
+      { ...scope, time_range: "SINCE_BEGINNING_OF_WEEK_MONDAY", limit: 2, after: activities.json.end_cursor },
+      { quiet: true }
+    );
+    check(next.json?.activities?.every((a) => !activities.json.activities.some((b) => b.id === a.id)), "AI Defense activity cursor page 2 has new rows");
+  }
+  if (activities.json?.activities?.[0]) {
+    const one = await call(`${AID}get_activity`, { ...scope, activity_id: activities.json.activities[0].id }, { quiet: true });
+    check(one.json?.activity?.additionalData !== undefined, "AI Defense get_activity carries additionalData");
+  }
+  const month = { ...scope, time_range: "SINCE_BEGINNING_OF_MONTH" };
+  const apps = await call(`${AID}list_app_inventory`, { ...month, limit: 3 }, { quiet: true });
+  const users = await call(`${AID}list_user_inventory`, { ...month, limit: 3 }, { quiet: true });
+  if (users.json?.users?.[0]) {
+    const userApps = await call(`${AID}list_user_apps`, { ...month, user_id: users.json.users[0].id, limit: 3 }, { quiet: true });
+    check(userApps.json?.total === users.json.users[0].appsUsed, "AI Defense user apps total equals the user's appsUsed");
+  }
+  const summary = await call(`${AID}inventory_summary`, month, { quiet: true });
+  check(summary.json?.summary?.apps?.totalApps === apps.json?.total, "AI Defense summary app count equals the app inventory total");
+  await call(`${AID}get_settings`, scope, { quiet: true });
 
   // --- Classic REST, read-only ---
   if (migrated) {
@@ -640,6 +724,100 @@ try {
         const deleted = await call("sophos_delete_case", { ...scope, case_id: caseId });
         if (deleted.ok) record(`Classic case ${caseId} deleted`);
         await call("sophos_get_case", { ...scope, case_id: caseId }, { expectError: true });
+      }
+    }
+  }
+
+  // --- AI Defense, policy writes on this run's own policies ---
+  if (writeAiDefense) {
+    const AID = "sophos_fusion_ai_defense_";
+    const prefix = `ZZ Claude MCP test ${stamp}`;
+    const mine = [];
+    // A made-up user: the policies enforce on nobody
+    const sensors = { endpoint: { enabled: true, scope: { users: [{ id: randomUUID(), name: "zz-claude-mcp-test-user" }] } } };
+    const read = async (id) => (await call(`${AID}get_policy`, { ...scope, policy_id: id }, { silent: true })).json?.policy;
+    const keep = (result, what) => {
+      const policy = result.json?.policy;
+      if (policy?.id) {
+        mine.push(policy.id);
+        record(`AI Defense policy created: ${policy.id} "${policy.name}" (${what})`);
+      }
+      return policy;
+    };
+    try {
+      const template = (await call(`${AID}get_template`, { ...scope, key: "education-v1", include_impact: false }, { quiet: true })).json?.template;
+      const a = keep(
+        await call(
+          `${AID}create_policy`,
+          {
+            ...scope,
+            name: `${prefix} A`,
+            rules: template?.rules ?? [],
+            base_rule: template?.baseRule,
+            sensors,
+            tags: { purpose: "smoke" },
+            ...(template ? { built_in_key: template.key, built_in_version: template.version } : {}),
+          },
+          { quiet: true }
+        ),
+        "from education-v1"
+      );
+      check(a?.state === "DISABLED" && a?.rank === 1, "a new AI Defense policy is DISABLED at rank 1");
+      const b = keep(await call(`${AID}create_policy`, { ...scope, name: `${prefix} B`, sensors, state: "ENABLED" }, { quiet: true }), "ENABLED");
+      check(b?.state === "ENABLED", "state ENABLED creates it enabled");
+      const c = keep(
+        await call(`${AID}create_policy`, { ...scope, name: `${prefix} C`, sensors: { endpoint: { enabled: true, scope: {} } } }, { quiet: true }),
+        "empty scope"
+      );
+      if (c) {
+        const refused = await call(`${AID}enable_policy`, { ...scope, policy_id: c.id }, { expectError: true });
+        check(/everyone/.test(refused.text), "enabling an empty Endpoint scope is refused");
+      }
+      if (a) {
+        const before = await read(a.id);
+        const updated = await call(
+          `${AID}update_policy`,
+          { ...scope, policy_id: a.id, version: before.version, rules: before.rules.slice(0, 2), tags: { purpose: "smoke-2" } },
+          { quiet: true }
+        );
+        if (updated.ok) record(`AI Defense policy ${a.id} updated: two rules, tags replaced`);
+        const after = await read(a.id);
+        check(after.rules.length === 2 && JSON.stringify(after.tags) === '{"purpose":"smoke-2"}', "update read back: rules and tags replaced");
+        const stale = await call(`${AID}update_policy`, { ...scope, policy_id: a.id, version: before.version, name: "stale" }, { expectError: true });
+        check(/version conflict/.test(stale.text), "a stale version is refused");
+        const enabled = await call(`${AID}enable_policy`, { ...scope, policy_id: a.id }, { quiet: true });
+        if (enabled.ok) record(`AI Defense policy ${a.id} enabled`);
+        check((await read(a.id)).state === "ENABLED", "enable read back");
+        const disabled = await call(`${AID}disable_policy`, { ...scope, policy_id: a.id }, { quiet: true });
+        if (disabled.ok) record(`AI Defense policy ${a.id} disabled`);
+        check((await read(a.id)).state === "DISABLED", "disable read back");
+        const clone = keep(await call(`${AID}clone_policy`, { ...scope, policy_id: a.id }, { quiet: true }), "clone of A");
+        check(clone?.name === `${after.name} - cloned` && clone?.state === "DISABLED", "the clone is named '- cloned' and DISABLED");
+        if (b) {
+          await call(`${AID}move_policy`, { ...scope, policy_id: b.id }, { quiet: true });
+          await call(`${AID}move_policy`, { ...scope, policy_id: b.id, after_policy_id: a.id }, { quiet: true });
+          record(`AI Defense policy ${b.id} moved to the top, then after ${a.id}`);
+          check((await read(b.id)).rank === (await read(a.id)).rank + 1, "move read back: B straight after A");
+        }
+      }
+      const reorderable = (await call(`${AID}list_policies`, { ...scope, kind: "TENANT", limit: 100 }, { silent: true })).json?.policies?.filter(
+        (p) => p.origin !== "PARTNER"
+      );
+      if (reorderable?.length > 1 && reorderable.every((p) => mine.includes(p.id))) {
+        const reversed = reorderable.map((p) => p.id).reverse();
+        const reordered = await call(`${AID}reorder_policies`, { ...scope, policy_ids: reversed }, { quiet: true });
+        if (reordered.ok) record(`AI Defense policies reordered: ${reversed.join(", ")}`);
+        const order = (await call(`${AID}list_policies`, { ...scope, kind: "TENANT", limit: 100 }, { silent: true })).json?.policies?.map((p) => p.id);
+        check(JSON.stringify(order) === JSON.stringify(reversed), "reorder read back");
+      } else {
+        console.log("\nReorder skipped: the tenant has reorderable AI Defense policies this run did not create.");
+      }
+    } finally {
+      for (const id of mine) {
+        const deleted = await call(`${AID}delete_policy`, { ...scope, policy_id: id }, { quiet: true });
+        if (deleted.ok) record(`AI Defense policy ${id} deleted`);
+        const gone = await call(`${AID}get_policy`, { ...scope, policy_id: id }, { expectError: true, silent: true });
+        check(/was deleted at/.test(gone.text), `deleted policy ${id} reads as deleted`);
       }
     }
   }
