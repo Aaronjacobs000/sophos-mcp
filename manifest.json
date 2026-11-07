@@ -2,9 +2,9 @@
   "manifest_version": "0.3",
   "name": "sophos-central-mcp-server",
   "display_name": "Sophos Fusion (formerly Sophos Central)",
-  "version": "0.12.2",
-  "description": "Unofficial, not a Sophos product. Query and manage Sophos Fusion (formerly Sophos Central) from Claude. 334 tools across 23 API namespaces: endpoints, alerts, policies, firewalls, email (including S/MIME), mobile, XDR, cases, SIEM, licensing, Fusion GraphQL cases, Data Lake search and endpoint inventory, and more.",
-  "long_description": "**Unofficial project, not from Sophos.** This is a personal project by an individual. It is not an official Sophos product and it is not built, endorsed, supported, or warranted by Sophos. It calls the public Sophos APIs using credentials you supply. Use it at your own risk, and raise problems as issues on the GitHub repository rather than with Sophos support.\n\nConnects Claude to the Sophos Fusion (formerly Sophos Central) APIs so you can list and act on endpoints, alerts, policies, firewalls, email quarantine and S/MIME, mobile devices, XDR Data Lake queries, cases, SIEM feeds, licensing, audit events, and more from a chat. The `sophos_fusion_*` tools use the Sophos Fusion GraphQL APIs (Cases v2, Detections v2 and Search v1) beside the Sophos Central REST tools, on the same credential.\n\nWorks with tenant, partner, and organisation API credentials. Partner and organisation credentials unlock the cross-tenant tools (`sophos_list_tenants`, `sophos_list_account_health`, `sophos_partner_gap_analysis`) and every tenant-scoped tool then needs a `tenant_id`. Tenant credentials operate on that tenant only. Regional API hosts are discovered automatically.\n\nWrite actions carry `destructiveHint` annotations so clients can warn before isolating an endpoint, wiping a device, deleting a policy, and similar operations. The full tool list is in the project README.",
+  "version": "0.13.0",
+  "description": "Unofficial, not a Sophos product. Query and manage Sophos Fusion (formerly Sophos Central) from Claude. 360 tools across 25 API namespaces: endpoints, alerts, policies, firewalls, email (including S/MIME), mobile, XDR, cases, SIEM, licensing, Fusion GraphQL cases, Data Lake search, endpoint inventory and AI Defense, and more.",
+  "long_description": "**Unofficial project, not from Sophos.** This is a personal project by an individual. It is not an official Sophos product and it is not built, endorsed, supported, or warranted by Sophos. It calls the public Sophos APIs using credentials you supply. Use it at your own risk, and raise problems as issues on the GitHub repository rather than with Sophos support.\n\nConnects Claude to the Sophos Fusion (formerly Sophos Central) APIs so you can list and act on endpoints, alerts, policies, firewalls, email quarantine and S/MIME, mobile devices, XDR Data Lake queries, cases, SIEM feeds, licensing, audit events, and more from a chat. The `sophos_fusion_*` tools use the Sophos Fusion GraphQL APIs (Cases v2, Detections v2, Search v1, and AI Defense Policy v1 and Activity v1) beside the Sophos Central REST tools, on the same credential.\n\nWorks with tenant, partner, and organisation API credentials. Partner and organisation credentials unlock the cross-tenant tools (`sophos_list_tenants`, `sophos_list_account_health`, `sophos_partner_gap_analysis`) and every tenant-scoped tool then needs a `tenant_id`. Tenant credentials operate on that tenant only. Regional API hosts are discovered automatically.\n\nWrite actions carry `destructiveHint` annotations so clients can warn before isolating an endpoint, wiping a device, deleting a policy, and similar operations. The full tool list is in the project README.",
   "author": {
     "name": "Aaron Jacobs",
     "url": "https://github.com/Aaronjacobs000"
@@ -1384,6 +1384,110 @@
     {
       "name": "sophos_fusion_endpoint_inventory",
       "description": "Endpoint inventory from the Sophos Fusion Data Lake: each device's latest snapshot, flagged stale, fresh or unmatched by when its endpoint was last seen."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_list_policies",
+      "description": "List Sophos AI Defense policies in priority order (rank 1 is evaluated first), with their rules, base rule, sensors and scope."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_get_policy",
+      "description": "Get one Sophos AI Defense policy by ID: rules, base rule, sensors and scope, state, enforcement status and version."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_get_app_sanctioning",
+      "description": "Get the sanctioning status the tenant's Sophos AI Defense policies give each AI application: APPROVED, BLOCKED, WARNED or NOT_COVERED."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_preview_rule_target",
+      "description": "Preview which catalog AI applications one Sophos AI Defense rule's conditions match, before saving it."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_preview_rule_targets",
+      "description": "Preview an ordered Sophos AI Defense rule sequence as a unit: for each rule, the applications it matches and the ones it actually acts on once earlier rules..."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_preview_impact",
+      "description": "Count how many catalog AI applications an ordered Sophos AI Defense rule list would block, warn on and allow, first match wins."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_list_templates",
+      "description": "List the Sophos AI Defense starter templates that Sophos ships: industry policy presets with ordered rules (each with a note saying why), default sensors and..."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_get_template",
+      "description": "Get one Sophos AI Defense starter template by key, with its impact against the current catalog (blocked, warned, allowed)."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_list_mechanisms",
+      "description": "List the enforcement mechanisms Sophos AI Defense compiles policies to: WEB_CONTROL (browser enforcement by site) and APP_CONTROL (application enforcement),..."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_get_policy_activity",
+      "description": "Report which enabled Sophos AI Defense policies matched any AI activity in a window, which matched none, and which blocked the most."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_create_policy",
+      "description": "Create a Sophos AI Defense policy. It is created DISABLED, at the top of the priority order (rank 1), unless state is ENABLED."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_update_policy",
+      "description": "Change a Sophos AI Defense policy's name, description, rules, base rule, sensors or tags."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_delete_policy",
+      "description": "Delete a Sophos AI Defense policy and tear its enforcement down on every sensor. Cannot be undone: the API has no restore, and the policy then reads as deleted."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_enable_policy",
+      "description": "Enable a Sophos AI Defense policy and start distributing it to its configured sensors, so its rules are enforced on the users and devices in its scope."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_disable_policy",
+      "description": "Disable a Sophos AI Defense policy and tear its enforcement down on every sensor."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_move_policy",
+      "description": "Move one Sophos AI Defense policy in the priority order: straight after another policy, or to the top (rank 1, evaluated first) when after_policy_id is omitted."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_reorder_policies",
+      "description": "Set the whole Sophos AI Defense priority order in one call: the first ID becomes rank 1."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_clone_policy",
+      "description": "Copy a Sophos AI Defense policy (rules, base rule, sensors, scope and tags) into a new DISABLED policy at the top of the order, named \"<name> - cloned\" (then..."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_list_activities",
+      "description": "List the AI activity Sophos AI Defense observed: who used which AI application on which device, the action taken (ALLOWED, BLOCKED, WARNED, MODIFIED, UNKNOWN..."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_get_activity",
+      "description": "Get one Sophos AI Defense activity by ID, with its enrichment: additionalData carries sourceAddresses, the originating IP addresses the list leaves out."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_list_app_inventory",
+      "description": "List the AI applications Sophos AI Defense saw on the tenant in a window, with risk, activity count, unique users, last seen and unsanctioned (uncovered and..."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_list_user_inventory",
+      "description": "List the users (actors) Sophos AI Defense saw using AI applications in a window, with worst risk, apps used, activity count, policy violations, top app, firs..."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_list_user_apps",
+      "description": "List the AI applications one user used in a window, per Sophos AI Defense: risk, activity count, policy violations, unsanctioned (uncovered and allowed) coun..."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_inventory_summary",
+      "description": "Count the AI applications and users Sophos AI Defense saw in a window, by risk level, plus apps that train on user data, users with policy violations, and un..."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_get_settings",
+      "description": "Get the tenant's Sophos AI Defense settings: onboarding status and the selections captured during onboarding, plus the AI Defense license state, type, expiry..."
+    },
+    {
+      "name": "sophos_fusion_ai_defense_update_settings",
+      "description": "Set the tenant's Sophos AI Defense onboarding status and selections. Creates the settings record on the first call and updates it after that."
     }
   ],
   "keywords": [
