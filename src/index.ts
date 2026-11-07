@@ -70,6 +70,8 @@ import { registerFusionCaseTools } from "./tools/fusion-cases.js";
 import { registerFusionDetectionTools } from "./tools/fusion-detections.js";
 import { registerFusionSearchTools } from "./tools/fusion-search.js";
 import { registerFusionInventoryTools } from "./tools/fusion-inventory.js";
+import { registerFusionAiDefensePolicyTools } from "./tools/fusion-ai-defense-policies.js";
+import { registerFusionAiDefenseActivityTools } from "./tools/fusion-ai-defense-activity.js";
 
 async function main(): Promise<void> {
   // Load and validate config
@@ -169,6 +171,8 @@ async function main(): Promise<void> {
     registerFusionDetectionTools(server, fusionClient, tenantResolver);
     registerFusionSearchTools(server, fusionClient, tenantResolver);
     registerFusionInventoryTools(server, fusionClient, sophosClient, tenantResolver);
+    registerFusionAiDefensePolicyTools(server, fusionClient, tenantResolver);
+    registerFusionAiDefenseActivityTools(server, fusionClient, tenantResolver);
 
     return server;
   };

@@ -1,0 +1,920 @@
+directive @shareable repeatable on OBJECT | FIELD_DEFINITION
+directive @key(fields: String!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE
+"RFC 3339 timestamp serialized as a string."
+scalar Time
+
+"Arbitrary JSON value."
+scalar JSON
+
+"Signed 64-bit integer serialized according to the federated graph contract."
+scalar Int64
+
+directive @hasAuthzPermissionGrant(resource: String!, action: String!) on FIELD_DEFINITION
+
+"""
+Federated reference to a platform subject (user, client, service principal).
+This service emits {id} references only — the federated gateway resolves the
+full Subject data from the platform subjects service, which owns the entity. Use to
+join policy createdBy/updatedBy IDs against user metadata (email, displayName).
+"""
+type Subject @key(fields: "id", resolvable: false) {
+  "Underlying subject ID. Matches the value stored in Policy.createdBy / Policy.updatedBy."
+  id: ID!
+}
+
+"""
+Action applied when a rule matches AI traffic. Each rule within a policy has
+its own action. The service merges per-rule actions into sensor configs.
+"""
+enum PolicyAction {
+  "Deny access to matched AI services. Traffic is dropped/rejected at the sensor level."
+  BLOCK
+  "Allow access but show an interstitial warning. Not supported by DNS, which cannot show a warning."
+  WARN
+  "Explicitly permit access. Used to create exceptions — e.g., allow Copilot for Engineering overrides a broader block."
+  ALLOW
+}
+
+"""
+Admin intent for a policy. More states, such as DRAFT or
+PENDING_APPROVAL, may be added later.
+"""
+enum PolicyState {
+  "The policy should be enforced. The service distributes it to all configured sensors."
+  ENABLED
+  "The policy is inactive. The service removes any existing distribution."
+  DISABLED
+}
+
+"""Who created a policy. Determines editability and lifecycle behavior."""
+enum PolicyOrigin {
+  "Created by a tenant admin. Fully editable."
+  CUSTOM
+  "Stamped from a Sophos-shipped template. Fully editable after stamping; builtInKey/builtInVersion track provenance."
+  BUILT_IN
+  "Pushed from a partner hub to the tenant. Fully read-only for tenant admins — the partner controls the entire lifecycle."
+  PARTNER
+}
+
+"""
+Lifecycle class of a policy. Orthogonal to `origin`, which records authorship —
+a TENANT_BASE policy is system-provisioned but the tenant owns its rules.
+"""
+enum PolicyKind {
+  "An ordinary tenant policy, whatever its origin. Requires an explicit scope."
+  TENANT
+  """
+  Reserved per-tenant catch-all. Created ENABLED with Endpoint scope
+  {"type":"EVERYONE"}. Firewall is optional and, when enabled, must also use
+  {"type":"EVERYONE"}. Generative AI category action defaults to ALLOW;
+  an action and app rules may be supplied during creation.
+  Its priority is below tenant and partner policies. Admins may edit its name,
+  description, tags, rules, Generative AI category action, and supported
+  sensor configuration; they cannot disable, delete, clone, or reposition it.
+  """
+  TENANT_BASE
+}
+
+"""
+Computed enforcement state derived from the policy's enabled flag and its
+distribution records. Never stored — eliminates concurrent write races
+between admin edits and policy distribution.
+"""
+enum EnforcementStatus {
+  "Policy is disabled, has no enabled sensors, or has no distribution records yet."
+  INACTIVE
+  "At least one enabled sensor's distribution is queued, or records exist for some enabled sensors but not all (mid-distribution). PENDING shadows FAILED — a queued retry means the policy is in flight."
+  PENDING
+  "Every enabled sensor has a synced distribution record."
+  ENFORCED
+  "At least one enabled sensor's last push failed. Requires admin attention (manual retry or investigation)."
+  FAILED
+}
+
+"""
+How a target condition's values are matched against an AI service's attributes.
+Conditions are ANDed across dimensions, ORed within a condition's values.
+"""
+enum FilterOperator {
+  "Service attribute must be one of the listed values. Used for app, category, risk_level, etc."
+  IN
+  "Service is missing at least one of the listed certifications/attributes. Used for compliance dimension."
+  MISSING_ANY
+}
+
+"""
+A Secure AI policy that governs access to AI services. Policies are evaluated
+in priority order (lower number = higher priority). Each policy contains an
+ordered list of rules — each rule targets a set of AI services and applies an
+action. Rules are evaluated top-to-bottom within a policy (first match wins).
+"""
+type Policy {
+  "Stable policy identifier."
+  id: ID!
+  "Tenant that owns the policy."
+  tenantId: String!
+  "Admin-visible policy name."
+  name: String!
+  "Optional admin-visible policy description."
+  description: String
+  "Sort order. Lower value = higher priority. Fractional values are valid (e.g., 1.5 between 1.0 and 2.0)."
+  priority: Float!
+  """
+  1-based rank within the tenant's policies, ordered by priority ASC (lowest
+  priority float = rank 1). Computed on read, never stored. Read-only.
+  Absolute within the tenant — a filtered or paginated `policies` query
+  may return non-contiguous ranks. Int64 per the federated supergraph
+  convention; expected range is 0 < rank ≤ tenant policy count.
+  """
+  rank: Int64!
+  "Admin intent — ENABLED or DISABLED. Extensible to DRAFT, PENDING_APPROVAL, etc."
+  state: PolicyState!
+  "Computed from state + distribution records. Never stored directly."
+  enforcementStatus: EnforcementStatus!
+  "Source that created and controls the policy lifecycle."
+  origin: PolicyOrigin!
+  "Lifecycle class. TENANT_BASE is the reserved per-tenant base policy — see PolicyKind."
+  kind: PolicyKind!
+  "Set when origin=PARTNER. The partner's own ID for this policy."
+  partnerPolicyId: ID
+  "Set when origin=BUILT_IN. Identifies which template this was stamped from."
+  builtInKey: String
+  "Set when origin=BUILT_IN. Template version at stamp time — used for update-available detection."
+  builtInVersion: Int64
+  "Ordered rules evaluated top-to-bottom. First matching rule's action is applied."
+  rules: [PolicyRule!]!
+  """
+  Policy-wide settings that apply independently of the ordered rule list.
+  Always present — defaults are used when the admin has not set anything.
+  """
+  baseRule: PolicyBaseRule!
+  "Per-sensor enablement and scope configuration."
+  sensors: SensorConfigMap!
+  "Key/value labels for filtering and grouping policies."
+  tags: JSON!
+  "Time the policy was created."
+  createdAt: Time!
+  "Time the policy was last updated."
+  updatedAt: Time!
+  "Subject ID that created the policy."
+  createdBy: String!
+  "Subject ID that last updated the policy, when available."
+  updatedBy: String
+  "Federated subject reference for the policy creator. The gateway resolves name (email), displayName, and identity from the platform subjects service. Null when the subject lookup fails."
+  createdBySubject: Subject
+  "Federated subject reference for the last policy editor. Null when the policy has never been updated, or when the subject lookup fails."
+  updatedBySubject: Subject
+  "Optimistic concurrency token. Must be passed on updates to detect conflicts."
+  version: Int64!
+}
+
+"""
+A single rule within a policy. Pairs a target (which AI services to match)
+with an action (what to do when matched). Position is 0-based — assigned
+server-side from the array order.
+"""
+type PolicyRule {
+  "0-based position within the policy's rule list."
+  position: Int64!
+  "Which AI services this rule matches. Conditions are ANDed."
+  target: PolicyTarget!
+  "What happens when this rule matches."
+  action: PolicyAction!
+  """
+  Optional explicit mechanisms. Null inherits the action capability
+  defaults; an explicit list preserves caller intent.
+  """
+  enforcementMechanismOverride: [EnforcementMechanism!]
+  "Optional admin note describing the intent or context of this rule."
+  note: String
+  """
+  Legacy preview of matched applications, resolved from this rule's target
+  conditions in isolation. Advisories are not narrowed for rules above it and
+  effectiveCount is null. Use targetPreviewV2 for sequence-aware results.
+  """
+  targetPreview: RuleTargetPreview!
+  """
+  Sequence-aware preview of matched applications. When read under Policy.rules,
+  advisories are narrowed to what this rule will actually act on given the rules
+  above it. The effectiveReachStatus distinguishes a determined effectiveCount
+  from the exceptional cases where no count can be published.
+  This additive V2 field allows clients to migrate independently while targetPreview
+  retains its legacy behavior.
+  """
+  targetPreviewV2: RuleTargetPreviewV2!
+  """
+  Per-operation actions for the Sophos Endpoint browser extension's
+  clipboard/upload/download enforcement on this rule's matched sites. Null
+  when not configured. Independent of `action` — a rule can carry data
+  controls regardless of its block/warn/allow verdict.
+  """
+  dataControls: BrowserDataControls
+}
+
+"""
+Policy-wide settings applied independently of the ordered rule list. It is not
+a rule: it has no
+target and takes no part in first-match-wins evaluation.
+
+A container rather than a bare field so future policy-wide settings are purely
+additive.
+"""
+type PolicyBaseRule {
+  """
+  Action applied to the endpoint's own Generative AI web category — a
+  different population from the AI app catalog that `rules` target.
+  
+  This is a fallback, not an override of `rules`: the endpoint evaluates the
+  per-URL/per-app web control rules compiled from `rules` in a
+  short-circuiting prioritized tier ahead of the category action, so any
+  Generative AI traffic matched there wins. The category action decides only
+  the Generative AI traffic no rule above it matched.
+  
+  It does override the tenant's own Web Control setting for that category.
+  Defaults to ALLOW.
+  """
+  generativeAiCategoryAction: PolicyAction!
+  "Explicit AppControl category action. Null inherits generativeAiCategoryAction, with WARN mapped to ALLOW."
+  appControlCategoryAction: PolicyAction
+}
+
+"""
+Set of conditions that determine which AI services a policy applies to.
+All conditions must match (AND logic).
+"""
+type PolicyTarget {
+  "Conditions that must all match for this target to select an application."
+  conditions: [TargetCondition!]!
+}
+
+"""
+A single filter condition within a policy target.
+Example: { dimension: "risk_level", operator: IN, values: ["high", "critical"] }
+"""
+type TargetCondition {
+  "The AI service attribute to filter on (e.g., app, category, risk_level, compliance)."
+  dimension: String!
+  "Operator used to compare the dimension with the supplied values."
+  operator: FilterOperator!
+  "Values to match against. ORed within the condition."
+  values: [String!]!
+}
+
+"""
+Per-sensor enablement and scope. Null means the sensor is not configured for this policy.
+"""
+type SensorConfigMap {
+  "Endpoint sensor configuration, or null when Endpoint is not configured."
+  endpoint: SensorConfig
+  "Firewall sensor configuration, or null when Firewall is not configured."
+  firewall: SensorConfig
+  "DNS sensor configuration, or null when DNS Protection is not configured."
+  dns: SensorConfig
+  "Protected Browser configuration, or null when Browser is not configured."
+  browser: SensorConfig
+}
+
+"""
+Configuration for a single sensor on a policy. Each sensor type has its own
+scope schema (e.g., Endpoint uses user/device groups, Firewall uses CM groups).
+
+Endpoint scope JSON accepts two on-disk shapes per dimension; the deserializer
+unions them so producers may write either form:
+
+```
+{
+  "users":            [{"id": "uuid", "name": "DOMAIN\\user", "exchange_login": "user@corp.com"}, ...],
+  "group_ids":        ["uuid", ...]   (or "groups": [{"id": "uuid"}, ...])
+  "device_ids":       ["uuid", ...]   (or "devices": [{"id": "uuid"}, ...])
+  "device_group_ids": ["uuid", ...]   (or "device_groups": [{"id": "uuid"}, ...])
+}
+```
+
+The legacy form `"user_ids": ["uuid", ...]` is also accepted and merges with
+the rich `users` array. For the user dimension only, `name` is matched
+against the activity's user-name before falling back to `id`. This lets user-scope
+policies match Windows endpoint events, where the user ID is a SID.
+`exchange_login` is accepted but not used for matching.
+
+Firewall scope JSON shape:
+
+```
+{"groups": [{"group_id": "uuid", "web_policy_ids": ["uuid", ...]}]}
+```
+"""
+type SensorConfig {
+  "Whether this sensor should enforce the policy."
+  enabled: Boolean!
+  "Sensor-specific scope as JSON. BASE requires Endpoint {\"type\":\"EVERYONE\"}; an enabled BASE Firewall uses the same scope."
+  scope: JSON!
+}
+
+"""Enforcement action for a resolved web control rule."""
+enum ResolvedAction {
+  allow
+  block
+  warn
+}
+
+"""
+Per-operation actions for the Sophos Endpoint browser extension's
+clipboard/upload/download enforcement. Mirrors Endpoint's
+`ai_browserExtension.dataControls` contract — each
+operation is independently allow/block/warn, attached to the same rule (and
+therefore the same resolved site list) as `ResolvedRule.domains`, not a
+separate list.
+"""
+type BrowserDataControls {
+  "Action for copying content out of the site's clipboard context."
+  clipboardCopy: ResolvedAction!
+  "Action for pasting content into the site's clipboard context."
+  clipboardPaste: ResolvedAction!
+  "Action for uploading files to the site."
+  upload: ResolvedAction!
+  "Action for downloading files from the site."
+  download: ResolvedAction!
+}
+
+"""
+Write-side counterpart of BrowserDataControls, attached to a rule via
+PolicyRuleInput.dataControls.
+"""
+input BrowserDataControlsInput {
+  "Action for copying content out of the site's clipboard context."
+  clipboardCopy: ResolvedAction!
+  "Action for pasting content into the site's clipboard context."
+  clipboardPaste: ResolvedAction!
+  "Action for uploading files to the site."
+  upload: ResolvedAction!
+  "Action for downloading files from the site."
+  download: ResolvedAction!
+}
+
+"""
+Whether a V2 effective-reach figure was computed, and why not when absent.
+"""
+enum EffectiveReachStatus {
+  "The ordered sequence was resolved and effectiveCount is populated."
+  DETERMINED
+  "The rule was resolved without the Policy.rules sequence walk."
+  NO_SEQUENCE_CONTEXT
+  "At least one rule needed for the sequence calculation could not be resolved."
+  INCOMPLETE_SEQUENCE
+}
+
+"""
+Preview of which catalog applications match a rule's target conditions.
+"""
+type RuleTargetPreview {
+  """Total count of applications matching all conditions."""
+  matchedCount: Int64!
+  """
+  How many of the matched applications this rule will actually act on, given the
+  rules above it in the same policy (first-match-wins). Always <= matchedCount.
+  
+  Null means "not determined", which is NOT the same as "equal to matchedCount":
+    - Query.previewRuleTarget always returns null — one rule, no sequence.
+    - PolicyRule.targetPreview always returns null to preserve its legacy contract.
+    - Query.previewRuleTargets returns null when a rule higher in the sequence
+      could not be resolved against the catalog, since the claim set is incomplete.
+  
+  Clients must show only the matched figure when this is null, and may show a
+  second figure only when it is present and differs from matchedCount.
+  """
+  effectiveCount: Int64
+  """
+  Matched applications, sorted by name. Drawn from the matched set, not the
+  effective set, so the names stay consistent with matchedCount. Returned set
+  depends on the source:
+  - PolicyRule.targetPreview: capped at 5.
+  - Query.previewRuleTarget: capped at 500.
+  - Query.previewRuleTargets: capped at 5 per rule.
+  """
+  topApps: [PreviewApp!]!
+  """Risk level distribution of matched applications."""
+  riskCounts: [RiskCount!]!
+  """
+  Risk-aware warnings for admin review. Derived from the effective set when
+  effectiveCount is non-null, so a warning never names an application the rule
+  cannot act on; derived from the matched set when effectiveCount is null.
+  """
+  warnings: [String!]!
+  "Concrete enforcement targets resolved independently of parent-oriented counts."
+  enforcementImpact: EnforcementImpact!
+}
+
+"""Sequence-aware preview returned only by PolicyRule.targetPreviewV2."""
+type RuleTargetPreviewV2 {
+  "Total count of applications matching all conditions."
+  matchedCount: Int64!
+  """
+  How many matched applications this rule will actually act on after preceding
+  rules are applied. Populated if and only if effectiveReachStatus is DETERMINED.
+  """
+  effectiveCount: Int64
+  """
+  Whether effectiveCount was determined. A non-DETERMINED value explains why
+  effectiveCount is null.
+  """
+  effectiveReachStatus: EffectiveReachStatus!
+  "Matched applications, sorted by name and capped at 5."
+  topApps: [PreviewApp!]!
+  "Risk level distribution of all matched applications."
+  riskCounts: [RiskCount!]!
+  """
+  Risk-aware warnings for admin review. Derived from the effective set when
+  effectiveReachStatus is DETERMINED, otherwise from the full matched set.
+  """
+  warnings: [String!]!
+  "Concrete enforcement targets resolved independently of parent-oriented counts."
+  enforcementImpact: EnforcementImpact!
+}
+
+"""Concrete WebControl and AppControl impact of target conditions."""
+type EnforcementImpact {
+  "Domains whose enforcement is delivered through web control."
+  webControlDomains: [String!]!
+  "AppControl identities affected by this target. IDs come directly from the catalog registry."
+  appControlApplications: [AppControlApplicationImpact!]!
+}
+
+"""A catalog-owned AppControl identity shown in policy previews."""
+type AppControlApplicationImpact {
+  "Stable ID used in policy targets and verdict lookups."
+  applicationId: String!
+  "User-facing catalog display name."
+  applicationName: String!
+}
+
+"""A matched application in the target preview."""
+type PreviewApp {
+  "Catalog identifier of the matched application."
+  id: String!
+  "Display name of the matched application."
+  name: String!
+  "Catalog risk level of the matched application."
+  riskLevel: String!
+}
+
+"""Count of applications at a specific risk level."""
+type RiskCount {
+  "Catalog risk level represented by this bucket."
+  level: String!
+  "Number of matched applications in this risk bucket."
+  count: Int64!
+}
+
+"""
+Result of evaluating an ordered ruleset against the catalog. Rules are
+walked top-to-bottom; the first matching rule wins per app. Counts sum to
+totalApps (allowed = totalApps - blocked - warned).
+
+Use it to check the rules of a starter template, a new policy, or a changed
+policy before you save them.
+"""
+type PolicyImpactResult {
+  """Total applications evaluated. V1: catalog size."""
+  totalApps: Int64!
+  "Apps a BLOCK rule would catch — first matching rule wins per app."
+  blocked: Int64!
+  "Apps a WARN rule would catch — first match after BLOCKs."
+  warned: Int64!
+  "Apps falling through to ALLOW catch-all or no matching rule."
+  allowed: Int64!
+}
+
+"""
+A Sophos-shipped persona-based policy template. Supplies industry-tuned
+rules for a new policy. Stamping happens via the normal
+createPolicy mutation with builtInKey + builtInVersion set — there is no
+separate stamp endpoint. Templates are global, not tenant-specific.
+"""
+type StarterTemplate {
+  "Immutable identifier. Policies created from the template store it in Policy.builtInKey."
+  key: String!
+  "Display name. Use it as the first name of a policy created from the template."
+  name: String!
+  "One-line summary of the template."
+  description: String!
+  """
+  Marks the persona highlighted as the default until tenant industry signal
+  is available from onboarding. Exactly one template in the registry
+  carries recommended=true.
+  """
+  recommended: Boolean!
+  "Template version. Captured on Policy.builtInVersion at stamp time."
+  version: Int64!
+  """
+  Ordered rules. The final rule is always the catch-all (empty conditions
+  on PolicyTarget). Each rule's note field explains why the rule
+  is there.
+  """
+  rules: [PolicyRule!]!
+  "Default sensors for a policy created from the template. Change them before you save."
+  defaultSensors: SensorConfigMap!
+  """
+  Pre-filled policy-wide base rule. Never null: the API default
+  applies when the template sets nothing, matching Policy.baseRule.
+  """
+  baseRule: PolicyBaseRule!
+  """
+  Impact preview against the current catalog. Lazy field — computed only
+  when requested, so listing templates without impact is cheap.
+  """
+  impact: PolicyImpactResult!
+}
+
+"Paginated list of policies with cursor-based navigation."
+type PolicyConnection {
+  "Policies in the current page."
+  policies: [Policy!]!
+  "Cursor metadata for navigating policy pages."
+  pageInfo: PageInfo!
+  "Total policies matching the filter (across all pages)."
+  totalCount: Int64!
+  "Count of ENABLED policies within the same filtered result set, across all pages."
+  enabledCount: Int64!
+  "Count of policies whose computed enforcement status is FAILED within the same filtered set (at least one enabled sensor's last push failed). Counted across all pages, not only the current page."
+  failedCount: Int64!
+}
+
+"Cursor-based pagination metadata. Currently only forward pagination (first/after) is supported."
+type PageInfo @shareable {
+  "Whether another page exists after this page."
+  hasNextPage: Boolean!
+  "Whether another page exists before this page."
+  hasPreviousPage: Boolean!
+  "Cursor of the first item in this page."
+  startCursor: String
+  "Cursor of the last item in this page."
+  endCursor: String
+}
+
+"A dimension, operator, and values used to select matching applications."
+input TargetConditionInput {
+  dimension: String!
+  operator: FilterOperator!
+  values: [String!]!
+}
+
+"Conditions defining which applications a policy rule targets."
+input PolicyTargetInput {
+  conditions: [TargetConditionInput!]!
+}
+
+"""
+A single rule in an ordered sequence submitted for preview. Rules are walked
+top-to-bottom under first-match-wins, so an application claimed by an earlier
+in-effect rule — whatever that rule's action — is excluded from every later
+rule's effective reach and from its risk advisories.
+"""
+input RuleTargetInput {
+  conditions: [TargetConditionInput!]!
+  action: PolicyAction!
+  """
+  Whether this rule participates in preemption. When false, the rule still gets its own
+  preview but claims no applications from the rules below it.
+  
+  Pass false for a rule that is not finished being authored, such as one
+  with a condition that has no values selected yet. Empty
+  conditions are a valid deliberate catch-all that claims every application, so an
+  unfinished rule cannot be recognised from its conditions alone — only the client knows.
+  
+  Defaults to true.
+  """
+  inEffect: Boolean! = true
+}
+
+"Enablement and sensor-specific scope supplied for one sensor."
+input SensorConfigInput {
+  enabled: Boolean!
+  scope: JSON
+}
+
+"""
+Policy-wide settings. Every field is optional: omitted fields keep their current
+value on update, and take their default on create.
+"""
+input PolicyBaseRuleInput {
+  "Action for the entire Generative AI web category. Defaults to ALLOW."
+  generativeAiCategoryAction: PolicyAction
+  "AppControl category override: ALLOW or BLOCK. Omit on update to keep it; null clears it and resumes inheritance."
+  appControlCategoryAction: PolicyAction
+}
+
+"Per-sensor configuration supplied when creating or updating a policy."
+input SensorConfigMapInput {
+  endpoint: SensorConfigInput
+  firewall: SensorConfigInput
+  dns: SensorConfigInput
+  browser: SensorConfigInput
+}
+
+"Sensor mechanism used to enforce an application policy decision."
+enum EnforcementMechanism {
+  "Web Browser Enforcement"
+  WEB_CONTROL
+  "Application Enforcement"
+  APP_CONTROL
+}
+
+"""
+A single rule input. Position is NOT provided — it is assigned server-side
+from the array index (0-based). Send rules in desired evaluation order.
+"""
+input PolicyRuleInput {
+  target: PolicyTargetInput!
+  action: PolicyAction!
+  "optionally override to target a specific set of enforcement mechanisms. If null all supported mechanisms will apply"
+  enforcementMechanismOverride: [EnforcementMechanism!]
+  "Optional admin note describing the intent or context of this rule."
+  note: String
+  """
+  Per-operation actions for the Sophos Endpoint browser extension's
+  clipboard/upload/download enforcement on this rule's matched sites.
+  Omit or pass null to leave data controls unconfigured.
+  """
+  dataControls: BrowserDataControlsInput
+}
+
+"""
+Creates an ordinary policy DISABLED by default so the admin can review and
+position it before enforcement. Pass state: ENABLED to create-and-enable.
+TENANT_BASE requires state: ENABLED and is pinned below other policies.
+"""
+input PolicyCreateInput {
+  "Lifecycle class. Omit for an ordinary TENANT policy. TENANT_BASE creation returns the existing singleton on retry without resetting edits."
+  kind: PolicyKind = TENANT
+  name: String!
+  description: String
+  """
+  Ordered rules. Position assigned from array index. May be empty — the
+  policy-wide `baseRule` always applies, so a policy with no per-app rules is
+  still a complete policy.
+  """
+  rules: [PolicyRuleInput!]!
+  "Policy-wide settings. Omit to take the defaults."
+  baseRule: PolicyBaseRuleInput
+  sensors: SensorConfigMapInput!
+  "Key/value labels. Example: {\"env\": \"production\", \"team\": \"soc\"}"
+  tags: JSON
+  """
+  Defaults to DISABLED for ordinary policies. Pass ENABLED to create-and-enable
+  in one operation. TENANT_BASE must be created ENABLED with Endpoint EVERYONE
+  scope; Firewall EVERYONE scope, app rules, and a Generative AI category
+  action may be supplied.
+  """
+  state: PolicyState = DISABLED
+  """
+  When set, marks the new policy as stamped from a Sophos starter template.
+  Stored on Policy.builtInKey. Pairs with builtInVersion. Setting this
+  also sets Policy.origin to BUILT_IN. It is not validated against the
+  current templates, because templates can be renamed or removed while
+  policies created from them keep working.
+  """
+  builtInKey: String
+  "Template version captured at stamp time. Required when builtInKey is set."
+  builtInVersion: Int64
+}
+
+"""
+Partial update — only provided fields are changed. Version is required for
+optimistic concurrency. Rules use full replacement: if provided, the entire
+rules list is replaced. Omit rules to leave them unchanged.
+"""
+input PolicyUpdateInput {
+  name: String
+  description: String
+  """
+  Full replacement — provide the complete ordered rules list. Omit to leave
+  unchanged. Pass an empty list to remove every rule; the policy-wide
+  `baseRule` continues to apply.
+  """
+  rules: [PolicyRuleInput!]
+  "Partial update of the policy-wide settings. Omit to leave unchanged."
+  baseRule: PolicyBaseRuleInput
+  sensors: SensorConfigMapInput
+  "Key/value labels. Example: {\"env\": \"production\", \"team\": \"soc\"}"
+  tags: JSON
+  "Must match the current version. Returns a conflict error if stale."
+  version: Int64!
+}
+
+"Filters for the policies list query. All fields are optional and ANDed."
+input PolicyFilterInput {
+  state: PolicyState
+  origin: PolicyOrigin
+  "Filter by lifecycle class. Use TENANT to fetch the tenant-owned reorderable list — partner-origin and TENANT_BASE policies are excluded from reorderPolicies."
+  kind: PolicyKind
+  "Free-text search across policy name and description."
+  search: String
+  "Free-text search across policy name only. Prefer this over `search` when matching against description would be noisy."
+  nameSearch: String
+}
+
+"""
+Classifies an AI application based on the tenant's policy rules.
+Scope-agnostic: the first matching rule wins
+across all policies by priority, and sensor scope is ignored.
+"""
+enum AppSanctioningStatus {
+  "Admin explicitly approved this app."
+  APPROVED
+  "Admin blocked this app."
+  BLOCKED
+  "Admin configured a warning for this app."
+  WARNED
+  "No sanctioning policy applies to this app."
+  NOT_COVERED
+}
+
+"""Sanctioning status for a single AI application."""
+type AppSanctioningEntry {
+  "The catalog application ID."
+  appId: String!
+  "Scope-agnostic sanctioning status derived from the tenant's policies."
+  status: AppSanctioningStatus!
+  "Concrete WebControl parent and AppControl child statuses for this request."
+  enforcementTargets: [AppEnforcementTarget!]!
+}
+
+"""Sanctioning status for one concrete enforcement identity."""
+type AppEnforcementTarget {
+  "Mechanism responsible for enforcing this target."
+  mechanism: EnforcementMechanism!
+  "Canonical catalog/policy identity. AppControl IDs are lowercase slugs."
+  applicationId: String!
+  "Catalog display name. The sensor-specific Endpoint name may differ."
+  applicationName: String!
+  "Effective sanctioning status for this target."
+  status: AppSanctioningStatus!
+  "Policy whose verdict row supplied this target's effective status. Null when not covered or when the policy was removed after verdict computation."
+  matchedPolicy: Policy
+  "0-based position of the matching rule in matchedPolicy. Null when not covered."
+  matchedRulePosition: Int64
+  "When this target's effective verdict row was computed. Null when not covered."
+  computedAt: Time
+}
+
+"""Result of a batch sanctioning status lookup."""
+type AppSanctioningResult {
+  "Sanctioning status per requested app ID."
+  entries: [AppSanctioningEntry!]!
+}
+
+"""
+Reuses the platform-wide ReportRelativeTimeFramePeriodV2 enum defined by
+report-service / reporting-api so that Apollo Federation merges cleanly.
+"""
+enum ReportRelativeTimeFramePeriodV2 {
+  "Midnight UTC of the current day to now."
+  SINCE_BEGINNING_OF_DAY
+  "Most recent Sunday 00:00 UTC to now."
+  SINCE_BEGINNING_OF_WEEK_SUNDAY
+  "Most recent Monday 00:00 UTC to now."
+  SINCE_BEGINNING_OF_WEEK_MONDAY
+  "First day of the current month 00:00 UTC to now."
+  SINCE_BEGINNING_OF_MONTH
+  "First day of the current quarter 00:00 UTC to now."
+  SINCE_BEGINNING_OF_QUARTER
+  "First day of the current year 00:00 UTC to now."
+  SINCE_BEGINNING_OF_YEAR
+  "Entirety of the previous calendar month."
+  LAST_MONTH
+  "Entirety of the previous calendar quarter."
+  LAST_QUARTER
+  "Entirety of the previous calendar year."
+  LAST_YEAR
+}
+
+"""
+Time range filter for activities. When omitted, the API defaults to
+SINCE_BEGINNING_OF_WEEK_SUNDAY.
+
+Provide **either** absolute times (startTime/endTime) **or** a relative preset
+— not both. Using both returns a validation error.
+"""
+input SecureAITimeRange {
+  "Absolute start time. Cannot be combined with `relative`."
+  startTime: Time
+  "Absolute end time. Cannot be combined with `relative`."
+  endTime: Time
+  """
+  Relative preset (e.g. SINCE_BEGINNING_OF_DAY). Cannot be combined with
+  startTime/endTime.
+  """
+  relative: ReportRelativeTimeFramePeriodV2
+}
+
+"Activity of the tenant's enabled policies over a time window."
+type SecureAIPolicyActivityMetrics {
+  "Number of enabled policies that matched at least one activity in the window."
+  policiesWithActivityCount: Int64!
+  "Number of enabled policies with no activity in the window."
+  policiesWithoutActivityCount: Int64!
+  "IDs of enabled policies with no activity in the window, sorted."
+  policiesWithoutActivityIds: [ID!]!
+  "Window start."
+  windowStart: Time!
+  "Window end."
+  windowEnd: Time!
+  "Policy with the most blocked activities in the window. Null when no in-use policy blocked anything."
+  mostBlockedPolicy: SecureAIMostBlockedPolicy
+}
+
+"The policy that blocked the most activities in a time window."
+type SecureAIMostBlockedPolicy {
+  "Policy ID."
+  policyId: ID!
+  "Number of activities this policy blocked in the window."
+  blockedCount: Int64!
+}
+
+"Read operations exposed by the Secure AI policy service."
+type Query {
+  "Fetch a single policy by ID. Returns null if not found."
+  policy(id: ID!): Policy @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "read")
+  "List policies with optional filtering and cursor-based pagination."
+  policies(
+    filter: PolicyFilterInput
+    "Page size. Default 50, max 100."
+    first: Int64 = 50
+    "Cursor from a previous page's endCursor."
+    after: String
+  ): PolicyConnection! @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "read")
+  """
+  Batch sanctioning status for a list of AI applications.
+  Returns scope-agnostic status (APPROVED/BLOCKED/WARNED/NOT_COVERED) derived
+  from the tenant's policies. Apps not covered by any policy rule are NOT_COVERED.
+  """
+  appSanctioning(appIds: [String!]!): AppSanctioningResult! @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "read")
+  """
+  Preview which applications match target conditions with a given action. For policy authoring — works with unsaved rules.
+  
+  Single-rule variant: warnings do not consider any other rules. For a
+  cross-rule aware preview, use previewRuleTargets.
+  
+  Single rule in isolation: advisories are not narrowed for rules above it and
+  effectiveCount is null. Use previewRuleTargets for sequence-aware advisories.
+  """
+  previewRuleTarget(conditions: [TargetConditionInput!]!, action: PolicyAction!): RuleTargetPreview! @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "read")
+  """
+  Preview an ordered rule sequence as a unit, with each rule's advisories narrowed to the
+  applications it will actually act on. Rules are walked top-to-bottom under
+  first-match-wins: an application claimed by an earlier in-effect rule — whatever that
+  rule's action — is excluded from every later rule's effective reach.
+  
+  Returns exactly one preview per input rule, in input order: result[i] describes rules[i].
+  Only the supplied rules are considered; other policies never affect the result.
+  
+  For policy authoring — works with unsaved rules and in-progress edits. Use
+  previewRuleTarget for a single rule in isolation or for the full matched-app list.
+  """
+  previewRuleTargets(rules: [RuleTargetInput!]!): [RuleTargetPreview!]! @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "read")
+  "List all persona-based starter templates. Tenant-agnostic — the registry ships with every deployment."
+  starterTemplates: [StarterTemplate!]! @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "read")
+  "Fetch a single starter template by key. Returns null if the key is unknown."
+  starterTemplate(key: String!): StarterTemplate @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "read")
+  """
+  Evaluate a hypothetical ordered ruleset against the catalog and report
+  per-action totals. Rules are walked top-to-bottom; the first matching
+  rule wins per app. V1 evaluates against the full catalog (tenant-agnostic) — the
+  response shape is stable so a future revision can scope to apps observed
+  in the tenant's activity window without breaking callers.
+  """
+  previewPolicyImpact(rules: [PolicyRuleInput!]!): PolicyImpactResult! @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "read")
+  "Compiled enforcement mechanisms supported by this API."
+  supportedEnforcementMechanisms: [EnforcementMechanism!]! @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "read")
+  "Which enabled policies had activity in the time frame. Defaults to SINCE_BEGINNING_OF_WEEK_SUNDAY when timeFrame is omitted or empty."
+  secureAIPolicyActivityMetrics(timeFrame: SecureAITimeRange = {relative: SINCE_BEGINNING_OF_WEEK_SUNDAY}): SecureAIPolicyActivityMetrics! @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "read")
+}
+
+"Policy lifecycle operations exposed by the Secure AI policy service."
+type Mutation {
+  "Create a policy. TENANT_BASE is pinned last and creation is idempotent; ordinary tenant policies are inserted at the top."
+  createPolicy(input: PolicyCreateInput!): Policy! @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "create")
+  "Partial update. Requires version for optimistic concurrency."
+  updatePolicy(id: ID!, input: PolicyUpdateInput!): Policy! @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "update")
+  "Soft-delete a policy. Triggers tear-down on all sensors."
+  deletePolicy(id: ID!): Boolean! @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "delete")
+  """
+  Move a policy relative to an anchor. afterId = null moves to top (highest priority).
+  afterId = some ID places the policy immediately after that anchor in priority order.
+  Uses fractional indexing — only the moved policy's row is updated (O(1) writes).
+  """
+  movePolicy(id: ID!, afterId: ID): Policy! @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "update")
+  "Bulk reorder — provide the complete ordered list of reorderable policy IDs. Exclude PARTNER and TENANT_BASE policies; the base policy is pinned to the bottom. Returns the IDs in their confirmed new order."
+  reorderPolicies(policyIds: [ID!]!): [ID!]! @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "update")
+  "Set policy state to ENABLED and trigger distribution to all configured sensors."
+  enablePolicy(id: ID!): Policy! @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "update")
+  "Set policy state to DISABLED and trigger tear-down on all sensors."
+  disablePolicy(id: ID!): Policy! @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "update")
+  """
+  Clone an existing policy. Creates a deep copy of rules, the base rule, sensors,
+  scope, and tags under a new policy with a fresh ID. The clone is created DISABLED so the admin can
+  review and edit before enforcing. The clone's name is the source name suffixed with
+  " - cloned", with a numeric counter on collision (e.g. " - cloned (2)").
+  Partner-managed policies cannot be cloned.
+  """
+  clonePolicy(id: ID!): Policy! @hasAuthzPermissionGrant(resource: "SecureAIPolicy", action: "create")
+}

@@ -401,3 +401,57 @@ export interface FusionSearchResultPage {
     originSchemaTypes: string[];
   }>;
 }
+
+// --- AI Defense Policy v1 and Activity v1 ---
+
+/**
+ * A policy as the AI Defense documents select it. The tools pass policies
+ * through as the API returned them, so only the fields the code reads are typed.
+ */
+export interface AiDefensePolicy {
+  id: string;
+  name: string;
+  kind: "TENANT" | "TENANT_BASE";
+  origin: "CUSTOM" | "BUILT_IN" | "PARTNER";
+  state: "ENABLED" | "DISABLED";
+  enforcementStatus: string;
+  rank: number;
+  version: number | string;
+  [field: string]: unknown;
+}
+
+export interface AiDefensePageInfo {
+  hasNextPage: boolean;
+  endCursor: string | null;
+}
+
+export interface AiDefensePoliciesResponse {
+  policies: {
+    totalCount: number;
+    enabledCount: number;
+    failedCount: number;
+    pageInfo: AiDefensePageInfo;
+    policies: AiDefensePolicy[];
+  };
+}
+
+export interface AiDefenseOffsetPage {
+  totalCount: number;
+  offset: number;
+  limit: number;
+  hasNextPage: boolean;
+  entries: Array<Record<string, unknown>>;
+}
+
+export interface AiDefenseActivitiesResponse {
+  activities: {
+    totalCount: number;
+    pageInfo: AiDefensePageInfo;
+    activities: Array<Record<string, unknown>>;
+  };
+}
+
+export interface AiDefenseTenantSettings {
+  onboarding: { status: "NOT_STARTED" | "IN_PROGRESS" | "COMPLETED"; selections: Record<string, unknown> | null };
+  [field: string]: unknown;
+}

@@ -3,8 +3,8 @@
  * over an in-memory transport and lists the tools. No credentials and no
  * network: registration never calls Sophos. Proves the server still exposes
  * the 307 Classic tools plus the 21 Fusion case tools, the Fusion detection
- * search, the 4 Fusion search tools and the Fusion endpoint inventory, and
- * that the descriptions carry the measured warnings.
+ * search, the 4 Fusion search tools, the Fusion endpoint inventory and the
+ * 26 AI Defense tools, and that the descriptions carry the measured warnings.
  */
 
 import test from "node:test";
@@ -48,6 +48,39 @@ const FUSION_SEARCH_TOOLS = [
 ];
 
 const FUSION_INVENTORY_TOOLS = ["sophos_fusion_endpoint_inventory"];
+
+// AI Defense Policy and Activity GraphQL APIs v1, released 15/10/2026
+const AI_DEFENSE_READ_TOOLS = [
+  "sophos_fusion_ai_defense_list_policies",
+  "sophos_fusion_ai_defense_get_policy",
+  "sophos_fusion_ai_defense_get_app_sanctioning",
+  "sophos_fusion_ai_defense_preview_rule_target",
+  "sophos_fusion_ai_defense_preview_rule_targets",
+  "sophos_fusion_ai_defense_preview_impact",
+  "sophos_fusion_ai_defense_list_templates",
+  "sophos_fusion_ai_defense_get_template",
+  "sophos_fusion_ai_defense_list_mechanisms",
+  "sophos_fusion_ai_defense_get_policy_activity",
+  "sophos_fusion_ai_defense_list_activities",
+  "sophos_fusion_ai_defense_get_activity",
+  "sophos_fusion_ai_defense_list_app_inventory",
+  "sophos_fusion_ai_defense_list_user_inventory",
+  "sophos_fusion_ai_defense_list_user_apps",
+  "sophos_fusion_ai_defense_inventory_summary",
+  "sophos_fusion_ai_defense_get_settings",
+];
+
+const AI_DEFENSE_WRITE_TOOLS = [
+  "sophos_fusion_ai_defense_create_policy",
+  "sophos_fusion_ai_defense_update_policy",
+  "sophos_fusion_ai_defense_delete_policy",
+  "sophos_fusion_ai_defense_enable_policy",
+  "sophos_fusion_ai_defense_disable_policy",
+  "sophos_fusion_ai_defense_move_policy",
+  "sophos_fusion_ai_defense_reorder_policies",
+  "sophos_fusion_ai_defense_clone_policy",
+  "sophos_fusion_ai_defense_update_settings",
+];
 
 // Endpoint API bulk actions and Email API S/MIME, released October 2026
 const OCTOBER_2026_REST_TOOLS = [
@@ -141,7 +174,7 @@ async function listAllTools() {
   return { modules, tools };
 }
 
-test("tools/list exposes the 307 Classic tools plus the 27 Fusion tools", async () => {
+test("tools/list exposes the 307 Classic tools plus the 53 Fusion tools", async () => {
   const { modules, tools } = await listAllTools();
   const names = new Set(tools.map((t) => t.name));
 
@@ -150,8 +183,10 @@ test("tools/list exposes the 307 Classic tools plus the 27 Fusion tools", async 
   assert.ok(modules.includes("fusion-search"), "fusion-search is imported by src/index.ts");
   assert.ok(modules.includes("fusion-inventory"), "fusion-inventory is imported by src/index.ts");
   assert.ok(modules.includes("email-smime"), "email-smime is imported by src/index.ts");
-  assert.equal(tools.length, 334);
-  assert.equal(names.size, 334, "tool names are unique");
+  assert.ok(modules.includes("fusion-ai-defense-policies"), "fusion-ai-defense-policies is imported by src/index.ts");
+  assert.ok(modules.includes("fusion-ai-defense-activity"), "fusion-ai-defense-activity is imported by src/index.ts");
+  assert.equal(tools.length, 360);
+  assert.equal(names.size, 360, "tool names are unique");
 
   for (const name of CLASSIC_CASE_TOOLS) assert.ok(names.has(name), `${name} still registered`);
   for (const name of CLASSIC_DETECTION_TOOLS) assert.ok(names.has(name), `${name} still registered`);
@@ -160,6 +195,7 @@ test("tools/list exposes the 307 Classic tools plus the 27 Fusion tools", async 
   for (const name of FUSION_SEARCH_TOOLS) assert.ok(names.has(name), `${name} registered`);
   for (const name of FUSION_INVENTORY_TOOLS) assert.ok(names.has(name), `${name} registered`);
   for (const name of OCTOBER_2026_REST_TOOLS) assert.ok(names.has(name), `${name} registered`);
+  for (const name of [...AI_DEFENSE_READ_TOOLS, ...AI_DEFENSE_WRITE_TOOLS]) assert.ok(names.has(name), `${name} registered`);
 
   const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
   for (const tool of manifest.tools) {
@@ -177,7 +213,7 @@ test("every Fusion case tool has a schema, annotations and dash-free prose", asy
     assert.doesNotMatch(tool.description, /[\u2013\u2014]/, `${tool.name} description has no en or em dash`);
   }
   const readOnly = tools.filter((t) => t.name.startsWith("sophos_fusion_") && t.annotations.readOnlyHint);
-  assert.equal(readOnly.length, 13, "thirteen Fusion tools are read-only");
+  assert.equal(readOnly.length, 30, "thirty Fusion tools are read-only");
 });
 
 test("the October 2026 tools: dash-free prose, destructive marks on the risky writes, read-only reads", async () => {
@@ -361,4 +397,74 @@ test("the policy write tools explain assignment kinds, the endpoint group compan
   assert.deepEqual(set.inputSchema.properties.mode.enum, ["replace", "add", "remove"]);
   assert.ok(set.inputSchema.required.includes("mode"), "mode is required");
   assert.equal(set.annotations.destructiveHint, true, "replace and remove can drop assignments");
+});
+
+test("the AI Defense tools: names fit, reads are read-only, writes carry their guards and measured rules", async () => {
+  const { tools } = await listAllTools();
+  const byName = new Map(tools.map((t) => [t.name, t]));
+  const expect = (name, pattern) => assert.match(byName.get(name).description, pattern, `${name}: ${pattern}`);
+  const aiDefense = tools.filter((t) => t.name.startsWith("sophos_fusion_ai_defense_"));
+  assert.equal(aiDefense.length, 26, "26 AI Defense tools");
+  for (const tool of aiDefense) {
+    assert.ok(tool.name.length <= 45, `${tool.name} is no longer than the longest existing tool name`);
+    assert.match(tool.description, /Sophos AI Defense/, `${tool.name} names the product`);
+    assert.doesNotMatch(tool.description, /Taegis/, `${tool.name} does not say Taegis`);
+    assert.doesNotMatch(tool.title, /[–—]/, `${tool.name} title has no en or em dash`);
+    assert.ok(tool.inputSchema.properties.tenant_id, `${tool.name} takes tenant_id`);
+  }
+  for (const name of AI_DEFENSE_READ_TOOLS) {
+    assert.equal(byName.get(name).annotations.readOnlyHint, true, `${name} is read-only`);
+    assert.equal(byName.get(name).annotations.destructiveHint, false, `${name} is not destructive`);
+  }
+  for (const name of AI_DEFENSE_WRITE_TOOLS) {
+    assert.equal(byName.get(name).annotations.readOnlyHint, false, `${name} writes`);
+  }
+  for (const name of [
+    "sophos_fusion_ai_defense_update_policy",
+    "sophos_fusion_ai_defense_delete_policy",
+    "sophos_fusion_ai_defense_disable_policy",
+    "sophos_fusion_ai_defense_update_settings",
+  ]) {
+    assert.equal(byName.get(name).annotations.destructiveHint, true, `${name} is marked destructive`);
+  }
+  for (const name of ["sophos_fusion_ai_defense_create_policy", "sophos_fusion_ai_defense_enable_policy", "sophos_fusion_ai_defense_clone_policy"]) {
+    assert.equal(byName.get(name).annotations.destructiveHint, false, `${name} is not destructive`);
+  }
+
+  const update = byName.get("sophos_fusion_ai_defense_update_policy");
+  assert.ok(update.inputSchema.required.includes("version"), "update_policy requires version");
+  assert.ok(update.inputSchema.required.includes("policy_id"));
+  expect("sophos_fusion_ai_defense_update_policy", /rules replaces every rule/);
+  expect("sophos_fusion_ai_defense_update_policy", /tags replaces every tag/);
+  expect("sophos_fusion_ai_defense_update_policy", /version conflict: policy has been modified/);
+  expect("sophos_fusion_ai_defense_create_policy", /only the base policy may apply to everyone/);
+  expect("sophos_fusion_ai_defense_create_policy", /At least one sensor must be enabled/);
+  expect("sophos_fusion_ai_defense_create_policy", /Tag values must be strings/);
+  expect("sophos_fusion_ai_defense_create_policy", /confirm_base_policy true/);
+  expect("sophos_fusion_ai_defense_reorder_policies", /every reorderable policy/);
+  expect("sophos_fusion_ai_defense_delete_policy", /Cannot be undone/);
+  expect("sophos_fusion_ai_defense_disable_policy", /WARNING/);
+  expect("sophos_fusion_ai_defense_preview_rule_target", /matches nothing \(matchedCount 0\) with no error/);
+  expect("sophos_fusion_ai_defense_get_app_sanctioning", /scope agnostic/);
+  expect("sophos_fusion_ai_defense_list_activities", /defaults to since 00:00 UTC today/);
+  expect("sophos_fusion_ai_defense_list_activities", /additionalData is null on every row/);
+  expect("sophos_fusion_ai_defense_list_app_inventory", /live API does not serve them/);
+  expect("sophos_fusion_ai_defense_update_settings", /selections replaces the stored selections as a whole/);
+  expect("sophos_fusion_ai_defense_update_settings", /confirm_base_policy true/);
+  expect("sophos_fusion_ai_defense_update_settings", /no selections at all clears both/);
+  assert.ok(
+    byName.get("sophos_fusion_ai_defense_update_settings").inputSchema.required.includes("selections"),
+    "update_settings requires selections, since omitting them clears them"
+  );
+
+  const create = byName.get("sophos_fusion_ai_defense_create_policy");
+  assert.ok(create.inputSchema.required.includes("sensors"), "create_policy requires sensors");
+  assert.deepEqual(create.inputSchema.properties.kind.enum, ["TENANT", "TENANT_BASE"]);
+  for (const name of ["sophos_fusion_ai_defense_list_policies", "sophos_fusion_ai_defense_list_activities"]) {
+    assert.equal(byName.get(name).inputSchema.properties.limit.maximum, 100, `${name} limit max 100`);
+  }
+  assert.equal(byName.get("sophos_fusion_ai_defense_list_activities").inputSchema.properties.last, undefined, "no backward paging");
+  assert.equal(byName.get("sophos_fusion_ai_defense_get_policy").inputSchema.properties.policy_id.format, "uuid");
+  const appSort = byName.get("sophos_fusion_ai_defense_list_app_inventory").inputSchema.properties.sort_by.enum;
+  assert.ok(!appSort.includes("TRAINS_ON_USER_DATA"), "the sort the live API lacks is not offered");
 });
