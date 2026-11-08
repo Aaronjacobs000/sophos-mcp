@@ -26,18 +26,25 @@ import {
   DESTRUCTIVE,
   POLICY_ACTIONS,
   READ_ONLY,
+  TAGS_NOTE,
   WRITE,
   baseRuleSchema,
   buildTimeRange,
   conditionSchema,
   policyIdField,
+  readBackSpan,
+  readBackUntil,
+  readPolicy,
+  readPolicyList,
   rethrowPolicyError,
   ruleSchema,
+  sendPolicyWrite,
   sensorsSchema,
   tagsSchema,
   tenantIdField,
   timeRangeFields,
   toRuleInput,
+  type PolicyRead,
 } from "../fusion/ai-defense.js";
 import {
   AI_DEFENSE_APP_SANCTIONING,
@@ -63,7 +70,7 @@ import {
   AI_DEFENSE_UPDATE_POLICY,
 } from "../fusion/queries/ai-defense-policy.js";
 import type { AiDefensePoliciesResponse, AiDefensePolicy } from "../fusion/types.js";
-import { jsonResult, withErrorHandling, withWarnings } from "./helpers.js";
+import { jsonResult, withErrorHandling, withWarnings, type ToolResult } from "./helpers.js";
 
 const RULES_NOTE =
   "Rules run top to bottom and the first match wins. Each is { target: { conditions: [{ dimension, operator, values }] }, action: BLOCK|WARN|ALLOW, enforcementMechanismOverride?, note?, dataControls? }, in the shape sophos_fusion_ai_defense_get_policy returns, so a rule read back can be sent back (position and previews are ignored). Dimensions seen: app, category, risk_level, compliance, training_policies, with lower-case values such as 'chatgpt', 'general_assistant', 'critical', 'soc2_type2', 'trains_on_input'. A misspelled dimension or value matches nothing and raises no error, so check a rule with sophos_fusion_ai_defense_preview_rule_target first. Empty conditions match every application (a catch-all).";
@@ -80,6 +87,287 @@ const policyStateField = z.enum(["ENABLED", "DISABLED"]);
 /** A list or mutation result: the policy as returned, plus the tenant. */
 function policyResult(tenantId: string, policy: AiDefensePolicy, warnings: string[], extra: Record<string, unknown> = {}) {
   return withWarnings({ tenant_id: tenantId, ...extra, policy }, warnings);
+}
+
+const UNCLEAR_RETURNS =
+  "When Sophos answers with no result (an empty body, or a null result and no error), the write is not sent again: the state is read back, and the result says status unclear, took_effect (true, false, or null when the read can't tell), what the read found, and the state it read. It is an error unless the change reads back in place.";
+
+// --- Read-back of a write Sophos gave no result for ---
+
+/** What the read-back found: took_effect is true or false when the read shows it, null when it can't tell. */
+interface ReadBackVerdict {
+  took_effect: boolean | null;
+  read_back: string;
+  reads: number;
+  [field: string]: unknown;
+}
+
+/** status unclear, how Sophos answered, and the verdict. An error result unless the change reads back in place. */
+function unclearResult(tenantId: string, write: string, answer: { reason: string; warnings: string[] }, verdict: ReadBackVerdict): ToolResult {
+  const { took_effect, read_back, reads, ...state } = verdict;
+  const result = jsonResult(
+    withWarnings({ tenant_id: tenantId, status: "unclear", write, answer: answer.reason, took_effect, read_back, reads, ...state }, answer.warnings)
+  );
+  return took_effect === true ? result : { ...result, isError: true };
+}
+
+const goneText = (read: { deletedAt: string | null }, policyId: string) =>
+  read.deletedAt ? `Policy ${policyId} reads as deleted at ${read.deletedAt}.` : `Policy ${policyId} reads as not found.`;
+
+const readFailedText = (error: string) =>
+  `The policy could not be read back either (${error}), so whether the write took effect is unknown: check it with sophos_fusion_ai_defense_get_policy before sending the write again.`;
+
+/** JSON with object keys sorted, so two values compare by content. */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableJson(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+const sameJson = (a: unknown, b: unknown) => stableJson(a) === stableJson(b);
+
+/** A rule as an input or a read, in one shape: read-only fields dropped, absent optional fields null. */
+function comparableRule(rule: unknown): unknown {
+  const r = (rule ?? {}) as Record<string, unknown>;
+  const target = (r.target ?? {}) as Record<string, unknown>;
+  return {
+    target: { conditions: target.conditions ?? [] },
+    action: r.action ?? null,
+    enforcementMechanismOverride: r.enforcementMechanismOverride ?? null,
+    note: r.note ?? null,
+    dataControls: r.dataControls ?? null,
+  };
+}
+
+/** The update input fields that read back different from what was sent. baseRule and sensors compare only the keys sent. */
+function differingFields(input: Record<string, unknown>, policy: AiDefensePolicy): string[] {
+  const differ: string[] = [];
+  for (const [key, sent] of Object.entries(input)) {
+    if (key === "version") continue;
+    const stored = policy[key];
+    let same: boolean;
+    if (key === "rules") {
+      same = sameJson((sent as unknown[]).map(comparableRule), (Array.isArray(stored) ? stored : []).map(comparableRule));
+    } else if (key === "baseRule" || key === "sensors") {
+      const storedMap = (stored ?? {}) as Record<string, unknown>;
+      same = Object.entries(sent as Record<string, unknown>).every(([k, v]) => {
+        if (key === "sensors" && v !== null && typeof v === "object") {
+          const storedSensor = (storedMap[k] ?? {}) as Record<string, unknown>;
+          return Object.entries(v as Record<string, unknown>).every(([field, value]) => sameJson(value, storedSensor[field]));
+        }
+        return sameJson(v, storedMap[k]);
+      });
+    } else {
+      same = sameJson(sent, stored);
+    }
+    if (!same) differ.push(key);
+  }
+  return differ;
+}
+
+/** Clock skew allowed when deciding a listed policy was created by this request. */
+const CREATED_MARGIN_MS = 120_000;
+
+function createdSince(policy: AiDefensePolicy, sentAt: number): boolean {
+  const created = Date.parse(String(policy.createdAt ?? ""));
+  return Number.isFinite(created) && created >= sentAt - CREATED_MARGIN_MS;
+}
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const newestFirst = (a: AiDefensePolicy, b: AiDefensePolicy) => Date.parse(String(b.createdAt)) - Date.parse(String(a.createdAt));
+
+/** enable and disable: the policy should read the wanted state. */
+async function readBackState(
+  client: FusionClient,
+  tenantId: string,
+  policyId: string,
+  wanted: "ENABLED" | "DISABLED",
+  verb: string
+): Promise<ReadBackVerdict> {
+  const { last, reads } = await readBackUntil(
+    () => readPolicy(client, tenantId, policyId),
+    (read) => read.kind === "found" && read.policy.state === wanted
+  );
+  if (last.kind === "gone") return { took_effect: false, read_back: `${goneText(last, policyId)} Nothing was ${verb}d.`, reads };
+  if (last.kind === "failed") return { took_effect: null, read_back: readFailedText(last.error), reads };
+  const policy = last.policy;
+  return policy.state === wanted
+    ? { took_effect: true, read_back: `The policy reads ${wanted} at version ${policy.version}, as asked.`, reads, policy }
+    : {
+        took_effect: false,
+        read_back: `The policy still reads ${policy.state} at version ${policy.version} after ${readBackSpan(reads)}, so the ${verb} did not take effect. Send it again.`,
+        reads,
+        policy,
+      };
+}
+
+/** update: every write raises the version, so a version above the one sent means the policy changed. */
+async function readBackUpdate(
+  client: FusionClient,
+  tenantId: string,
+  policyId: string,
+  input: Record<string, unknown>
+): Promise<ReadBackVerdict> {
+  const sentVersion = input.version as number | string;
+  const sent = Number(sentVersion);
+  const { last, reads } = await readBackUntil(
+    () => readPolicy(client, tenantId, policyId),
+    (read) => read.kind === "found" && Number(read.policy.version) > sent
+  );
+  if (last.kind === "gone") return { took_effect: false, read_back: goneText(last, policyId), reads };
+  if (last.kind === "failed") return { took_effect: null, read_back: readFailedText(last.error), reads };
+  const policy = last.policy;
+  if (Number(policy.version) <= sent) {
+    return {
+      took_effect: false,
+      read_back: `The policy is still at version ${policy.version} (you sent ${sentVersion}) after ${readBackSpan(reads)}, so the update did not land. Send it again.`,
+      reads,
+      policy,
+    };
+  }
+  const differ = differingFields(input, policy);
+  if (differ.length === 0) {
+    return {
+      took_effect: true,
+      read_back: `The policy is at version ${policy.version} (you sent ${sentVersion}) and every field you sent reads back as sent.`,
+      reads,
+      policy,
+    };
+  }
+  return {
+    took_effect: null,
+    read_back: `The policy is at version ${policy.version} (you sent ${sentVersion}), so it changed, but ${differ.join(", ")} read back different from what you sent: another change may have landed. Compare it with what you sent before sending again with its current version.`,
+    reads,
+    policy,
+    fields_differing: differ,
+  };
+}
+
+/** move: rank 1 with no anchor, otherwise straight after the anchor. */
+async function readBackMove(client: FusionClient, tenantId: string, policyId: string, afterId: string | undefined): Promise<ReadBackVerdict> {
+  const read = async (): Promise<{ moved: PolicyRead; anchor: PolicyRead | null }> => ({
+    moved: await readPolicy(client, tenantId, policyId),
+    anchor: afterId ? await readPolicy(client, tenantId, afterId) : null,
+  });
+  const inPlace = ({ moved, anchor }: { moved: PolicyRead; anchor: PolicyRead | null }) =>
+    moved.kind === "found" &&
+    (anchor === null ? moved.policy.rank === 1 : anchor.kind === "found" && moved.policy.rank === anchor.policy.rank + 1);
+  const { last, reads } = await readBackUntil(read, inPlace);
+  const { moved, anchor } = last;
+  if (moved.kind === "gone") return { took_effect: false, read_back: goneText(moved, policyId), reads };
+  if (moved.kind === "failed") return { took_effect: null, read_back: readFailedText(moved.error), reads };
+  const policy = moved.policy;
+  const span = readBackSpan(reads);
+  if (anchor === null) {
+    return policy.rank === 1
+      ? { took_effect: true, read_back: "The policy reads rank 1, the top, as asked.", reads, policy }
+      : { took_effect: false, read_back: `The policy reads rank ${policy.rank}, not rank 1, after ${span}, so the move did not take effect. Send it again.`, reads, policy };
+  }
+  if (anchor.kind !== "found") {
+    const why = anchor.kind === "gone" ? goneText(anchor, afterId!) : `Policy ${afterId} could not be read back (${anchor.error}).`;
+    return { took_effect: null, read_back: `${why} The moved policy reads rank ${policy.rank}.`, reads, policy };
+  }
+  const anchorRank = anchor.policy.rank;
+  return policy.rank === anchorRank + 1
+    ? { took_effect: true, read_back: `The policy reads rank ${policy.rank}, straight after ${afterId} at rank ${anchorRank}, as asked.`, reads, policy }
+    : {
+        took_effect: false,
+        read_back: `The policy reads rank ${policy.rank} and ${afterId} rank ${anchorRank} after ${span}, so it is not straight after it: the move did not take effect. Send it again.`,
+        reads,
+        policy,
+      };
+}
+
+/** delete: the policy should read as deleted or not found. */
+async function readBackDelete(client: FusionClient, tenantId: string, policyId: string): Promise<ReadBackVerdict> {
+  const { last, reads } = await readBackUntil(() => readPolicy(client, tenantId, policyId), (read) => read.kind === "gone");
+  if (last.kind === "gone") return { took_effect: true, read_back: `${goneText(last, policyId)} The delete took effect.`, reads, policy_id: policyId };
+  if (last.kind === "failed") return { took_effect: null, read_back: readFailedText(last.error), reads };
+  return {
+    took_effect: false,
+    read_back: `The policy still exists (${last.policy.state}, version ${last.policy.version}) after ${readBackSpan(reads)}, so the delete did not take effect. Send it again.`,
+    reads,
+    policy: last.policy,
+  };
+}
+
+/**
+ * create and clone: no ID to read, so the read-back looks for a policy with the
+ * expected name created since the request was sent.
+ */
+async function readBackNew(
+  client: FusionClient,
+  tenantId: string,
+  filter: Record<string, unknown>,
+  matches: (policy: AiDefensePolicy) => boolean,
+  shownName: string,
+  verb: string
+): Promise<ReadBackVerdict> {
+  const { last, reads } = await readBackUntil(
+    () => readPolicyList(client, tenantId, filter),
+    (read) => "policies" in read && read.policies.some(matches)
+  );
+  if ("error" in last) {
+    return {
+      took_effect: null,
+      read_back: `The policy list could not be read back (${last.error}), so whether the ${verb} took effect is unknown: list policies with sophos_fusion_ai_defense_list_policies before sending it again.`,
+      reads,
+    };
+  }
+  const found = last.policies.filter(matches).sort(newestFirst);
+  if (found.length === 0) {
+    return {
+      took_effect: false,
+      read_back: `No policy named "${shownName}" was created since the request (${readBackSpan(reads)}), so the ${verb} most likely did not take effect. List policies with sophos_fusion_ai_defense_list_policies before sending it again, since a repeat that did land makes a duplicate.`,
+      reads,
+    };
+  }
+  const verdict: ReadBackVerdict = {
+    took_effect: true,
+    read_back: `Policy ${found[0].id} "${found[0].name}" was created since the request, so the ${verb} took effect.`,
+    reads,
+    policy: found[0],
+  };
+  if (found.length > 1) {
+    verdict.read_back += ` ${found.length} policies match; the newest is shown and the others are in candidates.`;
+    verdict.candidates = found.slice(1).map(({ id, name, createdAt }) => ({ id, name, createdAt }));
+  }
+  return verdict;
+}
+
+/** reorder: the IDs sent should read back in the order sent. */
+async function readBackReorder(client: FusionClient, tenantId: string, policyIds: string[]): Promise<ReadBackVerdict> {
+  const wanted = new Set(policyIds);
+  const orderOf = (policies: AiDefensePolicy[]) =>
+    policies.filter((policy) => wanted.has(policy.id)).sort((a, b) => a.rank - b.rank).map((policy) => policy.id);
+  const { last, reads } = await readBackUntil(
+    () => readPolicyList(client, tenantId, { kind: "TENANT" }),
+    (read) => "policies" in read && sameJson(orderOf(read.policies), policyIds)
+  );
+  if ("error" in last) {
+    return {
+      took_effect: null,
+      read_back: `The policy list could not be read back (${last.error}), so whether the reorder took effect is unknown: check the order with sophos_fusion_ai_defense_list_policies kind TENANT before sending it again.`,
+      reads,
+    };
+  }
+  const order = orderOf(last.policies);
+  if (sameJson(order, policyIds)) {
+    return { took_effect: true, read_back: "The policies read back in the order you sent.", reads, policy_ids: order };
+  }
+  const missing = policyIds.filter((id) => !order.includes(id));
+  return {
+    took_effect: false,
+    read_back: `The policies read back not in the order you sent after ${readBackSpan(reads)}${missing.length > 0 ? `, and ${missing.length} of the IDs you sent were not found` : ""}. Send it again.`,
+    reads,
+    policy_ids: order,
+  };
 }
 
 export function registerFusionAiDefensePolicyTools(
@@ -490,7 +778,7 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
-  The created policy, with its id and version.`,
+  The created policy, with its id and version. ${UNCLEAR_RETURNS}`,
       inputSchema: {
         name: z.string().min(1).describe("Policy name"),
         description: z.string().optional().describe("Policy description"),
@@ -534,13 +822,23 @@ Returns:
         input.builtInKey = args.built_in_key;
         input.builtInVersion = args.built_in_version;
       }
-      const { data, warnings } = await client.query<{ createPolicy: AiDefensePolicy | null }>(
-        tenantId,
-        AI_DEFENSE_CREATE_POLICY,
-        { input }
-      );
-      if (!data.createPolicy) throw new Error("createPolicy returned no policy.");
-      return jsonResult(policyResult(tenantId, data.createPolicy, warnings, { status: "created" }));
+      const sentAt = Date.now();
+      const answer = await sendPolicyWrite<AiDefensePolicy>(client, tenantId, AI_DEFENSE_CREATE_POLICY, "createPolicy", { input });
+      if (answer.unclear) {
+        const verdict =
+          args.kind === "TENANT_BASE"
+            ? await readBackNew(client, tenantId, { kind: "TENANT_BASE" }, () => true, "the base policy", "create")
+            : await readBackNew(
+                client,
+                tenantId,
+                { nameSearch: args.name },
+                (policy) => policy.name === args.name && createdSince(policy, sentAt),
+                args.name,
+                "create"
+              );
+        return unclearResult(tenantId, "createPolicy", answer, verdict);
+      }
+      return jsonResult(policyResult(tenantId, answer.value, answer.warnings, { status: "created" }));
     })
   );
 
@@ -549,9 +847,9 @@ Returns:
     "sophos_fusion_ai_defense_update_policy",
     {
       title: "Update AI Defense Policy",
-      description: `Change a Sophos AI Defense policy's name, description, rules, base rule, sensors or tags. Only the fields you pass change, but rules and tags replace the whole list or map.
+      description: `Change a Sophos AI Defense policy's name, description, rules, base rule, sensors or tags. Only the fields you pass change, but rules replaces the whole list and tags the whole map.
 
-WARNING: rules replaces every rule (pass the complete ordered list; an empty list removes them all) and tags replaces every tag. Read the policy first and send back what you keep. base_rule is partial: an omitted field keeps its value, and appControlCategoryAction null clears it. ${SCOPE_NOTE} A partner policy is read-only. Use the enable, disable and move tools for state and order.
+WARNING: rules replaces every rule (pass the complete ordered list; an empty list removes them all). ${TAGS_NOTE} Read the policy first and send back what you keep. base_rule is partial: an omitted field keeps its value, and appControlCategoryAction null clears it. ${SCOPE_NOTE} A partner policy is read-only. Use the enable, disable and move tools for state and order.
 
 version is required and must be the current one; a stale version is refused ("version conflict: policy has been modified"). Every write raises the version, enable and disable included, so read it again after one.
 
@@ -564,11 +862,11 @@ Args:
   - rules (object[], optional): Complete replacement list.
   - base_rule (object, optional): Partial.
   - sensors (object, optional): { endpoint?, firewall?, dns?, browser? }.
-  - tags (object, optional): Complete replacement map.
+  - tags (object, optional): Replacement map with at least one key; an empty map is refused, since the API ignores it.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
-  The updated policy with its new version.`,
+  The updated policy with its new version. ${UNCLEAR_RETURNS}`,
       inputSchema: {
         policy_id: policyIdField.describe("Policy UUID"),
         version: versionField,
@@ -577,7 +875,7 @@ Returns:
         rules: z.array(ruleSchema).max(500).optional().describe("Complete replacement rule list"),
         base_rule: baseRuleSchema.optional(),
         sensors: sensorsSchema.optional(),
-        tags: tagsSchema.optional().describe("Complete replacement tag map, string values only"),
+        tags: tagsSchema.optional().describe("Replacement tag map, string values only, at least one key: an empty map is ignored by the API, so tags can't be cleared"),
         tenant_id: tenantIdField,
       },
       annotations: DESTRUCTIVE,
@@ -593,15 +891,24 @@ Returns:
       if (Object.keys(input).length === 1) {
         throw new Error("Nothing to update: pass at least one of name, description, rules, base_rule, sensors or tags.");
       }
+      if (args.tags !== undefined && Object.keys(args.tags).length === 0) {
+        throw new Error(
+          "An empty tags map is ignored by the API, so tags can't be cleared through it. Leave tags out, or pass the tags to keep."
+        );
+      }
       const tenantId = tenantResolver.resolveTenantId(args.tenant_id);
-      const { data, warnings } = await client
-        .query<{ updatePolicy: AiDefensePolicy | null }>(tenantId, AI_DEFENSE_UPDATE_POLICY, {
-          id: args.policy_id,
-          input,
-        })
-        .catch(rethrowPolicyError(args.policy_id));
-      if (!data.updatePolicy) throw new Error("updatePolicy returned no policy.");
-      return jsonResult(policyResult(tenantId, data.updatePolicy, warnings, { status: "updated" }));
+      const answer = await sendPolicyWrite<AiDefensePolicy>(
+        client,
+        tenantId,
+        AI_DEFENSE_UPDATE_POLICY,
+        "updatePolicy",
+        { id: args.policy_id, input },
+        rethrowPolicyError(args.policy_id)
+      );
+      if (answer.unclear) {
+        return unclearResult(tenantId, "updatePolicy", answer, await readBackUpdate(client, tenantId, args.policy_id, input));
+      }
+      return jsonResult(policyResult(tenantId, answer.value, answer.warnings, { status: "updated" }));
     })
   );
 
@@ -619,7 +926,7 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
-  status deleted and the policy_id.`,
+  status deleted and the policy_id. ${UNCLEAR_RETURNS}`,
       inputSchema: {
         policy_id: policyIdField.describe("Policy UUID"),
         tenant_id: tenantIdField,
@@ -628,11 +935,17 @@ Returns:
     },
     withErrorHandling(async ({ policy_id, tenant_id }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
-      const { data, warnings } = await client
-        .query<{ deletePolicy: boolean | null }>(tenantId, AI_DEFENSE_DELETE_POLICY, { id: policy_id })
-        .catch(rethrowPolicyError(policy_id));
-      if (data.deletePolicy !== true) throw new Error(`deletePolicy returned ${String(data.deletePolicy)} for ${policy_id}.`);
-      return jsonResult(withWarnings({ tenant_id: tenantId, status: "deleted", policy_id }, warnings));
+      const answer = await sendPolicyWrite<boolean>(
+        client,
+        tenantId,
+        AI_DEFENSE_DELETE_POLICY,
+        "deletePolicy",
+        { id: policy_id },
+        rethrowPolicyError(policy_id)
+      );
+      if (answer.unclear) return unclearResult(tenantId, "deletePolicy", answer, await readBackDelete(client, tenantId, policy_id));
+      if (answer.value !== true) throw new Error(`deletePolicy returned ${String(answer.value)} for ${policy_id}.`);
+      return jsonResult(withWarnings({ tenant_id: tenantId, status: "deleted", policy_id }, answer.warnings));
     })
   );
 
@@ -650,7 +963,7 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
-  The policy, state ENABLED, with its new version.`,
+  The policy, state ENABLED, with its new version. ${UNCLEAR_RETURNS}`,
       inputSchema: {
         policy_id: policyIdField.describe("Policy UUID"),
         tenant_id: tenantIdField,
@@ -659,11 +972,18 @@ Returns:
     },
     withErrorHandling(async ({ policy_id, tenant_id }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
-      const { data, warnings } = await client
-        .query<{ enablePolicy: AiDefensePolicy | null }>(tenantId, AI_DEFENSE_ENABLE_POLICY, { id: policy_id })
-        .catch(rethrowPolicyError(policy_id));
-      if (!data.enablePolicy) throw new Error("enablePolicy returned no policy.");
-      return jsonResult(policyResult(tenantId, data.enablePolicy, warnings, { status: "enabled" }));
+      const answer = await sendPolicyWrite<AiDefensePolicy>(
+        client,
+        tenantId,
+        AI_DEFENSE_ENABLE_POLICY,
+        "enablePolicy",
+        { id: policy_id },
+        rethrowPolicyError(policy_id)
+      );
+      if (answer.unclear) {
+        return unclearResult(tenantId, "enablePolicy", answer, await readBackState(client, tenantId, policy_id, "ENABLED", "enable"));
+      }
+      return jsonResult(policyResult(tenantId, answer.value, answer.warnings, { status: "enabled" }));
     })
   );
 
@@ -681,7 +1001,7 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
-  The policy, state DISABLED, with its new version.`,
+  The policy, state DISABLED, with its new version. ${UNCLEAR_RETURNS}`,
       inputSchema: {
         policy_id: policyIdField.describe("Policy UUID"),
         tenant_id: tenantIdField,
@@ -690,11 +1010,18 @@ Returns:
     },
     withErrorHandling(async ({ policy_id, tenant_id }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
-      const { data, warnings } = await client
-        .query<{ disablePolicy: AiDefensePolicy | null }>(tenantId, AI_DEFENSE_DISABLE_POLICY, { id: policy_id })
-        .catch(rethrowPolicyError(policy_id));
-      if (!data.disablePolicy) throw new Error("disablePolicy returned no policy.");
-      return jsonResult(policyResult(tenantId, data.disablePolicy, warnings, { status: "disabled" }));
+      const answer = await sendPolicyWrite<AiDefensePolicy>(
+        client,
+        tenantId,
+        AI_DEFENSE_DISABLE_POLICY,
+        "disablePolicy",
+        { id: policy_id },
+        rethrowPolicyError(policy_id)
+      );
+      if (answer.unclear) {
+        return unclearResult(tenantId, "disablePolicy", answer, await readBackState(client, tenantId, policy_id, "DISABLED", "disable"));
+      }
+      return jsonResult(policyResult(tenantId, answer.value, answer.warnings, { status: "disabled" }));
     })
   );
 
@@ -713,7 +1040,7 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
-  The moved policy with its new rank and priority.`,
+  The moved policy with its new rank and priority. ${UNCLEAR_RETURNS}`,
       inputSchema: {
         policy_id: policyIdField.describe("Policy UUID to move"),
         after_policy_id: policyIdField.optional().describe("Anchor policy UUID; omit for the top"),
@@ -723,14 +1050,18 @@ Returns:
     },
     withErrorHandling(async ({ policy_id, after_policy_id, tenant_id }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
-      const { data, warnings } = await client
-        .query<{ movePolicy: AiDefensePolicy | null }>(tenantId, AI_DEFENSE_MOVE_POLICY, {
-          id: policy_id,
-          afterId: after_policy_id ?? null,
-        })
-        .catch(rethrowPolicyError(policy_id));
-      if (!data.movePolicy) throw new Error("movePolicy returned no policy.");
-      return jsonResult(policyResult(tenantId, data.movePolicy, warnings, { status: "moved" }));
+      const answer = await sendPolicyWrite<AiDefensePolicy>(
+        client,
+        tenantId,
+        AI_DEFENSE_MOVE_POLICY,
+        "movePolicy",
+        { id: policy_id, afterId: after_policy_id ?? null },
+        rethrowPolicyError(policy_id)
+      );
+      if (answer.unclear) {
+        return unclearResult(tenantId, "movePolicy", answer, await readBackMove(client, tenantId, policy_id, after_policy_id));
+      }
+      return jsonResult(policyResult(tenantId, answer.value, answer.warnings, { status: "moved" }));
     })
   );
 
@@ -748,7 +1079,7 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
-  policy_ids in their confirmed new order.`,
+  policy_ids in their confirmed new order. ${UNCLEAR_RETURNS}`,
       inputSchema: {
         policy_ids: z.array(policyIdField).min(1).max(1000).describe("Every reorderable policy UUID, in order"),
         tenant_id: tenantIdField,
@@ -760,12 +1091,13 @@ Returns:
         throw new Error("policy_ids repeats an ID: list each reorderable policy exactly once.");
       }
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
-      const { data, warnings } = await client.query<{ reorderPolicies: string[] }>(
-        tenantId,
-        AI_DEFENSE_REORDER_POLICIES,
-        { policyIds: policy_ids }
-      );
-      return jsonResult(withWarnings({ tenant_id: tenantId, status: "reordered", policy_ids: data.reorderPolicies }, warnings));
+      const answer = await sendPolicyWrite<string[]>(client, tenantId, AI_DEFENSE_REORDER_POLICIES, "reorderPolicies", {
+        policyIds: policy_ids,
+      });
+      if (answer.unclear) {
+        return unclearResult(tenantId, "reorderPolicies", answer, await readBackReorder(client, tenantId, policy_ids));
+      }
+      return jsonResult(withWarnings({ tenant_id: tenantId, status: "reordered", policy_ids: answer.value }, answer.warnings));
     })
   );
 
@@ -783,7 +1115,7 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
-  The new policy, with its id and version.`,
+  The new policy, with its id and version. ${UNCLEAR_RETURNS}`,
       inputSchema: {
         policy_id: policyIdField.describe("Policy UUID to copy"),
         tenant_id: tenantIdField,
@@ -792,11 +1124,41 @@ Returns:
     },
     withErrorHandling(async ({ policy_id, tenant_id }) => {
       const tenantId = tenantResolver.resolveTenantId(tenant_id);
-      const { data, warnings } = await client
-        .query<{ clonePolicy: AiDefensePolicy | null }>(tenantId, AI_DEFENSE_CLONE_POLICY, { id: policy_id })
-        .catch(rethrowPolicyError(policy_id));
-      if (!data.clonePolicy) throw new Error("clonePolicy returned no policy.");
-      return jsonResult(policyResult(tenantId, data.clonePolicy, warnings, { status: "cloned", source_policy_id: policy_id }));
+      const sentAt = Date.now();
+      const answer = await sendPolicyWrite<AiDefensePolicy>(
+        client,
+        tenantId,
+        AI_DEFENSE_CLONE_POLICY,
+        "clonePolicy",
+        { id: policy_id },
+        rethrowPolicyError(policy_id)
+      );
+      if (answer.unclear) {
+        const source = await readPolicy(client, tenantId, policy_id);
+        if (source.kind !== "found") {
+          const why = source.kind === "gone" ? goneText(source, policy_id) : `The source policy could not be read back (${source.error}).`;
+          return unclearResult(tenantId, "clonePolicy", answer, {
+            took_effect: null,
+            read_back: `${why} Without its name the clone can't be looked for: list policies with sophos_fusion_ai_defense_list_policies before cloning again.`,
+            reads: 1,
+            source_policy_id: policy_id,
+          });
+        }
+        const cloneName = `${source.policy.name} - cloned`;
+        const named = new RegExp(`^${escapeRegExp(cloneName)}(?: \\(\\d+\\))?$`);
+        const verdict = await readBackNew(
+          client,
+          tenantId,
+          { nameSearch: cloneName },
+          (policy) => named.test(policy.name) && createdSince(policy, sentAt),
+          cloneName,
+          "clone"
+        );
+        return unclearResult(tenantId, "clonePolicy", answer, { ...verdict, source_policy_id: policy_id });
+      }
+      return jsonResult(
+        policyResult(tenantId, answer.value, answer.warnings, { status: "cloned", source_policy_id: policy_id })
+      );
     })
   );
 }

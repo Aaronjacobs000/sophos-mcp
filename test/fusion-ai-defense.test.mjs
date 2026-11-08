@@ -3,8 +3,9 @@
  * APIs v1) through the real FusionClient with fetch stubbed: the request each
  * tool sends, the GraphQL 200 rule (errors with no data is an error, errors
  * beside data are warnings), not-found and deleted policies, the stale
- * version hint, the input checks that refuse before any call, and the
- * mutation no-retry rule. No network.
+ * version hint, the input checks that refuse before any call, the
+ * mutation no-retry rule, and the read-back of a write Sophos gave no result
+ * for. No network.
  */
 
 import test from "node:test";
@@ -15,6 +16,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { FusionClient } from "../dist/client/fusion-client.js";
 import { registerFusionAiDefensePolicyTools } from "../dist/tools/fusion-ai-defense-policies.js";
 import { registerFusionAiDefenseActivityTools } from "../dist/tools/fusion-ai-defense-activity.js";
+import { setUnclearReadBackDelays } from "../dist/fusion/ai-defense.js";
 
 const TENANT = "00000000-0000-4000-8000-000000000001";
 const POLICY_ID = "7dc57312-fc7e-420a-a44d-8d84d0a9ca3b";
@@ -60,10 +62,12 @@ function policy(overrides = {}) {
 
 const ok = (data) => ({ data });
 const http = (status, body) => ({ status, body });
+const raw = (text) => ({ raw: text });
 
 /**
  * Connects both AI Defense registrars on a real FusionClient. answer(operation,
- * variables, callNumber) returns a GraphQL body, or http(status, body).
+ * variables, callNumber) returns a GraphQL body, http(status, body), or
+ * raw(text) for a body sent exactly as given.
  */
 async function harness(answer = () => ok({})) {
   const calls = [];
@@ -74,7 +78,8 @@ async function harness(answer = () => ok({})) {
     calls.push({ url: String(url), headers: init.headers, operation, document: body.query, variables: body.variables });
     const reply = answer(operation, body.variables, calls.length) ?? ok({});
     const status = reply.status ?? 200;
-    return new Response(JSON.stringify(reply.body ?? reply), { status, headers: { "Content-Type": "application/json" } });
+    const text = typeof reply.raw === "string" ? reply.raw : JSON.stringify(reply.body ?? reply);
+    return new Response(text, { status, headers: { "Content-Type": "application/json" } });
   };
   const client = new FusionClient({ getToken: async () => "test-token" }, { url: "https://fusion.test/graphql", backoffBaseMs: 1 });
   const tenantResolver = { resolveTenantId: (id) => id ?? TENANT };
@@ -90,7 +95,17 @@ async function harness(answer = () => ok({})) {
     async call(name, args = {}) {
       const result = await mcp.callTool({ name, arguments: args });
       const text = result.content.map((c) => c.text ?? "").join("\n");
-      return { isError: Boolean(result.isError), text, json: result.isError ? null : JSON.parse(text) };
+      let json = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        // error text
+      }
+      return { isError: Boolean(result.isError), text, json };
+    },
+    async description(name) {
+      const { tools } = await mcp.listTools();
+      return tools.find((tool) => tool.name === name)?.description ?? "";
     },
     async close() {
       await mcp.close();
@@ -628,4 +643,270 @@ test("bad input is refused before anything is sent", async () => {
     }
     assert.equal(h.calls.length, 0, "nothing reached Sophos");
   });
+});
+
+// --- Tags ---
+
+test("update_policy refuses an empty tags map, which the API ignores, and its description says tags can't be cleared", async () => {
+  await withHarness(undefined, async (h) => {
+    const result = await h.call("sophos_fusion_ai_defense_update_policy", { policy_id: POLICY_ID, version: 3, tags: {} });
+    assert.equal(result.isError, true);
+    assert.match(result.text, /empty tags map/);
+    assert.match(result.text, /can't be cleared/);
+    assert.equal(h.calls.length, 0, "nothing reached Sophos");
+    const description = await h.description("sophos_fusion_ai_defense_update_policy");
+    assert.match(description, /An empty map or null is ignored/);
+    assert.doesNotMatch(description, /tags replaces every tag/);
+  });
+});
+
+// --- Writes Sophos gave no result for: read back, never reported as success ---
+
+const UNCLEAR_FIELD = {
+  FusionAiDefenseCreatePolicy: "createPolicy",
+  FusionAiDefenseUpdatePolicy: "updatePolicy",
+  FusionAiDefenseDeletePolicy: "deletePolicy",
+  FusionAiDefenseEnablePolicy: "enablePolicy",
+  FusionAiDefenseDisablePolicy: "disablePolicy",
+  FusionAiDefenseMovePolicy: "movePolicy",
+  FusionAiDefenseReorderPolicies: "reorderPolicies",
+  FusionAiDefenseClonePolicy: "clonePolicy",
+};
+
+const mutations = (h) => h.calls.filter((c) => c.operation in UNCLEAR_FIELD);
+const policiesPage = (policies) =>
+  ok({ policies: { totalCount: policies.length, enabledCount: 0, failedCount: 0, pageInfo: { hasNextPage: false, endCursor: null }, policies } });
+
+test("enable_policy answered HTTP 200 with an empty body reads the policy back and reports the state it reads", async () => {
+  setUnclearReadBackDelays([0, 0, 0]);
+  await withHarness(
+    (operation) =>
+      operation === "FusionAiDefenseEnablePolicy" ? raw("") : ok({ policy: policy({ state: "ENABLED", version: 4 }) }),
+    async (h) => {
+      const result = await h.call("sophos_fusion_ai_defense_enable_policy", { policy_id: POLICY_ID });
+      assert.equal(mutations(h).length, 1, "the enable is sent once");
+      assert.equal(h.calls[1].operation, "FusionAiDefensePolicy");
+      assert.deepEqual(h.calls[1].variables, { id: POLICY_ID });
+      assert.equal(result.json.status, "unclear");
+      assert.equal(result.json.write, "enablePolicy");
+      assert.match(result.json.answer, /empty body/);
+      assert.equal(result.json.took_effect, true);
+      assert.match(result.json.read_back, /reads ENABLED/);
+      assert.equal(result.json.policy.state, "ENABLED");
+      assert.equal(result.json.policy.version, 4);
+      assert.equal(result.isError, false, "the read-back shows the change in place");
+    }
+  );
+  // A write Sophos refuses with a GraphQL error is a clear answer: reported as refused, not read back
+  await withHarness(
+    () => ({ errors: [{ message: "invalid input: only the base policy can apply to everyone", path: ["enablePolicy"] }], data: null }),
+    async (h) => {
+      const result = await h.call("sophos_fusion_ai_defense_enable_policy", { policy_id: POLICY_ID });
+      assert.equal(result.isError, true);
+      assert.match(result.text, /only the base policy can apply to everyone/);
+      assert.equal(h.calls.length, 1, "no read-back for a clear refusal");
+    }
+  );
+});
+
+test("disable_policy with no result whose read-back still shows ENABLED is an error that says it did not take effect", async () => {
+  setUnclearReadBackDelays([0, 0, 0]);
+  await withHarness(
+    (operation) =>
+      operation === "FusionAiDefenseDisablePolicy" ? raw("") : ok({ policy: policy({ state: "ENABLED", version: 4 }) }),
+    async (h) => {
+      const result = await h.call("sophos_fusion_ai_defense_disable_policy", { policy_id: POLICY_ID });
+      assert.equal(result.isError, true);
+      assert.equal(mutations(h).length, 1, "the disable is not sent again");
+      assert.equal(result.json.status, "unclear");
+      assert.equal(result.json.took_effect, false);
+      assert.equal(result.json.reads, 3, "read three times to get past read lag");
+      assert.match(result.json.read_back, /still reads ENABLED/);
+      assert.equal(result.json.policy.state, "ENABLED");
+    }
+  );
+});
+
+test("a write answered with neither data nor errors, or with a null result, is read back, never reported as done", async () => {
+  setUnclearReadBackDelays([0, 0, 0]);
+  const now = new Date().toISOString();
+  const cases = [
+    {
+      tool: "update_policy",
+      args: { policy_id: POLICY_ID, version: 3, name: "renamed" },
+      reply: ok({ updatePolicy: null }),
+      reads: { FusionAiDefensePolicy: ok({ policy: policy({ name: "renamed", version: 4 }) }) },
+      took_effect: true,
+      read_back: /version 4.*you sent 3/,
+    },
+    {
+      tool: "update_policy",
+      args: { policy_id: POLICY_ID, version: 3, name: "renamed" },
+      reply: ok({}),
+      reads: { FusionAiDefensePolicy: ok({ policy: policy({ version: 3 }) }) },
+      took_effect: false,
+      read_back: /still at version 3/,
+    },
+    {
+      tool: "update_policy",
+      args: { policy_id: POLICY_ID, version: 3, name: "renamed" },
+      reply: { data: null },
+      reads: { FusionAiDefensePolicy: ok({ policy: policy({ name: "someone else", version: 5 }) }) },
+      took_effect: null,
+      read_back: /name/,
+    },
+    {
+      tool: "move_policy",
+      args: { policy_id: POLICY_ID },
+      reply: ok({ movePolicy: null }),
+      reads: { FusionAiDefensePolicy: ok({ policy: policy({ rank: 1 }) }) },
+      took_effect: true,
+      read_back: /rank 1/,
+    },
+    {
+      tool: "move_policy",
+      args: { policy_id: POLICY_ID, after_policy_id: OTHER_ID },
+      reply: raw(""),
+      reads: {
+        FusionAiDefensePolicy: (variables) => ok({ policy: policy(variables.id === POLICY_ID ? { rank: 1 } : { id: OTHER_ID, rank: 3 }) }),
+      },
+      took_effect: false,
+      read_back: /rank 1.*rank 3/,
+    },
+    {
+      tool: "delete_policy",
+      args: { policy_id: POLICY_ID },
+      reply: ok({ deletePolicy: null }),
+      reads: {
+        FusionAiDefensePolicy: {
+          errors: [{ message: "policy not found", path: ["policy"], extensions: { code: "GONE", deletedAt: "2026-11-08T09:00:00Z" } }],
+          data: { policy: null },
+        },
+      },
+      took_effect: true,
+      read_back: /deleted at 2026-11-08T09:00:00Z/,
+    },
+    {
+      tool: "delete_policy",
+      args: { policy_id: POLICY_ID },
+      reply: raw(""),
+      reads: { FusionAiDefensePolicy: ok({ policy: policy() }) },
+      took_effect: false,
+      read_back: /still exists/,
+    },
+    {
+      tool: "clone_policy",
+      args: { policy_id: POLICY_ID },
+      reply: ok({ clonePolicy: null }),
+      reads: {
+        FusionAiDefensePolicy: ok({ policy: policy() }),
+        FusionAiDefensePolicies: policiesPage([
+          policy({ id: OTHER_ID, name: "ZZ test - cloned", createdAt: now }),
+          policy({ id: "9e1c3f52-0d7a-4b8e-a6f1-2c3d4e5f6a7b", name: "ZZ test - cloned", createdAt: "2026-10-01T00:00:00Z" }),
+        ]),
+      },
+      took_effect: true,
+      read_back: /ZZ test - cloned/,
+      policy_id: OTHER_ID,
+    },
+    {
+      tool: "create_policy",
+      args: { name: "ZZ new", sensors: { endpoint: { enabled: true, scope: { users: [{ id: "u", name: "u" }] } } } },
+      reply: raw(""),
+      reads: { FusionAiDefensePolicies: policiesPage([policy({ id: OTHER_ID, name: "ZZ new", createdAt: now })]) },
+      took_effect: true,
+      read_back: /ZZ new/,
+      policy_id: OTHER_ID,
+    },
+    {
+      tool: "create_policy",
+      args: { name: "ZZ new", sensors: { endpoint: { enabled: true, scope: { users: [{ id: "u", name: "u" }] } } } },
+      reply: ok({ createPolicy: null }),
+      reads: { FusionAiDefensePolicies: policiesPage([policy({ id: OTHER_ID, name: "ZZ new", createdAt: "2026-10-01T00:00:00Z" })]) },
+      took_effect: false,
+      read_back: /No policy named "ZZ new" was created/,
+    },
+    {
+      tool: "reorder_policies",
+      args: { policy_ids: [OTHER_ID, POLICY_ID] },
+      reply: ok({ reorderPolicies: [] }),
+      reads: {
+        FusionAiDefensePolicies: policiesPage([policy({ id: OTHER_ID, rank: 1 }), policy({ id: POLICY_ID, rank: 2 })]),
+      },
+      took_effect: true,
+      read_back: /in the order you sent/,
+    },
+    {
+      tool: "reorder_policies",
+      args: { policy_ids: [OTHER_ID, POLICY_ID] },
+      reply: ok({ reorderPolicies: null }),
+      reads: {
+        FusionAiDefensePolicies: policiesPage([policy({ id: POLICY_ID, rank: 1 }), policy({ id: OTHER_ID, rank: 2 })]),
+      },
+      took_effect: false,
+      read_back: /not in the order you sent/,
+    },
+  ];
+  for (const c of cases) {
+    const label = `${c.tool} ${JSON.stringify(c.reply)}`;
+    await withHarness(
+      (operation, variables) => {
+        if (operation in UNCLEAR_FIELD) return c.reply;
+        const read = c.reads[operation];
+        return typeof read === "function" ? read(variables) : read;
+      },
+      async (h) => {
+        const result = await h.call(`sophos_fusion_ai_defense_${c.tool}`, c.args);
+        assert.equal(mutations(h).length, 1, `${label}: the write is sent once`);
+        assert.ok(h.calls.length > 1, `${label}: read back`);
+        assert.ok(result.json, `${label}: ${result.text}`);
+        assert.equal(result.json.status, "unclear", label);
+        assert.equal(result.json.took_effect, c.took_effect, `${label}: ${result.json.read_back}`);
+        assert.match(result.json.read_back, c.read_back, label);
+        assert.equal(result.isError, c.took_effect !== true, `${label}: an error unless the read-back shows it in place`);
+        if (c.policy_id) assert.equal(result.json.policy.id, c.policy_id, label);
+      }
+    );
+  }
+});
+
+test("the clone read-back searches for the clone's name; the create read-back for the name sent", async () => {
+  setUnclearReadBackDelays([0]);
+  await withHarness(
+    (operation) => {
+      if (operation in UNCLEAR_FIELD) return raw("");
+      if (operation === "FusionAiDefensePolicy") return ok({ policy: policy() });
+      return policiesPage([]);
+    },
+    async (h) => {
+      await h.call("sophos_fusion_ai_defense_clone_policy", { policy_id: POLICY_ID });
+      const cloneSearch = h.calls.find((c) => c.operation === "FusionAiDefensePolicies");
+      assert.deepEqual(cloneSearch.variables.filter, { nameSearch: "ZZ test - cloned" });
+      h.calls.length = 0;
+      await h.call("sophos_fusion_ai_defense_create_policy", {
+        name: "ZZ new",
+        sensors: { endpoint: { enabled: true, scope: { users: [{ id: "u", name: "u" }] } } },
+      });
+      const createSearch = h.calls.find((c) => c.operation === "FusionAiDefensePolicies");
+      assert.deepEqual(createSearch.variables.filter, { nameSearch: "ZZ new" });
+    }
+  );
+});
+
+test("a read-back that fails too reports took_effect null and says to check before sending again", async () => {
+  setUnclearReadBackDelays([0, 0]);
+  await withHarness(
+    (operation) =>
+      operation === "FusionAiDefenseEnablePolicy" ? raw("") : http(500, { error: "internalServerError", message: "down" }),
+    async (h) => {
+      const result = await h.call("sophos_fusion_ai_defense_enable_policy", { policy_id: POLICY_ID });
+      assert.equal(result.isError, true);
+      assert.equal(mutations(h).length, 1);
+      assert.equal(result.json.status, "unclear");
+      assert.equal(result.json.took_effect, null);
+      assert.match(result.json.read_back, /could not be read/);
+      assert.match(result.json.read_back, /sophos_fusion_ai_defense_get_policy/);
+      assert.equal(result.json.policy, undefined);
+    }
+  );
 });

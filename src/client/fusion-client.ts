@@ -135,6 +135,22 @@ export class FusionTenantNotOnFusionError extends Error {
   }
 }
 
+/**
+ * Thrown for a mutation answered HTTP 200 with no result: an empty or
+ * unreadable body, or a body with neither data nor errors. An AI Defense
+ * enablePolicy answered 200 with an empty body (live, 08/11/2026). The
+ * mutation may have taken effect, so it is never sent again; read the state
+ * back instead.
+ */
+export class FusionNoResultError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FusionNoResultError";
+  }
+}
+
+const MUTATION_NOT_RETRIED = "Not retried: the mutation may already have taken effect, so check whether it did before repeating it.";
+
 const TENANT_NOT_ON_FUSION = /\btenant (\S+) not found or not accessible\b/i;
 
 export class FusionClient {
@@ -167,7 +183,8 @@ export class FusionClient {
    *
    * Returns the `data` object plus any partial-response warnings. Throws
    * FusionGraphQLError when the response carries errors and no usable data,
-   * and a plain Error for transport failures. The transient partnerPreferences
+   * FusionNoResultError when a mutation is answered 200 with no result, and
+   * a plain Error for transport failures. The transient partnerPreferences
    * fault is retried up to transientAttempts times; every other GraphQL-layer
    * error surfaces at once. options.timeoutMs replaces the per-attempt timeout
    * for this call, for an operation known to run longer (a Search results page).
@@ -195,6 +212,9 @@ export class FusionClient {
     const mutation = isMutation(document);
     for (let attempt = 1; ; attempt++) {
       const body = await this.executeWithRetry<GraphQLResponseBody<T>>(fetchOptions, mutation, timeoutMs);
+      if (mutation && hasNeitherDataNorErrors(body)) {
+        throw new FusionNoResultError(`Sophos Fusion API returned neither data nor errors. ${MUTATION_NOT_RETRIED}`);
+      }
       try {
         return interpretGraphQLBody<T>(body);
       } catch (error) {
@@ -326,9 +346,12 @@ export class FusionClient {
         try {
           return JSON.parse(text) as T;
         } catch {
-          throw new Error(
-            `Sophos Fusion API returned a non-JSON body with status ${response.status}: ${text.slice(0, 200)}`
-          );
+          const reason =
+            text.trim() === ""
+              ? `Sophos Fusion API returned an empty body with status ${response.status}`
+              : `Sophos Fusion API returned a non-JSON body with status ${response.status}: ${text.slice(0, 200)}`;
+          if (mutation) throw new FusionNoResultError(`${reason}. ${MUTATION_NOT_RETRIED}`);
+          throw new Error(reason);
         }
       } catch (error) {
         lastError =
@@ -353,10 +376,13 @@ export class FusionClient {
           throw lastError;
         }
 
+        // A 200 with no result: already says the mutation may have taken effect
+        if (lastError instanceof FusionNoResultError) {
+          throw lastError;
+        }
+
         if (mutation) {
-          throw new Error(
-            `${lastError.message}. Not retried: the mutation may already have taken effect, so check whether it did before repeating it.`
-          );
+          throw new Error(`${lastError.message}. ${MUTATION_NOT_RETRIED}`);
         }
 
         if (attempt < this.retries) {
@@ -412,6 +438,13 @@ export function interpretGraphQLBody<T extends object>(
   }
 
   return { data, warnings: errors.map(formatGraphQLError) };
+}
+
+/** True for a body interpretGraphQLBody rejects as holding neither data nor errors. */
+function hasNeitherDataNorErrors(body: GraphQLResponseBody<unknown> | null | undefined): boolean {
+  const errors = Array.isArray(body?.errors) ? body.errors : [];
+  const data = body?.data;
+  return errors.length === 0 && (data === null || data === undefined || typeof data !== "object");
 }
 
 export function formatGraphQLError(error: GraphQLErrorEntry): string {

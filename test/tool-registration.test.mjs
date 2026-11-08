@@ -435,7 +435,19 @@ test("the AI Defense tools: names fit, reads are read-only, writes carry their g
   assert.ok(update.inputSchema.required.includes("version"), "update_policy requires version");
   assert.ok(update.inputSchema.required.includes("policy_id"));
   expect("sophos_fusion_ai_defense_update_policy", /rules replaces every rule/);
-  expect("sophos_fusion_ai_defense_update_policy", /tags replaces every tag/);
+  expect("sophos_fusion_ai_defense_update_policy", /An empty map or null is ignored by the API, so tags can't be cleared/);
+  for (const name of [
+    "sophos_fusion_ai_defense_create_policy",
+    "sophos_fusion_ai_defense_update_policy",
+    "sophos_fusion_ai_defense_delete_policy",
+    "sophos_fusion_ai_defense_enable_policy",
+    "sophos_fusion_ai_defense_disable_policy",
+    "sophos_fusion_ai_defense_move_policy",
+    "sophos_fusion_ai_defense_reorder_policies",
+    "sophos_fusion_ai_defense_clone_policy",
+  ]) {
+    expect(name, /no result .* the state is read back, and the result says status unclear/);
+  }
   expect("sophos_fusion_ai_defense_update_policy", /version conflict: policy has been modified/);
   expect("sophos_fusion_ai_defense_create_policy", /only the base policy may apply to everyone/);
   expect("sophos_fusion_ai_defense_create_policy", /At least one sensor must be enabled/);
