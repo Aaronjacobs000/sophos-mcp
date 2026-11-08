@@ -63,13 +63,18 @@ function policy(overrides = {}) {
 const ok = (data) => ({ data });
 const http = (status, body) => ({ status, body });
 const raw = (text) => ({ raw: text });
+/** The connection drops before any answer, as undici reports it. */
+const DROP = Symbol("drop");
+/** No answer until the client's timeout aborts the request. */
+const HANG = Symbol("hang");
 
 /**
  * Connects both AI Defense registrars on a real FusionClient. answer(operation,
- * variables, callNumber) returns a GraphQL body, http(status, body), or
- * raw(text) for a body sent exactly as given.
+ * variables, callNumber) returns a GraphQL body, http(status, body),
+ * raw(text) for a body sent exactly as given, DROP or HANG. clientOptions go
+ * to the FusionClient (timeoutMs for HANG).
  */
-async function harness(answer = () => ok({})) {
+async function harness(answer = () => ok({}), clientOptions = {}) {
   const calls = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
@@ -77,11 +82,19 @@ async function harness(answer = () => ok({})) {
     const operation = /^(?:query|mutation) (\w+)/.exec(body.query)?.[1];
     calls.push({ url: String(url), headers: init.headers, operation, document: body.query, variables: body.variables });
     const reply = answer(operation, body.variables, calls.length) ?? ok({});
+    if (reply === DROP) {
+      throw new TypeError("fetch failed", { cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }) });
+    }
+    if (reply === HANG) {
+      return new Promise((_resolve, reject) => {
+        init.signal.addEventListener("abort", () => reject(new DOMException("The operation was aborted", "AbortError")));
+      });
+    }
     const status = reply.status ?? 200;
     const text = typeof reply.raw === "string" ? reply.raw : JSON.stringify(reply.body ?? reply);
     return new Response(text, { status, headers: { "Content-Type": "application/json" } });
   };
-  const client = new FusionClient({ getToken: async () => "test-token" }, { url: "https://fusion.test/graphql", backoffBaseMs: 1 });
+  const client = new FusionClient({ getToken: async () => "test-token" }, { url: "https://fusion.test/graphql", backoffBaseMs: 1, ...clientOptions });
   const tenantResolver = { resolveTenantId: (id) => id ?? TENANT };
   const server = new McpServer({ name: "test", version: "0.0.0" });
   registerFusionAiDefensePolicyTools(server, client, tenantResolver);
@@ -115,8 +128,8 @@ async function harness(answer = () => ok({})) {
   };
 }
 
-async function withHarness(answer, run) {
-  const h = await harness(answer);
+async function withHarness(answer, run, clientOptions = {}) {
+  const h = await harness(answer, clientOptions);
   try {
     await run(h);
   } finally {
@@ -494,17 +507,6 @@ test("an activities page whose rows all fail (additionalData null) is an error, 
   );
 });
 
-test("a mutation that gets a 5xx is not repeated", async () => {
-  await withHarness(
-    () => http(502, { error: "badGateway", message: "Bad Gateway" }),
-    async (h) => {
-      const result = await h.call("sophos_fusion_ai_defense_enable_policy", { policy_id: POLICY_ID });
-      assert.equal(result.isError, true);
-      assert.equal(h.calls.length, 1);
-      assert.match(result.text, /may already have taken effect/);
-    }
-  );
-});
 
 // --- Not found ---
 
@@ -868,6 +870,218 @@ test("a write answered with neither data nor errors, or with a null result, is r
       }
     );
   }
+});
+
+test("a write that gets a 5xx, times out or loses its connection is sent once and read back", async () => {
+  setUnclearReadBackDelays([0, 0, 0]);
+  const now = new Date().toISOString();
+  const users = { endpoint: { enabled: true, scope: { users: [{ id: "u", name: "u" }] } } };
+  const gone = {
+    errors: [{ message: "policy not found", path: ["policy"], extensions: { code: "GONE", deletedAt: "2026-11-09T09:00:00Z" } }],
+    data: { policy: null },
+  };
+  const writes = [
+    { tool: "create_policy", args: { name: "ZZ new", sensors: users }, reads: { FusionAiDefensePolicies: policiesPage([policy({ id: OTHER_ID, name: "ZZ new", createdAt: now })]) } },
+    { tool: "update_policy", args: { policy_id: POLICY_ID, version: 3, name: "renamed" }, reads: { FusionAiDefensePolicy: ok({ policy: policy({ name: "renamed", version: 4 }) }) } },
+    { tool: "delete_policy", args: { policy_id: POLICY_ID }, reads: { FusionAiDefensePolicy: gone } },
+    { tool: "enable_policy", args: { policy_id: POLICY_ID }, reads: { FusionAiDefensePolicy: ok({ policy: policy({ state: "ENABLED", version: 4 }) }) } },
+    { tool: "disable_policy", args: { policy_id: POLICY_ID }, reads: { FusionAiDefensePolicy: ok({ policy: policy({ version: 4 }) }) } },
+    { tool: "move_policy", args: { policy_id: POLICY_ID }, reads: { FusionAiDefensePolicy: ok({ policy: policy({ rank: 1 }) }) } },
+    {
+      tool: "reorder_policies",
+      args: { policy_ids: [OTHER_ID, POLICY_ID] },
+      reads: { FusionAiDefensePolicies: policiesPage([policy({ id: OTHER_ID, rank: 1 }), policy({ id: POLICY_ID, rank: 2 })]) },
+    },
+    {
+      tool: "clone_policy",
+      args: { policy_id: POLICY_ID },
+      reads: {
+        FusionAiDefensePolicy: ok({ policy: policy() }),
+        FusionAiDefensePolicies: policiesPage([policy({ id: OTHER_ID, name: "ZZ test - cloned", createdAt: now })]),
+      },
+    },
+  ];
+  const faults = [
+    { name: "502", reply: http(502, { error: "badGateway", message: "Bad Gateway" }), answer: /^Sophos Fusion API error 502: badGateway - Bad Gateway\. Not retried/ },
+    { name: "timeout", reply: HANG, answer: /^Sophos Fusion API request timed out after 50ms\. Not retried/ },
+    { name: "dropped connection", reply: DROP, answer: /^fetch failed\. Not retried/ },
+  ];
+  for (const fault of faults) {
+    for (const w of writes) {
+      const label = `${w.tool} ${fault.name}`;
+      await withHarness(
+        (operation) => (operation in UNCLEAR_FIELD ? fault.reply : w.reads[operation]),
+        async (h) => {
+          const result = await h.call(`sophos_fusion_ai_defense_${w.tool}`, w.args);
+          assert.equal(mutations(h).length, 1, `${label}: the write is sent once`);
+          assert.ok(h.calls.length > 1, `${label}: read back`);
+          assert.ok(result.json, `${label}: ${result.text}`);
+          assert.equal(result.json.status, "unclear", label);
+          assert.equal(result.json.write, UNCLEAR_FIELD[mutations(h)[0].operation], label);
+          assert.match(result.json.answer, fault.answer, label);
+          assert.equal(result.json.took_effect, true, `${label}: ${result.json.read_back}`);
+          assert.equal(result.isError, false, `${label}: the read-back shows the change in place`);
+        },
+        { timeoutMs: 50 }
+      );
+    }
+  }
+  // The read-back still decides: a 5xx on an enable that never landed is an error that says so
+  await withHarness(
+    (operation) => (operation === "FusionAiDefenseEnablePolicy" ? http(503, { error: "serviceUnavailable", message: "down" }) : ok({ policy: policy() })),
+    async (h) => {
+      const result = await h.call("sophos_fusion_ai_defense_enable_policy", { policy_id: POLICY_ID });
+      assert.equal(result.isError, true);
+      assert.equal(mutations(h).length, 1);
+      assert.equal(result.json.status, "unclear");
+      assert.match(result.json.answer, /error 503/);
+      assert.equal(result.json.took_effect, false);
+      assert.match(result.json.read_back, /still reads DISABLED/);
+    }
+  );
+  // A tenant Fusion does not hold is a clear answer: no read-back
+  await withHarness(
+    () => http(503, { error: "serviceUnavailable", message: `tenant ${TENANT} not found or not accessible` }),
+    async (h) => {
+      const result = await h.call("sophos_fusion_ai_defense_enable_policy", { policy_id: POLICY_ID });
+      assert.equal(result.isError, true);
+      assert.equal(h.calls.length, 1, "no read-back");
+      assert.match(result.text, /is not on Sophos Fusion/);
+    }
+  );
+});
+
+const SETTINGS_WRITE = "FusionAiDefenseUpdateTenantSettings";
+const SETTINGS_READ = "FusionAiDefenseTenantSettings";
+const settingsRecord = (status, selections) => ({
+  onboarding: { status, selections },
+  licenseState: "ACTIVE",
+  updatedAt: "2026-11-09T00:00:00Z",
+});
+
+test("update_settings answered with no result, a 5xx, a timeout or a dropped connection reads the settings back", async () => {
+  setUnclearReadBackDelays([0, 0, 0]);
+  const selections = {
+    organizationDetails: { role: "it-administrator", industry: "education" },
+    productIntegration: { acknowledgedCheckKeys: ["b", "a"], selectedProductKeys: ["ENDPOINT"] },
+  };
+  // As Sophos stores it: unset fields null, key lists in its own order, the omitted passedStepKeys kept
+  const stored = {
+    organizationDetails: { role: "it-administrator", numberOfUsers: null, aiFamiliarity: null, industry: "education" },
+    productIntegration: { acknowledgedCheckKeys: ["a", "b"], selectedProductKeys: ["ENDPOINT"] },
+    passedStepKeys: ["organization-details"],
+  };
+  const before = { organizationDetails: { role: "other" }, productIntegration: null, passedStepKeys: ["organization-details"] };
+  const cases = [
+    { name: "empty body", reply: raw(""), reads: [settingsRecord("IN_PROGRESS", stored)], took_effect: true, read_back: /as you sent/, answer: /empty body/ },
+    { name: "502", reply: http(502, { error: "badGateway", message: "Bad Gateway" }), reads: [settingsRecord("IN_PROGRESS", stored)], took_effect: true, read_back: /as you sent/, answer: /error 502/ },
+    { name: "timeout", reply: HANG, reads: [settingsRecord("IN_PROGRESS", stored)], took_effect: true, read_back: /as you sent/, answer: /timed out/ },
+    { name: "dropped connection", reply: DROP, reads: [settingsRecord("IN_PROGRESS", stored)], took_effect: true, read_back: /as you sent/, answer: /fetch failed/ },
+    {
+      name: "neither data nor errors, in place on the third read",
+      reply: ok({}),
+      reads: [settingsRecord("NOT_STARTED", before), settingsRecord("NOT_STARTED", before), settingsRecord("IN_PROGRESS", stored)],
+      took_effect: true,
+      read_back: /as you sent/,
+      reads_made: 3,
+    },
+    {
+      name: "null result, unchanged",
+      reply: ok({ updateSecureAITenantSettings: null }),
+      reads: [settingsRecord("NOT_STARTED", before)],
+      took_effect: false,
+      read_back: /status NOT_STARTED.*did not take effect/,
+      reads_made: 3,
+      differing: ["onboarding_status", "organizationDetails", "productIntegration"],
+    },
+    { name: "no record", reply: raw(""), reads: [null], took_effect: false, read_back: /No AI Defense settings record/, reads_made: 3 },
+    { name: "read fails too", reply: raw(""), reads: [http(500, { error: "internalServerError", message: "down" })], took_effect: null, read_back: /could not be read back.*sophos_fusion_ai_defense_get_settings/ },
+  ];
+  for (const c of cases) {
+    let read = 0;
+    await withHarness(
+      (operation) => {
+        if (operation === SETTINGS_WRITE) return c.reply;
+        const reply = c.reads[Math.min(read++, c.reads.length - 1)];
+        return reply && (reply.status || reply.raw !== undefined) ? reply : ok({ secureAITenantSettings: reply });
+      },
+      async (h) => {
+        const result = await h.call("sophos_fusion_ai_defense_update_settings", { onboarding_status: "IN_PROGRESS", selections });
+        const writes = h.calls.filter((call) => call.operation === SETTINGS_WRITE);
+        assert.equal(writes.length, 1, `${c.name}: the write is sent once`);
+        assert.ok(h.calls.some((call) => call.operation === SETTINGS_READ), `${c.name}: read back`);
+        assert.ok(result.json, `${c.name}: ${result.text}`);
+        assert.equal(result.json.status, "unclear", c.name);
+        assert.equal(result.json.write, "updateSecureAITenantSettings", c.name);
+        if (c.answer) assert.match(result.json.answer, c.answer, c.name);
+        assert.equal(result.json.took_effect, c.took_effect, `${c.name}: ${result.json.read_back}`);
+        assert.match(result.json.read_back, c.read_back, c.name);
+        if (c.reads_made) assert.equal(result.json.reads, c.reads_made, c.name);
+        if (c.differing) assert.deepEqual(result.json.fields_differing, c.differing, c.name);
+        if (c.took_effect === true) assert.equal(result.json.settings.onboarding.status, "IN_PROGRESS", c.name);
+        assert.equal(result.isError, c.took_effect !== true, `${c.name}: an error unless the read-back shows it in place`);
+      },
+      { timeoutMs: 50 }
+    );
+  }
+});
+
+test("the settings read-back: a part left out must read back cleared, and a base policy must exist when one was sent", async () => {
+  setUnclearReadBackDelays([0, 0]);
+  const kept = { organizationDetails: { role: "it-administrator" }, productIntegration: null, passedStepKeys: ["a"] };
+  // productIntegration left out is cleared, so reading it still set means the update did not land
+  await withHarness(
+    (operation) =>
+      operation === SETTINGS_WRITE
+        ? raw("")
+        : ok({ secureAITenantSettings: settingsRecord("IN_PROGRESS", { ...kept, productIntegration: { acknowledgedCheckKeys: ["x"], selectedProductKeys: null } }) }),
+    async (h) => {
+      const result = await h.call("sophos_fusion_ai_defense_update_settings", {
+        onboarding_status: "IN_PROGRESS",
+        selections: { organizationDetails: { role: "it-administrator" } },
+      });
+      assert.equal(result.json.took_effect, false, result.json.read_back);
+      assert.deepEqual(result.json.fields_differing, ["productIntegration"]);
+      assert.equal(result.isError, true);
+    }
+  );
+  const basePolicy = { name: "Base", sensors: { endpoint: { enabled: true, scope: { type: "EVERYONE" } } } };
+  for (const [label, page, tookEffect, readBack] of [
+    ["base policy present", [policy({ id: OTHER_ID, kind: "TENANT_BASE", name: "Base", state: "ENABLED" })], true, /base policy .* exists/],
+    ["no base policy", [], false, /no base policy/],
+  ]) {
+    await withHarness(
+      (operation) => {
+        if (operation === SETTINGS_WRITE) return raw("");
+        if (operation === "FusionAiDefensePolicies") return policiesPage(page);
+        return ok({ secureAITenantSettings: settingsRecord("COMPLETED", kept) });
+      },
+      async (h) => {
+        const result = await h.call("sophos_fusion_ai_defense_update_settings", {
+          onboarding_status: "COMPLETED",
+          selections: { organizationDetails: { role: "it-administrator" }, passedStepKeys: ["a"] },
+          base_policy: basePolicy,
+          confirm_base_policy: true,
+        });
+        const list = h.calls.find((call) => call.operation === "FusionAiDefensePolicies");
+        assert.deepEqual(list.variables.filter, { kind: "TENANT_BASE" }, label);
+        assert.equal(result.json.took_effect, tookEffect, `${label}: ${result.json.read_back}`);
+        assert.match(result.json.read_back, readBack, label);
+        if (tookEffect) assert.equal(result.json.base_policy.id, OTHER_ID, label);
+        assert.equal(result.isError, !tookEffect, label);
+      }
+    );
+  }
+  // A GraphQL error is a clear refusal: no read-back
+  await withHarness(
+    () => ({ errors: [{ message: "base policy rejected", path: ["updateSecureAITenantSettings"], extensions: { code: "BASE_POLICY_REJECTED" } }], data: null }),
+    async (h) => {
+      const result = await h.call("sophos_fusion_ai_defense_update_settings", { onboarding_status: "IN_PROGRESS", selections: kept });
+      assert.equal(result.isError, true);
+      assert.match(result.text, /base policy rejected/);
+      assert.equal(h.calls.length, 1, "no read-back for a clear refusal");
+    }
+  );
 });
 
 test("the clone read-back searches for the clone's name; the create read-back for the name sent", async () => {

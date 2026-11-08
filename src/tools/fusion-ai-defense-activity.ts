@@ -23,10 +23,15 @@ import {
   READ_ONLY,
   RISK_LEVELS,
   SORT_ORDERS,
+  UNCLEAR_RETURNS,
   baseRuleSchema,
   buildTimeRange,
+  readBackSpan,
+  readBackUntil,
+  readPolicyList,
   rethrowActivityError,
   ruleSchema,
+  sendPolicyWrite,
   sensorsSchema,
   tagsSchema,
   tenantIdField,
@@ -45,7 +50,7 @@ import {
   AI_DEFENSE_USER_APPS,
   AI_DEFENSE_USER_INVENTORY,
 } from "../fusion/queries/ai-defense-activity.js";
-import type { AiDefenseActivitiesResponse, AiDefenseOffsetPage, AiDefenseTenantSettings } from "../fusion/types.js";
+import type { AiDefenseActivitiesResponse, AiDefenseOffsetPage, AiDefensePolicy, AiDefenseTenantSettings } from "../fusion/types.js";
 import { jsonResult, withErrorHandling, withWarnings } from "./helpers.js";
 
 const WINDOW_NOTE =
@@ -130,6 +135,137 @@ const basePolicySchema = z
     tags: tagsSchema.optional(),
   })
   .describe('The base policy to create: { name, description?, rules?, baseRule?, sensors (Endpoint scope { "type": "EVERYONE" }), tags? }');
+
+// --- Read-back of a settings update Sophos gave no clear answer for ---
+
+type Selections = z.infer<typeof selectionsSchema>;
+
+/** One read-back: the settings record, and the base policies when the update sent one. */
+interface SettingsRead {
+  settings: { kind: "found"; value: AiDefenseTenantSettings } | { kind: "none" } | { kind: "failed"; error: string };
+  basePolicies: { policies: AiDefensePolicy[] } | { error: string } | null;
+}
+
+async function readSettings(client: FusionClient, tenantId: string): Promise<SettingsRead["settings"]> {
+  try {
+    const { data } = await client.query<{ secureAITenantSettings: AiDefenseTenantSettings | null }>(tenantId, AI_DEFENSE_TENANT_SETTINGS);
+    return data.secureAITenantSettings ? { kind: "found", value: data.secureAITenantSettings } : { kind: "none" };
+  } catch (error) {
+    return { kind: "failed", error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+const keySet = (keys: unknown): string[] => (Array.isArray(keys) ? keys.map(String).sort() : []);
+
+/** organizationDetails in one shape: every field, unset ones null, and null when none is set. */
+function comparableOrganization(value: unknown): Record<string, unknown> | null {
+  const v = (value ?? {}) as Record<string, unknown>;
+  const shaped = { role: v.role ?? null, numberOfUsers: v.numberOfUsers ?? null, aiFamiliarity: v.aiFamiliarity ?? null, industry: v.industry ?? null };
+  return Object.values(shaped).every((field) => field === null) ? null : shaped;
+}
+
+/** productIntegration in one shape: both key lists sorted, and null when both are empty. */
+function comparableProducts(value: unknown): Record<string, string[]> | null {
+  const v = (value ?? {}) as Record<string, unknown>;
+  const shaped = { acknowledgedCheckKeys: keySet(v.acknowledgedCheckKeys), selectedProductKeys: keySet(v.selectedProductKeys) };
+  return shaped.acknowledgedCheckKeys.length === 0 && shaped.selectedProductKeys.length === 0 ? null : shaped;
+}
+
+const differs = (a: unknown, b: unknown) => JSON.stringify(a) !== JSON.stringify(b);
+
+/**
+ * What reads back different from what was sent. selections replaces the
+ * stored set, so organizationDetails or productIntegration left out should
+ * read back cleared; passedStepKeys left out is kept, so it is compared only
+ * when sent.
+ */
+function differingSettings(status: string, selections: Selections, settings: AiDefenseTenantSettings): string[] {
+  const stored = (settings.onboarding?.selections ?? {}) as Record<string, unknown>;
+  const differ: string[] = [];
+  if (settings.onboarding?.status !== status) differ.push("onboarding_status");
+  if (differs(comparableOrganization(selections.organizationDetails), comparableOrganization(stored.organizationDetails))) {
+    differ.push("organizationDetails");
+  }
+  if (differs(comparableProducts(selections.productIntegration), comparableProducts(stored.productIntegration))) {
+    differ.push("productIntegration");
+  }
+  if (Array.isArray(selections.passedStepKeys) && differs(keySet(selections.passedStepKeys), keySet(stored.passedStepKeys))) {
+    differ.push("passedStepKeys");
+  }
+  return differ;
+}
+
+/**
+ * Reads the settings back (at once, 1 s and 4 s) until they show the status
+ * and selections sent and, when a base policy was sent, a TENANT_BASE policy
+ * exists. Creating one when it exists returns the existing one, so any base
+ * policy counts.
+ */
+async function readBackSettings(
+  client: FusionClient,
+  tenantId: string,
+  status: string,
+  selections: Selections,
+  basePolicySent: boolean
+): Promise<{ took_effect: boolean | null; read_back: string; reads: number; [field: string]: unknown }> {
+  const read = async (): Promise<SettingsRead> => ({
+    settings: await readSettings(client, tenantId),
+    basePolicies: basePolicySent ? await readPolicyList(client, tenantId, { kind: "TENANT_BASE" }) : null,
+  });
+  const inPlace = ({ settings, basePolicies }: SettingsRead) =>
+    settings.kind === "found" &&
+    differingSettings(status, selections, settings.value).length === 0 &&
+    (basePolicies === null || ("policies" in basePolicies && basePolicies.policies.length > 0));
+  const { last, reads } = await readBackUntil(read, inPlace);
+  const span = readBackSpan(reads);
+  const { settings, basePolicies } = last;
+  if (settings.kind === "failed") {
+    return {
+      took_effect: null,
+      read_back: `The settings could not be read back (${settings.error}), so whether the update took effect is unknown: check them with sophos_fusion_ai_defense_get_settings before sending it again.`,
+      reads,
+    };
+  }
+  if (settings.kind === "none") {
+    return { took_effect: false, read_back: `No AI Defense settings record reads back after ${span}, so the update did not take effect. Send it again.`, reads };
+  }
+  const differ = differingSettings(status, selections, settings.value);
+  if (differ.length > 0) {
+    return {
+      took_effect: false,
+      read_back: `The settings read status ${settings.value.onboarding?.status}, and ${differ.join(", ")} read back different from what you sent after ${span}, so the update did not take effect. Send it again.`,
+      reads,
+      settings: settings.value,
+      fields_differing: differ,
+    };
+  }
+  const asSent = `The settings read back as you sent: status ${status}, selections in place`;
+  if (basePolicies === null) return { took_effect: true, read_back: `${asSent}.`, reads, settings: settings.value };
+  if ("error" in basePolicies) {
+    return {
+      took_effect: null,
+      read_back: `${asSent}, but the base policy could not be read back (${basePolicies.error}): check it with sophos_fusion_ai_defense_list_policies kind TENANT_BASE before sending the update again.`,
+      reads,
+      settings: settings.value,
+    };
+  }
+  const base = basePolicies.policies[0];
+  if (!base) {
+    return {
+      took_effect: false,
+      read_back: `${asSent}, but no base policy (kind TENANT_BASE) exists after ${span}, so the base policy was not created. Send it again.`,
+      reads,
+      settings: settings.value,
+    };
+  }
+  return {
+    took_effect: true,
+    read_back: `${asSent}, and the base policy ${base.id} "${base.name}" exists.`,
+    reads,
+    settings: settings.value,
+    base_policy: base,
+  };
+}
 
 export function registerFusionAiDefenseActivityTools(
   server: McpServer,
@@ -578,7 +714,7 @@ Args:
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
-  The settings as stored after the call. Read them back with sophos_fusion_ai_defense_get_settings to confirm.`,
+  The settings as stored after the call. Read them back with sophos_fusion_ai_defense_get_settings to confirm. ${UNCLEAR_RETURNS}`,
       inputSchema: {
         onboarding_status: onboardingStatusField.describe("NOT_STARTED, IN_PROGRESS or COMPLETED"),
         selections: selectionsSchema,
@@ -606,13 +742,30 @@ Returns:
         onboarding.basePolicy = { kind: "TENANT_BASE", state: "ENABLED", ...rest, rules: (rules ?? []).map(toRuleInput) };
       }
       const tenantId = tenantResolver.resolveTenantId(args.tenant_id);
-      const { data, warnings } = await client.query<{ updateSecureAITenantSettings: AiDefenseTenantSettings | null }>(
+      const answer = await sendPolicyWrite<AiDefenseTenantSettings>(
+        client,
         tenantId,
         AI_DEFENSE_UPDATE_TENANT_SETTINGS,
+        "updateSecureAITenantSettings",
         { input: { onboarding } }
       );
-      if (!data.updateSecureAITenantSettings) throw new Error("updateSecureAITenantSettings returned no settings.");
-      return jsonResult(withWarnings({ tenant_id: tenantId, status: "updated", settings: data.updateSecureAITenantSettings }, warnings));
+      if (answer.unclear) {
+        const { took_effect, read_back, reads, ...state } = await readBackSettings(
+          client,
+          tenantId,
+          args.onboarding_status,
+          args.selections,
+          args.base_policy !== undefined
+        );
+        const result = jsonResult(
+          withWarnings(
+            { tenant_id: tenantId, status: "unclear", write: "updateSecureAITenantSettings", answer: answer.reason, took_effect, read_back, reads, ...state },
+            answer.warnings
+          )
+        );
+        return took_effect === true ? result : { ...result, isError: true };
+      }
+      return jsonResult(withWarnings({ tenant_id: tenantId, status: "updated", settings: answer.value }, answer.warnings));
     })
   );
 }

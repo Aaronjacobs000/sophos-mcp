@@ -524,7 +524,7 @@ Sophos AI Defense Policy GraphQL API v1 (15/10/2026), on the Fusion GraphQL endp
 
 Measured on live tenants (07/11/2026): at least one sensor must be enabled. An empty Endpoint scope means everyone, which only the base policy may use, so enabling a policy with one is refused. Tag values must be strings. A new policy or clone lands at rank 1, disabled unless created enabled. Every write raises the policy's `version`, enable and disable included, and an update that sends a stale version is refused. On update, `rules` replaces the whole list and `tags` the whole map, but an empty `tags` map or null is ignored (08/11/2026), so tags can't be cleared through the API and the tool refuses an empty map. `sophos_fusion_ai_defense_reorder_policies` needs every reorderable policy ID. Deletion can't be undone. The base policy can't be disabled, deleted, cloned or moved, so creating one needs `confirm_base_policy`.
 
-A policy write Sophos answers with no result (an `enablePolicy` once answered HTTP 200 with an empty body) is not sent again: the tool reads the policy back and reports `status: "unclear"`, `took_effect` (true, false, or null when the read can't tell), what it found and the state it read. The result is an error unless the change reads back in place. Create and clone have no ID to read, so their read-back looks for a policy with the expected name created since the request.
+A policy write Sophos answers with no result (an `enablePolicy` once answered HTTP 200 with an empty body), or that fails with a 5xx, a timeout or a dropped connection, is not sent again: the tool reads the policy back and reports `status: "unclear"`, `took_effect` (true, false, or null when the read can't tell), what it found and the state it read. The result is an error unless the change reads back in place. Create and clone have no ID to read, so their read-back looks for a policy with the expected name created since the request.
 
 | Tool | Description |
 |------|-------------|
@@ -553,7 +553,7 @@ Sophos AI Defense Activity GraphQL API v1 (15/10/2026): the AI activity AI Defen
 
 The live API differs from the published reference in two places (07/11/2026). It does not serve the per-app training, compliance and category fields the reference lists on the app inventory, so the tool leaves them out; filter on them instead, or read them on an activity. The activities list returns `additionalData` as null where the reference says empty, and that fails the whole page, so source IP addresses come only from `sophos_fusion_ai_defense_get_activity`.
 
-`sophos_fusion_ai_defense_update_settings` replaces the onboarding selections as a whole, and an update with no selections clears them as well, so the tool requires them. Read the settings first and send back what you keep.
+`sophos_fusion_ai_defense_update_settings` replaces the onboarding selections as a whole, and an update with no selections clears them as well, so the tool requires them. Read the settings first and send back what you keep. An update with no clear answer is read back the same way as a policy write: the settings must show the status and selections sent, and a base policy must exist when one was sent.
 
 | Tool | Description |
 |------|-------------|

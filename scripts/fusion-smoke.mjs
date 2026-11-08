@@ -775,14 +775,17 @@ try {
       }
       if (a) {
         const before = await read(a.id);
+        check(JSON.stringify(before.tags) === '{"purpose":"smoke"}', "create stored the tags");
         const updated = await call(
           `${AID}update_policy`,
-          { ...scope, policy_id: a.id, version: before.version, rules: before.rules.slice(0, 2), tags: { purpose: "smoke-2" } },
+          { ...scope, policy_id: a.id, version: before.version, rules: before.rules.slice(0, 2), tags: { stage: "smoke-2" } },
           { quiet: true }
         );
         if (updated.ok) record(`AI Defense policy ${a.id} updated: two rules, tags replaced`);
         const after = await read(a.id);
-        check(after.rules.length === 2 && JSON.stringify(after.tags) === '{"purpose":"smoke-2"}', "update read back: rules and tags replaced");
+        check(after.rules.length === 2, "update read back: rules replaced");
+        // A different key from the one created with: a merge would keep purpose beside stage
+        check(JSON.stringify(after.tags) === '{"stage":"smoke-2"}', `update read back: tags replaced, not merged (${JSON.stringify(after.tags)})`);
         const stale = await call(`${AID}update_policy`, { ...scope, policy_id: a.id, version: before.version, name: "stale" }, { expectError: true });
         check(/version conflict/.test(stale.text), "a stale version is refused");
         const enabled = await call(`${AID}enable_policy`, { ...scope, policy_id: a.id }, { quiet: true });

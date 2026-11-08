@@ -27,6 +27,7 @@ import {
   POLICY_ACTIONS,
   READ_ONLY,
   TAGS_NOTE,
+  UNCLEAR_RETURNS,
   WRITE,
   baseRuleSchema,
   buildTimeRange,
@@ -88,9 +89,6 @@ const policyStateField = z.enum(["ENABLED", "DISABLED"]);
 function policyResult(tenantId: string, policy: AiDefensePolicy, warnings: string[], extra: Record<string, unknown> = {}) {
   return withWarnings({ tenant_id: tenantId, ...extra, policy }, warnings);
 }
-
-const UNCLEAR_RETURNS =
-  "When Sophos answers with no result (an empty body, or a null result and no error), the write is not sent again: the state is read back, and the result says status unclear, took_effect (true, false, or null when the read can't tell), what the read found, and the state it read. It is an error unless the change reads back in place.";
 
 // --- Read-back of a write Sophos gave no result for ---
 

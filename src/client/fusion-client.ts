@@ -149,6 +149,25 @@ export class FusionNoResultError extends Error {
   }
 }
 
+/** How a mutation's call failed without an answer that says whether it took effect. */
+export type FusionMutationFailure = "server_error" | "timeout" | "connection";
+
+/**
+ * Thrown for a mutation that got a 5xx (other than the not-on-Fusion 503),
+ * timed out or lost its connection. Sophos may have made the change before
+ * the call failed, so it is never sent again; read the state back instead.
+ * The message is the transport error followed by the not-retried note.
+ */
+export class FusionMutationUnconfirmedError extends Error {
+  constructor(
+    message: string,
+    readonly failure: FusionMutationFailure
+  ) {
+    super(message);
+    this.name = "FusionMutationUnconfirmedError";
+  }
+}
+
 const MUTATION_NOT_RETRIED = "Not retried: the mutation may already have taken effect, so check whether it did before repeating it.";
 
 const TENANT_NOT_ON_FUSION = /\btenant (\S+) not found or not accessible\b/i;
@@ -183,8 +202,10 @@ export class FusionClient {
    *
    * Returns the `data` object plus any partial-response warnings. Throws
    * FusionGraphQLError when the response carries errors and no usable data,
-   * FusionNoResultError when a mutation is answered 200 with no result, and
-   * a plain Error for transport failures. The transient partnerPreferences
+   * FusionNoResultError when a mutation is answered 200 with no result,
+   * FusionMutationUnconfirmedError when a mutation gets a 5xx, times out or
+   * loses its connection, and a plain Error for other transport failures.
+   * The transient partnerPreferences
    * fault is retried up to transientAttempts times; every other GraphQL-layer
    * error surfaces at once. options.timeoutMs replaces the per-attempt timeout
    * for this call, for an operation known to run longer (a Search results page).
@@ -277,7 +298,8 @@ export class FusionClient {
    * Transport retries: 429 always; 5xx, timeouts and network errors only for
    * a query, apart from the not-on-Fusion 503, which is never retried. A
    * mutation that failed that way may already have taken effect (a case
-   * created, evidence attached), so it is not repeated.
+   * created, evidence attached), so it is not repeated: it throws
+   * FusionMutationUnconfirmedError.
    */
   private async executeWithRetry<T>(
     options: globalThis.RequestInit,
@@ -354,12 +376,12 @@ export class FusionClient {
           throw new Error(reason);
         }
       } catch (error) {
-        lastError =
-          error instanceof Error && error.name === "AbortError"
-            ? new Error(`Sophos Fusion API request timed out after ${timeoutMs}ms`)
-            : error instanceof Error
-              ? error
-              : new Error(String(error));
+        const timedOut = error instanceof Error && error.name === "AbortError";
+        lastError = timedOut
+          ? new Error(`Sophos Fusion API request timed out after ${timeoutMs}ms`)
+          : error instanceof Error
+            ? error
+            : new Error(String(error));
 
         // Don't retry on 4xx client errors
         if (/Sophos Fusion API error 4\d\d:/.test(lastError.message)) {
@@ -381,8 +403,14 @@ export class FusionClient {
           throw lastError;
         }
 
+        // Left here: a 5xx, a timeout or a dropped connection
         if (mutation) {
-          throw new Error(`${lastError.message}. ${MUTATION_NOT_RETRIED}`);
+          const failure: FusionMutationFailure = timedOut
+            ? "timeout"
+            : /^Sophos Fusion API error 5\d\d:/.test(lastError.message)
+              ? "server_error"
+              : "connection";
+          throw new FusionMutationUnconfirmedError(`${lastError.message}. ${MUTATION_NOT_RETRIED}`, failure);
         }
 
         if (attempt < this.retries) {
