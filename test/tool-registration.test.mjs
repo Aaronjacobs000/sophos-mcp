@@ -445,8 +445,10 @@ test("the AI Defense tools: names fit, reads are read-only, writes carry their g
     "sophos_fusion_ai_defense_move_policy",
     "sophos_fusion_ai_defense_reorder_policies",
     "sophos_fusion_ai_defense_clone_policy",
+    "sophos_fusion_ai_defense_update_settings",
   ]) {
     expect(name, /no result .* the state is read back, and the result says status unclear/);
+    expect(name, /a 5xx, a timeout or a dropped connection/);
   }
   expect("sophos_fusion_ai_defense_update_policy", /version conflict: policy has been modified/);
   expect("sophos_fusion_ai_defense_create_policy", /only the base policy may apply to everyone/);

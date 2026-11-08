@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import {
   FusionClient,
   FusionGraphQLError,
+  FusionMutationUnconfirmedError,
   FusionNoResultError,
   FusionTenantNotOnFusionError,
   formatGraphQLError,
@@ -520,6 +521,65 @@ test("a mutation answered 200 with an unreadable body, or with neither data nor 
     );
     assert.equal(calls.length, 1, JSON.stringify(body));
   }
+});
+
+test("a mutation that gets a 5xx, times out or loses its connection throws FusionMutationUnconfirmedError, sent once; a clear answer or a query does not", async () => {
+  const faults = [
+    {
+      failure: "server_error",
+      reply: () => json("upstream down", { status: 502 }),
+      message: /^Sophos Fusion API error 502: upstream down\. Not retried: the mutation may already have taken effect/,
+    },
+    {
+      failure: "timeout",
+      reply: (_attempt, init) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener("abort", () => reject(new DOMException("The operation was aborted", "AbortError")));
+        }),
+      message: /^Sophos Fusion API request timed out after 5ms\. Not retried: the mutation may already have taken effect/,
+    },
+    {
+      failure: "connection",
+      reply: () => {
+        throw new TypeError("fetch failed", { cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }) });
+      },
+      message: /^fetch failed\. Not retried: the mutation may already have taken effect/,
+    },
+  ];
+  for (const fault of faults) {
+    const calls = stubFetch(fault.reply);
+    await assert.rejects(
+      () => makeClient({ timeoutMs: 5 }).query("tenant-1", "mutation M($id: ID!) { enablePolicy(id: $id) { id } }", { id: "p" }),
+      (error) => {
+        assert.ok(error instanceof FusionMutationUnconfirmedError, `${fault.failure}: ${error}`);
+        assert.equal(error.failure, fault.failure);
+        assert.match(error.message, fault.message);
+        return true;
+      }
+    );
+    assert.equal(calls.length, 1, `${fault.failure}: sent once`);
+  }
+
+  // A 4xx, a 429 on every attempt and the not-on-Fusion 503 are clear answers, and a query keeps its retries
+  const clear = [
+    json({ error: "badRequest", message: "bad" }, { status: 400 }),
+    json({ error: "TooManyRequests" }, { status: 429, headers: { "Retry-After": "0" } }),
+    json({ error: "ServiceUnavailable", message: "tenant 11111111-2222-4333-8444-555555555555 not found or not accessible" }, { status: 503 }),
+  ];
+  for (const response of clear) {
+    stubFetch(() => response.clone());
+    await assert.rejects(
+      () => makeClient().query("tenant-1", "mutation { enablePolicy }"),
+      (error) => !(error instanceof FusionMutationUnconfirmedError) && !/may already have taken effect/.test(error.message),
+      String(response.status)
+    );
+  }
+  const calls = stubFetch(() => json("upstream down", { status: 502 }));
+  await assert.rejects(
+    () => makeClient().query("tenant-1", "query { policies }"),
+    (error) => !(error instanceof FusionMutationUnconfirmedError) && /error 502/.test(error.message)
+  );
+  assert.equal(calls.length, 3, "a query is retried");
 });
 
 test("a mutation is still retried after a 429", async () => {

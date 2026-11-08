@@ -13,7 +13,12 @@
  */
 
 import { z } from "zod";
-import { FusionGraphQLError, FusionNoResultError, type FusionClient } from "../client/fusion-client.js";
+import {
+  FusionGraphQLError,
+  FusionMutationUnconfirmedError,
+  FusionNoResultError,
+  type FusionClient,
+} from "../client/fusion-client.js";
 import { AI_DEFENSE_POLICIES, AI_DEFENSE_POLICY } from "./queries/ai-defense-policy.js";
 import type { AiDefensePoliciesResponse, AiDefensePolicy } from "./types.js";
 
@@ -244,6 +249,10 @@ export function rethrowActivityError(activityId: string) {
 
 // --- Writes Sophos gave no result for ---
 
+/** The Returns note for every write that reads back an unclear answer. */
+export const UNCLEAR_RETURNS =
+  "When Sophos answers with no result (an empty body, or a null result and no error), or the call fails with a 5xx, a timeout or a dropped connection, the write is not sent again: the state is read back, and the result says status unclear, took_effect (true, false, or null when the read can't tell), what the read found, and the state it read. It is an error unless the change reads back in place.";
+
 /**
  * Waits before each read of an unclear write's read-back, in milliseconds:
  * at once, then about 1 s and 4 s after the write. Policy reads agreed with
@@ -263,13 +272,15 @@ export type PolicyWriteAnswer<T> =
   | { unclear: true; reason: string; warnings: string[] };
 
 /**
- * Sends one AI Defense policy mutation and returns its result field. The
- * answer is unclear when the client throws FusionNoResultError (HTTP 200 with
- * an empty or unreadable body, or with neither data nor errors: enablePolicy
- * answered 200 with an empty body on 08/11/2026), or when the field is null,
- * missing or an empty list with no error. The write may still have been made,
- * so the tool reads the state back instead of reporting success. A GraphQL
- * error is a clear refusal and goes to rethrow.
+ * Sends one AI Defense mutation (a policy write or the settings update) and
+ * returns its result field. The answer is unclear when the client throws
+ * FusionNoResultError (HTTP 200 with an empty or unreadable body, or with
+ * neither data nor errors: enablePolicy answered 200 with an empty body on
+ * 08/11/2026) or FusionMutationUnconfirmedError (a 5xx, a timeout or a
+ * dropped connection), or when the field is null, missing or an empty list
+ * with no error. The write may still have been made, so the tool reads the
+ * state back instead of reporting success or failure. A GraphQL error, a 4xx
+ * and the not-on-Fusion 503 are clear answers and go to rethrow.
  */
 export async function sendPolicyWrite<T>(
   client: FusionClient,
@@ -286,7 +297,9 @@ export async function sendPolicyWrite<T>(
   try {
     ({ data, warnings } = await client.query<Record<string, unknown>>(tenantId, document, variables));
   } catch (error) {
-    if (error instanceof FusionNoResultError) return { unclear: true, reason: error.message, warnings: [] };
+    if (error instanceof FusionNoResultError || error instanceof FusionMutationUnconfirmedError) {
+      return { unclear: true, reason: error.message, warnings: [] };
+    }
     return rethrow(error);
   }
   const value = data[field];
