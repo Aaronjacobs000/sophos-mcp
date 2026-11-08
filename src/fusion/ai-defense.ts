@@ -13,7 +13,9 @@
  */
 
 import { z } from "zod";
-import { FusionGraphQLError } from "../client/fusion-client.js";
+import { FusionGraphQLError, FusionNoResultError, type FusionClient } from "../client/fusion-client.js";
+import { AI_DEFENSE_POLICIES, AI_DEFENSE_POLICY } from "./queries/ai-defense-policy.js";
+import type { AiDefensePoliciesResponse, AiDefensePolicy } from "./types.js";
 
 export const RELATIVE_TIME_RANGES = [
   "SINCE_BEGINNING_OF_DAY",
@@ -180,6 +182,15 @@ export const tagsSchema = z
   .record(z.string(), z.string())
   .describe('Key/value labels, string values only (a number is refused), e.g. { "env": "production" }');
 
+/**
+ * On update, a tags map with at least one key replaces the stored map, while
+ * an empty map or null is ignored (and still raises the version), so tags
+ * can't be cleared through the API (live, 08/11/2026). The reference documents
+ * no other way.
+ */
+export const TAGS_NOTE =
+  "tags replaces the whole map when it has at least one key. An empty map or null is ignored by the API, so tags can't be cleared through it: to drop some tags, send the ones to keep.";
+
 // --- Errors ---
 
 /** The deletedAt of a not-found answer when the policy was deleted, or null when the error is not a not-found. */
@@ -229,6 +240,133 @@ export function rethrowActivityError(activityId: string) {
     }
     throw error;
   };
+}
+
+// --- Writes Sophos gave no result for ---
+
+/**
+ * Waits before each read of an unclear write's read-back, in milliseconds:
+ * at once, then about 1 s and 4 s after the write. Policy reads agreed with
+ * every write at once in testing (07/11 and 08/11/2026); the later reads are
+ * there in case Sophos lags, so a single read is never taken as proof.
+ */
+let unclearReadBackDelaysMs = [0, 1000, 3000];
+
+/** Tests shorten the waits. */
+export function setUnclearReadBackDelays(ms: number[]): void {
+  unclearReadBackDelaysMs = ms.length > 0 ? ms : [0];
+}
+
+/** A policy write's answer: its result, or why the answer does not say whether the write took effect. */
+export type PolicyWriteAnswer<T> =
+  | { unclear: false; value: T; warnings: string[] }
+  | { unclear: true; reason: string; warnings: string[] };
+
+/**
+ * Sends one AI Defense policy mutation and returns its result field. The
+ * answer is unclear when the client throws FusionNoResultError (HTTP 200 with
+ * an empty or unreadable body, or with neither data nor errors: enablePolicy
+ * answered 200 with an empty body on 08/11/2026), or when the field is null,
+ * missing or an empty list with no error. The write may still have been made,
+ * so the tool reads the state back instead of reporting success. A GraphQL
+ * error is a clear refusal and goes to rethrow.
+ */
+export async function sendPolicyWrite<T>(
+  client: FusionClient,
+  tenantId: string,
+  document: string,
+  field: string,
+  variables: Record<string, unknown>,
+  rethrow: (error: unknown) => never = (error) => {
+    throw error;
+  }
+): Promise<PolicyWriteAnswer<T>> {
+  let data: Record<string, unknown>;
+  let warnings: string[];
+  try {
+    ({ data, warnings } = await client.query<Record<string, unknown>>(tenantId, document, variables));
+  } catch (error) {
+    if (error instanceof FusionNoResultError) return { unclear: true, reason: error.message, warnings: [] };
+    return rethrow(error);
+  }
+  const value = data[field];
+  if (value === null || value === undefined || (Array.isArray(value) && value.length === 0)) {
+    const shown = value === undefined ? `no ${field} field` : `${field} ${JSON.stringify(value)}`;
+    return {
+      unclear: true,
+      reason: `Sophos Fusion answered with ${shown} and no error, so the answer does not say whether the write took effect. Not retried.`,
+      warnings,
+    };
+  }
+  return { unclear: false, value: value as T, warnings };
+}
+
+/** One read of a policy: found, gone (deleted, with its time, or never there), or the read failed. */
+export type PolicyRead =
+  | { kind: "found"; policy: AiDefensePolicy }
+  | { kind: "gone"; deletedAt: string | null }
+  | { kind: "failed"; error: string };
+
+export async function readPolicy(client: FusionClient, tenantId: string, policyId: string): Promise<PolicyRead> {
+  try {
+    const { data } = await client.query<{ policy: AiDefensePolicy | null }>(tenantId, AI_DEFENSE_POLICY, { id: policyId });
+    return data.policy ? { kind: "found", policy: data.policy } : { kind: "gone", deletedAt: null };
+  } catch (error) {
+    const notFound = notFoundAnswer(error);
+    if (notFound) return { kind: "gone", deletedAt: notFound.deletedAt };
+    return { kind: "failed", error: errorText(error) };
+  }
+}
+
+/** Every policy the filter matches, in rank order, or why the list could not be read. */
+export async function readPolicyList(
+  client: FusionClient,
+  tenantId: string,
+  filter: Record<string, unknown>
+): Promise<{ policies: AiDefensePolicy[] } | { error: string }> {
+  const policies: AiDefensePolicy[] = [];
+  let after: string | null = null;
+  try {
+    // 20 pages of 100 covers the 1000 IDs reorder takes, twice over
+    for (let page = 0; page < 20; page++) {
+      const variables: Record<string, unknown> = { filter, first: AI_DEFENSE_MAX_PAGE };
+      if (after) variables.after = after;
+      const { data } = await client.query<AiDefensePoliciesResponse>(tenantId, AI_DEFENSE_POLICIES, variables);
+      policies.push(...data.policies.policies);
+      if (!data.policies.pageInfo.hasNextPage || !data.policies.pageInfo.endCursor) break;
+      after = data.policies.pageInfo.endCursor;
+    }
+  } catch (error) {
+    return { error: errorText(error) };
+  }
+  return { policies };
+}
+
+/**
+ * Reads until settled() accepts a read, waiting before each one, and returns
+ * the last read and how many were made. A read that fails or disagrees is
+ * read again, since one read proves nothing either way.
+ */
+export async function readBackUntil<R>(read: () => Promise<R>, settled: (value: R) => boolean): Promise<{ last: R; reads: number }> {
+  let last = undefined as R;
+  let reads = 0;
+  for (const delay of unclearReadBackDelaysMs) {
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+    last = await read();
+    reads += 1;
+    if (settled(last)) break;
+  }
+  return { last, reads };
+}
+
+/** About how long the read-back reads span, for the result's wording. */
+export function readBackSpan(reads: number): string {
+  const ms = unclearReadBackDelaysMs.slice(0, reads).reduce((total, delay) => total + delay, 0);
+  return reads === 1 ? "1 read" : `${reads} reads over about ${Math.round(ms / 1000)} s`;
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export const READ_ONLY = {

@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import {
   FusionClient,
   FusionGraphQLError,
+  FusionNoResultError,
   FusionTenantNotOnFusionError,
   formatGraphQLError,
   interpretGraphQLBody,
@@ -491,6 +492,34 @@ test("a mutation that times out is not retried either", async () => {
   );
   await assert.rejects(() => makeClient({ timeoutMs: 5 }).query("tenant-1", "mutation { createCase }"), /timed out after 5ms\. Not retried/);
   assert.equal(calls.length, 1);
+});
+
+test("a mutation answered 200 with an empty body throws FusionNoResultError and is sent once; a query is retried", async () => {
+  const calls = stubFetch(() => json(""));
+  await assert.rejects(
+    () => makeClient().query("tenant-1", "mutation M($id: ID!) { enablePolicy(id: $id) { id } }", { id: "p" }),
+    (error) =>
+      error instanceof FusionNoResultError &&
+      /empty body with status 200\. Not retried: the mutation may already have taken effect/.test(error.message)
+  );
+  assert.equal(calls.length, 1);
+
+  const queryCalls = stubFetch((attempt) => (attempt === 1 ? json("") : json({ data: { ok: true } })));
+  const result = await makeClient().query("tenant-1", "query { ok }");
+  assert.deepEqual(result.data, { ok: true });
+  assert.equal(queryCalls.length, 2, "a query answered with an empty body is retried");
+});
+
+test("a mutation answered 200 with an unreadable body, or with neither data nor errors, throws FusionNoResultError", async () => {
+  for (const body of ["<html>proxy page</html>", "null", {}, { data: null }]) {
+    const calls = stubFetch(() => json(body));
+    await assert.rejects(
+      () => makeClient().query("tenant-1", "mutation { enablePolicy }"),
+      (error) => error instanceof FusionNoResultError && /Not retried: the mutation may already have taken effect/.test(error.message),
+      JSON.stringify(body)
+    );
+    assert.equal(calls.length, 1, JSON.stringify(body));
+  }
 });
 
 test("a mutation is still retried after a 429", async () => {
