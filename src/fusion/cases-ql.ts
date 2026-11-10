@@ -7,6 +7,17 @@
 
 import { qlString } from "./format.js";
 
+/**
+ * The "Closed" primary status of each status set Fusion has used, the same
+ * IDs on every tenant (live, 10/11/2026). A case keeps its status when its
+ * tenant moves to the newer set, and the reference data lists only the
+ * current set, so it alone can't name every closed status a tenant's cases carry.
+ */
+export const KNOWN_CLOSED_STATUS_IDS = [
+  "b2cf8e1a-f6d1-4858-a42a-2b8f6752934e", // new, in progress, on hold ... closed
+  "c519ffc5-fb8e-4d61-be34-4671d0d1a166", // open, active, suspended ... closed (early access)
+] as const;
+
 export interface CasesQlFilters {
   /** Raw QL, used verbatim. May carry its own `| sort` pipe. */
   query?: string;
@@ -16,6 +27,11 @@ export interface CasesQlFilters {
   severity?: number;
   severityMin?: number;
   openOnly?: boolean;
+  /**
+   * With openOnly, the primary statuses that mean closed. A case in one of
+   * them is left out even when its closedAt is null.
+   */
+  closedStatusIds?: string[];
   assigneeId?: string;
   unassigned?: boolean;
   titleContains?: string;
@@ -51,7 +67,14 @@ export function buildCasesQl(filters: CasesQlFilters): string | undefined {
   if (filters.verdictId) predicates.push(`primaryVerdictId = ${qlString(filters.verdictId)}`);
   if (filters.severity !== undefined) predicates.push(`severity = ${filters.severity}`);
   if (filters.severityMin !== undefined) predicates.push(`severity >= ${filters.severityMin}`);
-  if (filters.openOnly) predicates.push("closedAt is null");
+  if (filters.openOnly) {
+    predicates.push("closedAt is null");
+    // Cases closed in early 2026 kept closedAt null (live tenant, 10/11/2026), so the status decides too.
+    // The QL has no "not in": "primaryStatusId not in (...)" is a parse error.
+    if (filters.closedStatusIds && filters.closedStatusIds.length > 0) {
+      predicates.push(`not (primaryStatusId in (${filters.closedStatusIds.map(qlString).join(", ")}))`);
+    }
+  }
   if (filters.assigneeId) predicates.push(`assigneeId = ${qlString(filters.assigneeId)}`);
   // Unassigned cases carry assigneeId '' rather than null (live tenant,
   // 21/09/2026: "assigneeId is null" matched 0 of 8 unassigned cases).

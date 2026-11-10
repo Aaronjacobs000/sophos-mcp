@@ -181,9 +181,18 @@ try {
     { ...scope, unassigned: true, open_only: true, per_page: 3 },
     { quiet: true }
   );
+  // open_only also leaves out the closed statuses: both known ones, then the tenant's own (cached by the reference read above).
+  const closedIds = [
+    ...new Set([
+      "b2cf8e1a-f6d1-4858-a42a-2b8f6752934e",
+      "c519ffc5-fb8e-4d61-be34-4671d0d1a166",
+      ...(ref.json?.primary_statuses ?? []).filter((s) => s.is_closed).map((s) => s.id),
+    ]),
+  ];
   check(
-    unassigned.json?.ql_query === "closedAt is null and (assigneeId is null or assigneeId = '')",
-    "unassigned compiles to the null-or-empty predicate"
+    unassigned.json?.ql_query ===
+      `closedAt is null and not (primaryStatusId in (${closedIds.map((id) => `'${id}'`).join(", ")})) and (assigneeId is null or assigneeId = '')`,
+    "unassigned compiles to the null-or-empty predicate, open_only to no closedAt and no closed status"
   );
 
   await call("sophos_fusion_list_cases", { ...scope, severity_min: 8, sort: "severity desc", per_page: 3 }, { quiet: true });

@@ -30,7 +30,7 @@ import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { CaseReferenceDataCache } from "../fusion/case-reference-data.js";
 import { tenantTypeOf, type FusionMigrationGuard } from "../fusion/migration.js";
 import { CHARACTER_LIMIT, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "../config/config.js";
-import { buildCasesQl } from "../fusion/cases-ql.js";
+import { KNOWN_CLOSED_STATUS_IDS, buildCasesQl } from "../fusion/cases-ql.js";
 import {
   CASE_SEVERITY_NAMES,
   RESOURCE_NAME_EXAMPLE,
@@ -178,7 +178,7 @@ Args:
   - status (string[], optional): Primary status names or UUIDs (any of).
   - verdict (string, optional): Primary verdict name or UUID.
   - severity (number|string, optional): Exact severity. severity_min (optional): severity >= value.
-  - open_only (boolean, optional): Only cases with no closedAt.
+  - open_only (boolean, optional): Only cases with no closedAt and not in a closed status. Cases closed in early 2026 can have no closedAt.
   - assignee_id (string, optional): Subject ID. unassigned (boolean, optional): assigneeId is null.
   - title_contains, tag, created_after, created_before, updated_after (optional): further predicates. Timestamps are ISO 8601.
   - sort (string, optional): "<field> asc|desc", default createdAt desc.
@@ -194,7 +194,7 @@ Returns:
         verdict: z.string().optional().describe("Primary verdict name or UUID"),
         severity: severityField.optional(),
         severity_min: severityField.optional().describe("Minimum severity (inclusive)"),
-        open_only: z.boolean().optional().describe("Only open cases (closedAt is null)"),
+        open_only: z.boolean().optional().describe("Only open cases (closedAt is null and not in a closed status)"),
         assignee_id: z.string().optional().describe("Assignee Subject ID (not an email)"),
         unassigned: z.boolean().optional().describe("Only unassigned cases"),
         title_contains: z.string().optional().describe("Substring of the title"),
@@ -236,6 +236,7 @@ Returns:
         severityMin:
           args.severity_min !== undefined ? normaliseCaseSeverity(args.severity_min) : undefined,
         openOnly: args.open_only,
+        closedStatusIds: args.open_only ? closedStatusIds(referenceData, tenantId) : undefined,
         assigneeId: args.assignee_id,
         unassigned: args.unassigned,
         titleContains: args.title_contains,
@@ -2108,6 +2109,16 @@ function capKeyFindings<T extends { key_findings: { document_type: string; conte
     },
     key_findings_truncated: true,
   };
+}
+
+/**
+ * The known closed statuses plus any closed one in the tenant's cached
+ * reference data. Reads nothing, so a list stays one call.
+ */
+function closedStatusIds(referenceData: CaseReferenceDataCache, tenantId: string): string[] {
+  const ids = new Set<string>(KNOWN_CLOSED_STATUS_IDS);
+  for (const status of referenceData.peek(tenantId)?.primaryStatuses ?? []) if (status.isClosed) ids.add(status.id);
+  return [...ids];
 }
 
 function formatCaseSummary(c: FusionCaseSummary) {

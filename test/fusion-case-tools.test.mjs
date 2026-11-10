@@ -342,3 +342,65 @@ test("list_case_reference_data reports the tenant type from xdrOwnership, not fr
   assert.equal(unreadable.json.xdr_ownership, null);
   assert.deepEqual(unreadable.documents.sort(), ["FusionCaseReferenceData", "FusionTenantXdrOwnership"]);
 });
+
+// --- sophos_fusion_list_cases open_only ---
+
+// Cases closed in early 2026 kept closedAt null and the early-access "Closed"
+// status, which open_only used to list as open (live, 10/11/2026).
+test("open_only leaves out every known closed status, and the tenant's own once its reference data is cached", async () => {
+  const EAP_CLOSED = "c519ffc5-fb8e-4d61-be34-4671d0d1a166";
+  const GA_CLOSED = "b2cf8e1a-f6d1-4858-a42a-2b8f6752934e";
+  const documents = [];
+  const sentQl = [];
+  const client = {
+    query: async (_tenantId, document, variables) => {
+      documents.push(document.match(/^query (\w+)/)?.[1]);
+      if (document.startsWith("query FusionListCases(")) {
+        sentQl.push(variables.arguments.query);
+        const pageInfo = { startCursor: null, endCursor: null, hasNextPage: false, hasPreviousPage: false };
+        return { data: { cases: { totalCount: 0, pageInfo, cases: [] } }, warnings: [] };
+      }
+      if (document.startsWith("query FusionCaseReferenceData")) {
+        return {
+          data: { caseTypes: { types: [] }, casePrimaryStatuses: { primaryStatuses: [OPEN, CLOSED] }, casePrimaryVerdicts: { primaryVerdicts: [VERDICT] } },
+          warnings: [],
+        };
+      }
+      throw new Error(`unexpected document: ${document.slice(0, 40)}`);
+    },
+  };
+  const cache = new CaseReferenceDataCache(client);
+  const server = new McpServer({ name: "test", version: "0.0.0" });
+  registerFusionCaseTools(server, client, tenantResolver, cache, new FusionMigrationGuard(cache, true));
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  const mcp = new Client({ name: "test-client", version: "0.0.0" });
+  await mcp.connect(clientTransport);
+  const list = async (args) => {
+    const result = await mcp.callTool({ name: "sophos_fusion_list_cases", arguments: args });
+    assert.equal(Boolean(result.isError), false, result.content?.[0]?.text);
+    return JSON.parse(result.content[0].text);
+  };
+
+  try {
+    // Nothing cached: the known closed statuses, and no reference read to find them.
+    const first = await list({ open_only: true });
+    assert.equal(first.ql_query, `closedAt is null and not (primaryStatusId in ('${GA_CLOSED}', '${EAP_CLOSED}'))`);
+    assert.deepEqual(documents, ["FusionListCases"]);
+
+    // Once the tenant's statuses are cached, its own closed one joins them.
+    await cache.get(tenantResolver.resolveTenantId());
+    await list({ open_only: true, severity_min: 8 });
+    assert.equal(
+      sentQl[1],
+      `severity >= 8 and closedAt is null and not (primaryStatusId in ('${GA_CLOSED}', '${EAP_CLOSED}', '${CLOSED.id}'))`
+    );
+
+    // Not open-only: no status predicate.
+    await list({ severity_min: 8 });
+    assert.equal(sentQl[2], "severity >= 8");
+  } finally {
+    await mcp.close();
+    await server.close();
+  }
+});

@@ -177,6 +177,21 @@ test("buildCasesQl keeps a raw query's pipe after the added predicates", () => {
   assert.equal(buildCasesQl({ query: "title contains 'a | b'" }), "title contains 'a | b'");
 });
 
+test("buildCasesQl leaves closed statuses out of openOnly as well as a closedAt", () => {
+  // Cases closed in early 2026 kept closedAt null, so closedAt alone let them through (live, 10/11/2026).
+  assert.equal(
+    buildCasesQl({ openOnly: true, closedStatusIds: [CLOSED_ID, VERDICT_ID] }),
+    `closedAt is null and not (primaryStatusId in ('${CLOSED_ID}', '${VERDICT_ID}'))`
+  );
+  // Only with openOnly: a closed-status list on its own filters nothing.
+  assert.equal(buildCasesQl({ closedStatusIds: [CLOSED_ID] }), undefined);
+  assert.equal(buildCasesQl({ openOnly: true, closedStatusIds: [] }), "closedAt is null");
+  assert.equal(
+    buildCasesQl({ query: "severity >= 6 | sort severity desc", openOnly: true, closedStatusIds: [CLOSED_ID] }),
+    `severity >= 6 and closedAt is null and not (primaryStatusId in ('${CLOSED_ID}')) | sort severity desc`
+  );
+});
+
 test("buildCasesQl refuses two sorts and malformed sorts", () => {
   assert.throws(
     () => buildCasesQl({ query: "severity >= 6 | sort severity desc", sort: "createdAt" }),
