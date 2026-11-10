@@ -58,6 +58,11 @@ export class CaseReferenceDataCache {
     this.cache.delete(tenantId);
   }
 
+  /** The tenant's cached data, even past its TTL, without reading anything. */
+  peek(tenantId: string): CaseReferenceData | undefined {
+    return this.cache.get(tenantId)?.data;
+  }
+
   /**
    * The tenant record's xdrOwnership ("sophos" for a tenant not yet upgraded,
    * "securityOperations" for an upgraded one), or null when the record has no
