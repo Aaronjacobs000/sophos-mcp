@@ -2,6 +2,11 @@
 
 Notes for 0.13.1 and earlier are on the [GitHub releases page](https://github.com/Aaronjacobs000/sophos-mcp/releases).
 
+## 0.13.4 (21/11/2026)
+
+- LICENSE names the copyright holder: `Copyright (c) 2026 Aaron Jacobs`.
+- Listed in the official MCP Registry as `io.github.Aaronjacobs000/sophos-mcp`. `package.json` carries the matching `mcpName`, and `server.json` describes the npm package. No code changes.
+
 ## 0.13.3 (10/11/2026)
 
 - `sophos_fusion_list_cases` with `open_only` no longer lists closed cases whose `closedAt` is null. Cases closed in early 2026 never got a `closedAt`, so they came back as open (13 on one tenant). `open_only` now also leaves out the Closed status of both status sets Fusion has used, plus any closed status in the tenant's cached reference data. No extra call is made.
