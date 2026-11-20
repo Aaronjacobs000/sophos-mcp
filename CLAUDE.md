@@ -27,6 +27,10 @@ npm run build && npm start
 
 Credentials come from `user_config` (`sophos_client_id`, `sophos_client_secret`, both `sensitive`) mapped to `SOPHOS_CLIENT_ID` / `SOPHOS_CLIENT_SECRET` in `server.mcp_config.env`, with `TRANSPORT=stdio` fixed.
 
+## MCP Registry
+
+`server.json` is the [MCP Registry](https://registry.modelcontextprotocol.io) entry, `io.github.Aaronjacobs000/sophos-mcp` (the case matches the GitHub login; the registry compares it exactly). `mcpName` in `package.json` must equal its `name`. Each release sets both `version` fields in `server.json` to the new version, publishes to npm first, then runs `mcp-publisher publish`. Its `description` is at most 100 characters and says the project is unofficial.
+
 ## Naming
 
 The product is Sophos Fusion (formerly Sophos Central). Human-facing titles and descriptions say "Sophos Fusion (formerly Sophos Central)". The npm package, the `.mcpb` manifest `name`, the `bin` entries and the `McpServer` name string stay `sophos-central-mcp-server` so existing installs update in place. Never write "Sophos Taegis": `api.taegis.sophos.com` is a hostname, and the product it came from is Secureworks Taegis. Use the developer portal's wording for the query language: "Fusion Query Language (QL)".
