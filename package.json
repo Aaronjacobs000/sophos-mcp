@@ -1,6 +1,6 @@
 {
   "name": "sophos-central-mcp-server",
-  "version": "0.13.3",
+  "version": "0.13.4",
   "mcpName": "io.github.Aaronjacobs000/sophos-mcp",
   "files": [
     "dist",
