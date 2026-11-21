@@ -6,13 +6,13 @@
     "url": "https://github.com/Aaronjacobs000/sophos-mcp",
     "source": "github"
   },
-  "version": "0.13.4",
+  "version": "0.13.5",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "sophos-central-mcp-server",
-      "version": "0.13.4",
+      "version": "0.13.5",
       "transport": {
         "type": "stdio"
       },
