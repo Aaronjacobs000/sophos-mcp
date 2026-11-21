@@ -15,6 +15,8 @@ export interface SophosConfig {
   httpToken?: string;
   /** Browser origins allowed besides loopback ones, from MCP_ALLOWED_ORIGINS. */
   allowedOrigins: string[];
+  /** SOPHOS_READ_ONLY: register only the read tools and refuse every request that could write. */
+  readOnly: boolean;
 }
 
 export function loadConfig(): SophosConfig {
@@ -45,7 +47,20 @@ export function loadConfig(): SophosConfig {
     httpHost: process.env.MCP_HTTP_HOST || "127.0.0.1",
     httpToken: process.env.MCP_HTTP_TOKEN || undefined,
     allowedOrigins: parseAllowedOrigins(process.env.MCP_ALLOWED_ORIGINS),
+    readOnly: parseReadOnly(process.env.SOPHOS_READ_ONLY),
   };
+}
+
+/**
+ * SOPHOS_READ_ONLY is off unless set. true, 1, on and yes turn it on; false,
+ * 0, off and no leave it off, in any case. Anything else stops the server,
+ * since a typo in a safety switch must not quietly mean off.
+ */
+export function parseReadOnly(value: string | undefined): boolean {
+  const setting = (value ?? "").trim().toLowerCase();
+  if (["", "false", "0", "off", "no"].includes(setting)) return false;
+  if (["true", "1", "on", "yes"].includes(setting)) return true;
+  throw new Error(`Invalid SOPHOS_READ_ONLY value "${value}". Use true or false.`);
 }
 
 /**

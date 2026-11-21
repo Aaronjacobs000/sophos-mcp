@@ -2,6 +2,10 @@
 
 Notes for 0.13.1 and earlier are on the [GitHub releases page](https://github.com/Aaronjacobs000/sophos-mcp/releases).
 
+## Unreleased
+
+- Read-only mode. `SOPHOS_READ_ONLY=true` registers only the 176 tools classified as reads and refuses any request that could write before it leaves the process: any method but GET and HEAD, except the token request, Fusion GraphQL queries, and four REST searches. Eleven tools annotated read-only are left out: ten create query runs, searches, or jobs, or run on devices, and one is a POST that might store something. `src/read-only.ts` lists both sets. Off by default, and with it off every request goes out as before.
+
 ## 0.13.5 (21/11/2026)
 
 - The Fusion case tools accept the new `E-#####` short IDs (for example `E-01167`, first seen 18/11/2026) as well as `CSE#####`, in any case. Before, they were refused as Classic case IDs. Only digits, a dash and digits (`1-598868`) now count as a Classic ID; any other two part ID is looked up as a short ID first and gets the Classic hint only when nothing matches.

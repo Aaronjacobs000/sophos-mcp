@@ -24,6 +24,8 @@ import { SophosClient } from "./client/sophos-client.js";
 import { FusionClient } from "./client/fusion-client.js";
 import { CaseReferenceDataCache } from "./fusion/case-reference-data.js";
 import { FusionMigrationGuard } from "./fusion/migration.js";
+import { enableReadOnlyMode } from "./client/read-only-guard.js";
+import { registerReadToolsOnly, type ReadOnlyRegistration } from "./read-only.js";
 import {
   MAX_MCP_MESSAGE_BYTES,
   openListenerWarning,
@@ -77,6 +79,8 @@ async function main(): Promise<void> {
   // Load and validate config
   const config = loadConfig();
   console.error("[sophos-mcp] Starting Sophos Fusion MCP server (formerly Sophos Central)...");
+  // Before the first request: from here on anything that could write is refused before it is sent
+  if (config.readOnly) enableReadOnlyMode();
 
   // Initialise auth
   const tokenManager = new TokenManager(config.clientId, config.clientSecret);
@@ -99,6 +103,7 @@ async function main(): Promise<void> {
 
   // Create the MCP server. One McpServer serves one transport at a time, so
   // the stateless HTTP transport builds a fresh one per request; stdio uses one.
+  let readOnlyRegistration: ReadOnlyRegistration | undefined;
   const createServer = (): McpServer => {
     const server = new McpServer(
       {
@@ -107,6 +112,8 @@ async function main(): Promise<void> {
       },
       { maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS }
     );
+    // Read-only mode: only the read tools are registered (src/read-only.ts)
+    if (config.readOnly) readOnlyRegistration = registerReadToolsOnly(server);
 
     // Partner/org-only tools
     if (identity.idType !== "tenant") {
@@ -180,7 +187,13 @@ async function main(): Promise<void> {
   // Register tools based on identity type
   console.error(`[sophos-mcp] Registering tools for ${identity.idType} caller...`);
   const server = createServer();
-  console.error("[sophos-mcp] All tools registered.");
+  if (readOnlyRegistration) {
+    console.error(
+      `[sophos-mcp] Read-only mode: ${readOnlyRegistration.registered} read tools registered, ${readOnlyRegistration.leftOut} left out; any request that could write is refused before it is sent.`
+    );
+  } else {
+    console.error("[sophos-mcp] All tools registered.");
+  }
 
   // Start transport
   if (config.transport === "http") {

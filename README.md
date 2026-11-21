@@ -170,7 +170,7 @@ The script:
 npm test
 ```
 
-Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, the policy assignment and web profile writes (body shapes, refusals, target lookups and read-back) against an in-memory policy store, the no-retry rule for a POST or mutation after a 5xx, the read-modify-write and PATCH update tools, the request shapes of the tools checked against the published specs, the request shapes of the October 2026 bulk endpoint, S/MIME and Search tools, the item and page totals the REST list tools report, the endpoint inventory's reduction to the latest snapshot and its stale flag, the AI Defense tools (request shapes, the HTTP 200 with `errors` case, not-found and deleted policies, the stale version hint, and the input checks that refuse before any call), a registration check that lists all 360 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
+Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, the policy assignment and web profile writes (body shapes, refusals, target lookups and read-back) against an in-memory policy store, the no-retry rule for a POST or mutation after a 5xx, the read-modify-write and PATCH update tools, the request shapes of the tools checked against the published specs, the request shapes of the October 2026 bulk endpoint, S/MIME and Search tools, the item and page totals the REST list tools report, the endpoint inventory's reduction to the latest snapshot and its stale flag, the AI Defense tools (request shapes, the HTTP 200 with `errors` case, not-found and deleted policies, the stale version hint, and the input checks that refuse before any call), read-only mode (the tool classification, the request guard refusing writes with no network call, and the default off), a registration check that lists all 360 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
 
 To exercise the Fusion tools against a live tenant, put credentials in `.env` (or export them) and run:
 
@@ -238,6 +238,16 @@ TRANSPORT=http
 | `CHARACTER_LIMIT` | No | 50000 | Maximum characters per tool response before truncation (minimum 10000) |
 | `SOPHOS_FUSION_GRAPHQL_URL` | No | `https://api.taegis.sophos.com/graphql` | Sophos Fusion GraphQL endpoint. Override when the Fusion branded hostnames ship. Must be `https` on a `sophos.com` host, since the bearer token goes to it; the server refuses to start otherwise |
 | `SOPHOS_CLASSIC_MIGRATION_CHECK` | No | on | `off` skips the migration check on the Classic case and detection tools (they then run for every tenant) |
+| `SOPHOS_READ_ONLY` | No | off | `true` registers only the read tools and refuses any request that could write. See [Read-only mode](#read-only-mode) |
+
+### Read-only mode
+
+Set `SOPHOS_READ_ONLY=true` when the server must not change anything in the tenants it can reach. It then has two guards, and either one stops a write by itself:
+
+- It registers only the tools classified as reads in `src/read-only.ts` (176 of the 360). Every write tool is left out, and so are 11 tools annotated read-only. Ten of them create something in the tenant or run on its devices: the detection, Data Lake, and Live Discover query runs, the Fusion Data Lake searches and the endpoint inventory built on them, the firewall config export, and the quarantine attachment downloads. The eleventh, `sophos_get_ba_pricing`, is a POST that might store something. A tool added later stays out until someone classifies it.
+- Every outgoing request passes a guard that refuses any method but GET and HEAD. The exceptions are the OAuth token request, Fusion GraphQL documents with no mutation or subscription, and four REST searches: alerts, quarantine, post-delivery quarantine, and firewall threat feed indicators. A refused call returns an error before a token is fetched or anything is sent.
+
+`true`, `1`, `on`, and `yes` turn it on. A value the server does not recognize stops it at startup.
 
 ## Tools
 
@@ -883,10 +893,12 @@ src/
 ├── index.ts                     # Entry point, server bootstrap
 ├── http-guard.ts                # HTTP transport: refuse foreign browser Origins, optional bearer token
 ├── config/config.ts             # Environment config
+├── read-only.ts                 # Read-only mode: the read tool list and the registration filter
 ├── auth/token-manager.ts        # OAuth2 token lifecycle
 ├── client/
 │   ├── sophos-client.ts         # REST client with region routing (Sophos Central)
 │   ├── fusion-client.ts         # GraphQL client (Sophos Fusion), 200-with-errors handling, path-keyed retry
+│   ├── read-only-guard.ts       # Read-only mode: every request passes here; writes are refused before they are sent
 │   └── tenant-resolver.ts       # Whoami + tenant cache
 ├── fusion/
 │   ├── queries/cases.ts         # Cases v2 GraphQL documents
@@ -946,6 +958,7 @@ Packaging files at the repo root: `manifest.json` (MCPB manifest, regenerated by
 - HTTP server binds to `127.0.0.1` by default and refuses requests from a browser `Origin` that is not localhost or listed in `MCP_ALLOWED_ORIGINS`. If `MCP_HTTP_HOST` opens it to the network, set `MCP_HTTP_TOKEN` and put TLS in front (a reverse proxy or Tailscale)
 - `/mcp` accepts request bodies up to 10 MiB, the same cap as stdio, and answers a larger one with a JSON-RPC 413, malformed JSON with a JSON-RPC parse error (-32700), and a body that does not decompress or has an unsupported Content-Encoding or charset with a JSON-RPC 400 or 415. Tool arguments are capped at 1,000,000 array elements and object members (the SDK's `maxToolInputElements`), so an oversized argument list is refused before validation
 - Write actions have `destructiveHint` annotations so clients can warn users
+- `SOPHOS_READ_ONLY=true` registers only the read tools and refuses every request that could write before it is sent. See [Read-only mode](#read-only-mode)
 - Partner/org callers require explicit `tenant_id` on every call
 - The REST client refuses a request path where an ID argument carries a `.` or `..` segment (encoded too), `?`, `#`, a backslash, an encoded `/` or a control character, so a crafted ID cannot redirect a call to another resource
 - The bearer token goes only to an https API host on sophos.com: the host Sophos names for each tenant is checked before every REST call. No request follows a redirect, including the presigned case file and firewall archive transfers

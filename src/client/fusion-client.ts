@@ -25,6 +25,7 @@ import type { TokenManager } from "../auth/token-manager.js";
 import type { SophosApiError } from "../types/sophos.js";
 import { retryAfterMs } from "./retry-after.js";
 import { refuseRedirect, SophosRedirectError } from "./redirect.js";
+import { assertReadOnlyGraphQL, guardedFetch, ReadOnlyModeError } from "./read-only-guard.js";
 
 /** One entry of a GraphQL response `errors` array. */
 export interface GraphQLErrorEntry {
@@ -216,6 +217,7 @@ export class FusionClient {
     variables: Record<string, unknown> = {},
     options: FusionQueryOptions = {}
   ): Promise<FusionQueryResult<T>> {
+    assertReadOnlyGraphQL(document);
     const token = await this.tokenManager.getToken();
     const timeoutMs = options.timeoutMs ?? this.timeoutMs;
 
@@ -271,7 +273,7 @@ export class FusionClient {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let response: globalThis.Response;
     try {
-      response = await fetch(url, {
+      response = await guardedFetch(url, {
         method: "PUT",
         headers: { "Content-Type": contentType },
         // A fresh copy sits on a plain ArrayBuffer, which is what fetch's body type accepts.
@@ -315,7 +317,7 @@ export class FusionClient {
         let response: globalThis.Response;
         try {
           // A redirect is refused rather than followed: the request carries the tenant's ID and the query or mutation to the new host.
-          response = await fetch(this.url, { ...options, redirect: "manual", signal: controller.signal });
+          response = await guardedFetch(this.url, { ...options, redirect: "manual", signal: controller.signal });
         } finally {
           clearTimeout(timeout);
         }
@@ -395,6 +397,11 @@ export class FusionClient {
 
         // A redirect: the same answer every attempt, and Sophos did nothing with the request
         if (lastError instanceof SophosRedirectError) {
+          throw lastError;
+        }
+
+        // Refused by read-only mode: never sent, and refused again on every attempt
+        if (lastError instanceof ReadOnlyModeError) {
           throw lastError;
         }
 

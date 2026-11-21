@@ -26,6 +26,7 @@ import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { SophosPagedResponse } from "../types/sophos.js";
 import { itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
 import { refuseRedirect } from "../client/redirect.js";
+import { guardedFetch } from "../client/read-only-guard.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
 export function registerFirewallTools(
@@ -1186,7 +1187,7 @@ Args:
       // A redirect is refused rather than followed, and not retried: the archive saved here
       // (and maybe imported into firewalls later) must come from the address Sophos named.
       const download = async (): Promise<Response> => {
-        const response = await fetch(downloadUrl, { redirect: "manual" });
+        const response = await guardedFetch(downloadUrl, { redirect: "manual" });
         refuseRedirect(response, downloadUrl);
         return response;
       };
@@ -1289,7 +1290,7 @@ Args:
 
         // Step 2: upload the archive to the pre-signed URL (plain fetch, no Sophos auth headers).
         // A redirect is refused rather than followed, so the archive never goes to a host Sophos did not name.
-        const upload = await fetch(init.url, {
+        const upload = await guardedFetch(init.url, {
           method: init.method || "PUT",
           body: archive,
           redirect: "manual",

@@ -9,6 +9,7 @@ import type { SophosApiError } from "../types/sophos.js";
 import { retryAfterMs } from "./retry-after.js";
 import { refuseRedirect, SophosRedirectError } from "./redirect.js";
 import { sophosApiBase } from "./hosts.js";
+import { assertReadOnlyRest, guardedFetch, ReadOnlyModeError } from "./read-only-guard.js";
 
 export interface RequestOptions {
   /** HTTP method */
@@ -80,6 +81,7 @@ export class SophosClient {
     options: RequestOptions = {}
   ): Promise<T> {
     assertSafeApiPath(path);
+    assertReadOnlyRest(options.method || "GET", path);
     // The host comes from Sophos's answers: checked before the token goes anywhere.
     const apiHost = sophosApiBase(await this.tenantResolver.resolveApiHost(tenantId));
     const token = await this.tokenManager.getToken();
@@ -120,6 +122,7 @@ export class SophosClient {
     options: RequestOptions = {}
   ): Promise<T> {
     assertSafeApiPath(path);
+    assertReadOnlyRest(options.method || "GET", path);
     const identity = this.tenantResolver.getIdentity();
     const global = sophosApiBase(identity.apiHosts.global);
     const token = await this.tokenManager.getToken();
@@ -178,7 +181,7 @@ export class SophosClient {
         let response: globalThis.Response;
         try {
           // A redirect is refused rather than followed: the request carries the tenant's ID and any body to the new host.
-          response = await fetch(url, { ...options, redirect: "manual", signal: controller.signal });
+          response = await guardedFetch(url, { ...options, redirect: "manual", signal: controller.signal });
         } finally {
           clearTimeout(timeout);
         }
@@ -234,6 +237,11 @@ export class SophosClient {
 
         // A redirect gets the same answer every time, and Sophos did nothing with the request
         if (lastError instanceof SophosRedirectError) {
+          throw lastError;
+        }
+
+        // Refused by read-only mode: never sent, and refused again on every attempt
+        if (lastError instanceof ReadOnlyModeError) {
           throw lastError;
         }
 

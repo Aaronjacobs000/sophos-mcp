@@ -5,6 +5,7 @@
 
 import { SOPHOS_GLOBAL_API } from "../config/config.js";
 import { refuseRedirect } from "./redirect.js";
+import { guardedFetch } from "./read-only-guard.js";
 import type { TokenManager } from "../auth/token-manager.js";
 import type {
   SophosIdType,
@@ -43,7 +44,7 @@ export class TenantResolver {
   async init(): Promise<CallerIdentity> {
     const token = await this.tokenManager.getToken();
     const whoamiUrl = `${SOPHOS_GLOBAL_API}/whoami/v1`;
-    const response = await fetch(whoamiUrl, {
+    const response = await guardedFetch(whoamiUrl, {
       headers: { Authorization: `Bearer ${token}` },
       redirect: "manual",
     });
@@ -133,7 +134,7 @@ export class TenantResolver {
         url.searchParams.set("pageTotal", "true");
       }
 
-      const response = await fetch(url.toString(), {
+      const response = await guardedFetch(url.toString(), {
         headers: {
           Authorization: `Bearer ${token}`,
           [idHeader.name]: idHeader.value,
