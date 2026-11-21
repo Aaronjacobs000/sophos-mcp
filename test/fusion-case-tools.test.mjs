@@ -404,3 +404,86 @@ test("open_only leaves out every known closed status, and the tenant's own once 
     await server.close();
   }
 });
+
+// --- short ID resolution (sophos_fusion_get_case) ---
+
+// Fusion issues E-01167 beside CSE00001 since 18/11/2026; E-01167 was refused
+// as a Classic ID before.
+const E_CASE_ID = "e0000000-0000-4000-8000-000000001167";
+
+async function getCase(caseRef, cases) {
+  const sentQl = [];
+  const documents = [];
+  const client = {
+    query: async (_tenantId, document, variables) => {
+      documents.push(document.match(/^query (\w+)/)?.[1]);
+      if (document.startsWith("query FusionListCases(")) {
+        const ql = variables.arguments.query;
+        sentQl.push(ql);
+        const match = cases.filter((c) => ql === `shortId = '${c.shortId}'`);
+        const pageInfo = { startCursor: null, endCursor: null, hasNextPage: false, hasPreviousPage: false };
+        return { data: { cases: { totalCount: match.length, pageInfo, cases: match } }, warnings: [] };
+      }
+      if (document.startsWith("query FusionGetCase(")) {
+        return { data: { case: cases.find((c) => c.id === variables.arguments.id) ?? null }, warnings: [] };
+      }
+      throw new Error(`unexpected document: ${document.slice(0, 40)}`);
+    },
+  };
+  const server = new McpServer({ name: "test", version: "0.0.0" });
+  registerFusionCaseTools(server, client, tenantResolver, referenceData);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  const mcp = new Client({ name: "test-client", version: "0.0.0" });
+  await mcp.connect(clientTransport);
+  const result = await mcp.callTool({ name: "sophos_fusion_get_case", arguments: { case_id: caseRef } });
+  await mcp.close();
+  await server.close();
+  const text = result.content.map((c) => c.text ?? "").join("\n");
+  return { isError: Boolean(result.isError), text, json: result.isError ? null : JSON.parse(text), sentQl, documents };
+}
+
+const BOTH_FORMATS = [caseRecord(), caseRecord({ id: E_CASE_ID, shortId: "E-01167" })];
+
+test("an E-##### short ID resolves by shortId, in any case, like CSE#####", async () => {
+  for (const [ref, id] of [["E-01167", E_CASE_ID], ["e-01167", E_CASE_ID], [" E-01167 ", E_CASE_ID], ["CSE00009", CASE_ID], ["cse00009", CASE_ID]]) {
+    const { isError, text, json, sentQl } = await getCase(ref, BOTH_FORMATS);
+    assert.equal(isError, false, `${ref}: ${text}`);
+    assert.equal(json.id, id, ref);
+    assert.deepEqual(sentQl, [`shortId = '${ref.trim().toUpperCase()}'`], ref);
+  }
+});
+
+test("an unknown E-##### short ID is a plain not-found, not a Classic ID", async () => {
+  const { isError, text } = await getCase("E-09999", BOTH_FORMATS);
+  assert.equal(isError, true);
+  assert.match(text, /No Fusion case with short ID E-09999/);
+  assert.doesNotMatch(text, /Classic/);
+});
+
+test("a Classic ID such as 1-598868 is refused with the legacy pointer and nothing is sent", async () => {
+  const { isError, text, documents } = await getCase("1-598868", BOTH_FORMATS);
+  assert.equal(isError, true);
+  assert.match(text, /looks like a Classic \(legacy\) Sophos Central case ID/);
+  assert.match(text, /sophos_get_case/);
+  assert.deepEqual(documents, []);
+});
+
+test("another two part ID is looked up as a short ID first, and gets the legacy hint only when nothing matches", async () => {
+  const found = await getCase("X-00042", [...BOTH_FORMATS, caseRecord({ id: "aaaaaaaa-0000-4000-8000-000000000042", shortId: "X-00042" })]);
+  assert.equal(found.isError, false, found.text);
+  assert.equal(found.json.id, "aaaaaaaa-0000-4000-8000-000000000042");
+
+  const missing = await getCase("X-00042", BOTH_FORMATS);
+  assert.equal(missing.isError, true);
+  assert.deepEqual(missing.sentQl, ["shortId = 'X-00042'"]);
+  assert.match(missing.text, /No Fusion case with short ID X-00042/);
+  assert.match(missing.text, /Classic \(legacy\) Sophos Central case ID, use sophos_get_case/);
+});
+
+test("an unrecognised case ID names both short ID formats", async () => {
+  const { isError, text, documents } = await getCase("not a case", BOTH_FORMATS);
+  assert.equal(isError, true);
+  assert.match(text, /a short ID like CSE00001 or E-01167/);
+  assert.deepEqual(documents, []);
+});

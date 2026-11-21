@@ -12,6 +12,7 @@ import {
   formatDetection,
   isCaseShortId,
   isLegacyCaseId,
+  isOtherDashedCaseId,
   isResourceName,
   isUuid,
   looksLikeEmail,
@@ -64,6 +65,30 @@ test("ID shape checks tell Fusion, short and legacy IDs apart", () => {
   assert.equal(isLegacyCaseId("3-201650"), true);
   assert.equal(isLegacyCaseId(TYPE_ID), false);
   assert.equal(isLegacyCaseId("CSE00001"), false);
+});
+
+// Fusion started issuing E-01167 beside CSE00001 on 18/11/2026 (Converged test tenant).
+test("E-##### is a Fusion short ID, not a Classic ID; only digits-dash-digits is Classic", () => {
+  for (const id of ["E-01167", "e-01167", "CSE00001", "cse00001"]) {
+    assert.equal(isCaseShortId(id), true, id);
+    assert.equal(isLegacyCaseId(id), false, id);
+    assert.equal(isOtherDashedCaseId(id), false, id);
+  }
+  for (const id of ["1-598868", "3-201650"]) {
+    assert.equal(isCaseShortId(id), false, id);
+    assert.equal(isLegacyCaseId(id), true, id);
+    assert.equal(isOtherDashedCaseId(id), false, id);
+  }
+  for (const id of ["X-00042", "AB-12", "E-0A"]) {
+    assert.equal(isCaseShortId(id), false, id);
+    assert.equal(isLegacyCaseId(id), false, id);
+    assert.equal(isOtherDashedCaseId(id), true, id);
+  }
+  for (const id of [TYPE_ID, "E-", "E01167", "CSE-00001x-1", ""]) {
+    assert.equal(isCaseShortId(id), false, id);
+    assert.equal(isLegacyCaseId(id), false, id);
+    assert.equal(isOtherDashedCaseId(id), false, id);
+  }
 });
 
 test("qlString quotes and refuses embedded quotes", () => {

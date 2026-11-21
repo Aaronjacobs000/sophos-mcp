@@ -56,25 +56,38 @@ export function timestampToIso(ts: FusionTimestamp | null | undefined): string |
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SHORT_ID_PATTERN = /^CSE\d+$/i;
-const LEGACY_CASE_ID_PATTERN = /^[A-Za-z0-9]+-[A-Za-z0-9]+$/;
+const SHORT_ID_PATTERN = /^(?:CSE\d+|E-\d+)$/i;
+const LEGACY_CASE_ID_PATTERN = /^\d+-\d+$/;
+const DASHED_ID_PATTERN = /^[A-Za-z0-9]+-[A-Za-z0-9]+$/;
 const RESOURCE_NAME_PATTERN = /^[a-z][a-z0-9+.-]*:\/\/[^:\s]+(?::[^:\s]+){4}$/i;
 
 export function isUuid(value: string): boolean {
   return UUID_PATTERN.test(value);
 }
 
-/** Fusion short IDs look like CSE00001. */
+/**
+ * Fusion short IDs look like CSE00001 or, since 18/11/2026, E-01167. Both
+ * formats are live side by side on the same tenant.
+ */
 export function isCaseShortId(value: string): boolean {
   return SHORT_ID_PATTERN.test(value);
 }
 
 /**
- * Classic (legacy) Sophos Central case IDs look like 1-598868. They never
- * resolve in Fusion, which holds a separate case set.
+ * Classic (legacy) Sophos Central case IDs look like 1-598868: digits, a
+ * dash, digits. They never resolve in Fusion, which holds a separate case set.
  */
 export function isLegacyCaseId(value: string): boolean {
-  return LEGACY_CASE_ID_PATTERN.test(value) && !isUuid(value);
+  return LEGACY_CASE_ID_PATTERN.test(value);
+}
+
+/**
+ * Some other two part ID, such as X-00042: neither a known Fusion short ID
+ * nor a Classic ID. Fusion added E-01167 beside CSE00001 without notice, so
+ * the case tools look one of these up by short ID before calling it Classic.
+ */
+export function isOtherDashedCaseId(value: string): boolean {
+  return DASHED_ID_PATTERN.test(value) && !isCaseShortId(value) && !isLegacyCaseId(value);
 }
 
 /**

@@ -14,7 +14,7 @@
  *
  * These sit beside the Classic REST case tools in cases.ts. The two APIs hold
  * separate case sets: a Classic ID like 1-598868 never resolves here, and a
- * Fusion UUID or CSE##### never resolves there. For a tenant that has moved
+ * Fusion UUID or short ID (CSE00001, E-01167) never resolves there. For a tenant that has moved
  * to Fusion the Classic tools refuse and point here (fusion/migration.ts).
  *
  * Everything below about lag, expansion, source IDs, mentions and the
@@ -38,6 +38,7 @@ import {
   formatDetection,
   isCaseShortId,
   isLegacyCaseId,
+  isOtherDashedCaseId,
   isResourceName,
   isUuid,
   looksLikeEmail,
@@ -105,7 +106,7 @@ import type {
 import { jsonResult, withErrorHandling, withWarnings } from "./helpers.js";
 
 const ID_NOTE =
-  "Fusion case UUID or short ID (e.g. 'CSE00001'). Classic IDs like '1-598868' do not resolve here.";
+  "Fusion case UUID or short ID (e.g. 'CSE00001' or 'E-01167'). Classic IDs like '1-598868' do not resolve here.";
 
 const MANAGED_BY_NOTE =
   "CUSTOMER keeps the case self managed. PROVIDER (Sophos MDR) is refused: MDR cases can't be created through the API by design, so raise an MDR service request in Sophos Fusion instead. Cannot be changed after creation.";
@@ -280,7 +281,7 @@ Returns:
       title: "Get Fusion Case",
       description: `Get full details of one Sophos Fusion case, including key findings (the REST "overview"), verdicts, links, processing status and evidence counts.
 
-Accepts the case UUID or the short ID (CSE00001); a short ID costs one extra lookup. Legacy Sophos Central case IDs ('1-598868') are a separate case set and do not resolve here.
+Accepts the case UUID or the short ID (CSE00001 or E-01167); a short ID costs one extra lookup. Legacy Sophos Central case IDs ('1-598868') are a separate case set and do not resolve here.
 
 Args:
   - case_id (string): ${ID_NOTE}
@@ -1747,6 +1748,8 @@ Returns:
 /**
  * Turns whatever the caller passed as a case ID into the Fusion UUID. Short
  * IDs cost one search; legacy IDs are refused with a pointer to the Classic tool.
+ * Any other two part ID is looked up as a short ID first, in case Fusion has
+ * added another format, and gets the Classic pointer only when nothing matches.
  */
 async function resolveCaseUuid(
   client: FusionClient,
@@ -1756,7 +1759,7 @@ async function resolveCaseUuid(
   const value = caseRef.trim();
   if (isUuid(value)) return { id: value, warnings: [] };
 
-  if (isCaseShortId(value)) {
+  if (isCaseShortId(value) || isOtherDashedCaseId(value)) {
     const { data, warnings } = await client.query<FusionCasesResponse>(tenantId, LIST_CASES, {
       arguments: {
         query: `shortId = ${qlString(value.toUpperCase())}`,
@@ -1764,10 +1767,13 @@ async function resolveCaseUuid(
       },
     });
     const found = data.cases.cases[0];
-    if (!found) {
+    if (found) return { id: found.id, warnings };
+    if (isCaseShortId(value)) {
       throw new Error(`No Fusion case with short ID ${value.toUpperCase()} in tenant ${tenantId}.`);
     }
-    return { id: found.id, warnings };
+    throw new Error(
+      `No Fusion case with short ID ${value.toUpperCase()} in tenant ${tenantId}. If ${value} is a Classic (legacy) Sophos Central case ID, use sophos_get_case on a tenant that has not migrated; legacy IDs do not resolve here.`
+    );
   }
 
   if (isLegacyCaseId(value)) {
@@ -1777,7 +1783,7 @@ async function resolveCaseUuid(
   }
 
   throw new Error(
-    `Unrecognised case ID ${JSON.stringify(value)}. Expected a Fusion case UUID or a short ID like CSE00001.`
+    `Unrecognised case ID ${JSON.stringify(value)}. Expected a Fusion case UUID or a short ID like CSE00001 or E-01167.`
   );
 }
 
