@@ -461,6 +461,23 @@ test("an unknown E-##### short ID is a plain not-found, not a Classic ID", async
   assert.doesNotMatch(text, /Classic/);
 });
 
+// Fusion issues F-08717 beside CSE00001 and E-01167 since 26/11/2026.
+const F_CASE_ID = "f0000000-0000-4000-8000-000000008717";
+
+test("an F-##### short ID resolves by shortId, in any case, and an unknown one is a plain not-found", async () => {
+  const formats = [...BOTH_FORMATS, caseRecord({ id: F_CASE_ID, shortId: "F-08717" })];
+  for (const ref of ["F-08717", "f-08717", " F-08717 "]) {
+    const { isError, text, json, sentQl } = await getCase(ref, formats);
+    assert.equal(isError, false, `${ref}: ${text}`);
+    assert.equal(json.id, F_CASE_ID, ref);
+    assert.deepEqual(sentQl, ["shortId = 'F-08717'"], ref);
+  }
+  const { isError, text } = await getCase("F-09999", formats);
+  assert.equal(isError, true);
+  assert.match(text, /No Fusion case with short ID F-09999/);
+  assert.doesNotMatch(text, /Classic/);
+});
+
 test("a Classic ID such as 1-598868 is refused with the legacy pointer and nothing is sent", async () => {
   const { isError, text, documents } = await getCase("1-598868", BOTH_FORMATS);
   assert.equal(isError, true);

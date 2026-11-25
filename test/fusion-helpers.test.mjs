@@ -91,6 +91,16 @@ test("E-##### is a Fusion short ID, not a Classic ID; only digits-dash-digits is
   }
 });
 
+// Fusion started issuing F-08717 beside CSE00001 and E-01167 on 26/11/2026 (APJ MDR tenant, an MDR case).
+test("F-##### is a Fusion short ID, not a Classic ID or another two part ID", () => {
+  for (const id of ["F-08717", "f-08717"]) {
+    assert.equal(isCaseShortId(id), true, id);
+    assert.equal(isLegacyCaseId(id), false, id);
+    assert.equal(isOtherDashedCaseId(id), false, id);
+  }
+  for (const id of ["F-", "F08717", "F-0A"]) assert.equal(isCaseShortId(id), false, id);
+});
+
 test("qlString quotes and refuses embedded quotes", () => {
   assert.equal(qlString("phishing"), "'phishing'");
   assert.throws(() => qlString("O'Brien"), /single quote/);
