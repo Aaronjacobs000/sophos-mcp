@@ -5,6 +5,7 @@ Notes for 0.13.1 and earlier are on the [GitHub releases page](https://github.co
 ## Unreleased
 
 - `F-#####` case short IDs (for example `F-08717`, first seen 26/11/2026) count as Fusion short IDs, like `CSE#####` and `E-#####`. They already resolved by short ID, but one that matched nothing came back with the Classic case ID hint; now it is a plain not-found.
+- Fusion short IDs are matched by their real format: the region's first letter, a dash and five or more digits (`P-12345`, in any case), beside the older `CSE#####`. Sophos changed case IDs to this format in mid November 2026, and `E-#####` and `F-#####` were the first two letters seen. A one letter ID with fewer digits (`X-1234`) or a two letter one (`AP-23456789`) is still looked up first and gets the Classic hint when nothing matches. Tool descriptions and errors name `P-12345` as the example.
 
 ## 0.13.6 (22/11/2026)
 

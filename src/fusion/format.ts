@@ -56,7 +56,7 @@ export function timestampToIso(ts: FusionTimestamp | null | undefined): string |
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SHORT_ID_PATTERN = /^(?:CSE\d+|[EF]-\d+)$/i;
+const SHORT_ID_PATTERN = /^(?:CSE\d+|[A-Z]-\d{5,})$/i;
 const LEGACY_CASE_ID_PATTERN = /^\d+-\d+$/;
 const DASHED_ID_PATTERN = /^[A-Za-z0-9]+-[A-Za-z0-9]+$/;
 const RESOURCE_NAME_PATTERN = /^[a-z][a-z0-9+.-]*:\/\/[^:\s]+(?::[^:\s]+){4}$/i;
@@ -66,9 +66,11 @@ export function isUuid(value: string): boolean {
 }
 
 /**
- * Fusion short IDs look like CSE00001 or, since 18/11/2026, E-01167, or,
- * since 26/11/2026, F-08717. The formats are live side by side on the same
- * tenant.
+ * Fusion short IDs look like P-12345: the first letter of the region, a dash
+ * and five or more digits, unique across the tenants in that region (since
+ * mid November 2026; E-01167 and F-08717 are live examples). Cases from
+ * before keep their CSE00001 style IDs, so both formats are live side by side
+ * on the same tenant.
  */
 export function isCaseShortId(value: string): boolean {
   return SHORT_ID_PATTERN.test(value);
@@ -83,9 +85,10 @@ export function isLegacyCaseId(value: string): boolean {
 }
 
 /**
- * Some other two part ID, such as X-00042: neither a known Fusion short ID
- * nor a Classic ID. Fusion added E-01167 beside CSE00001 without notice, so
- * the case tools look one of these up by short ID before calling it Classic.
+ * Some other two part ID, such as X-1234 or AP-23456789: neither a known
+ * Fusion short ID nor a Classic ID. Fusion added E-01167 beside CSE00001
+ * without notice, so the case tools look one of these up by short ID before
+ * calling it Classic.
  */
 export function isOtherDashedCaseId(value: string): boolean {
   return DASHED_ID_PATTERN.test(value) && !isCaseShortId(value) && !isLegacyCaseId(value);

@@ -486,21 +486,42 @@ test("a Classic ID such as 1-598868 is refused with the legacy pointer and nothi
   assert.deepEqual(documents, []);
 });
 
+// Since mid November 2026 Fusion short IDs are the region's first letter, a dash and five or more
+// digits, such as P-12345.
+const P_CASE_ID = "b0000000-0000-4000-8000-000000012345";
+const LONG_CASE_ID = "b0000000-0000-4000-8000-000001234567";
+
+test("a P-12345 style short ID resolves by shortId, in any case and with more than five digits, and an unknown one is a plain not-found", async () => {
+  const formats = [...BOTH_FORMATS, caseRecord({ id: P_CASE_ID, shortId: "P-12345" }), caseRecord({ id: LONG_CASE_ID, shortId: "A-1234567" })];
+  for (const [ref, id] of [["P-12345", P_CASE_ID], ["p-12345", P_CASE_ID], ["A-1234567", LONG_CASE_ID], ["a-1234567", LONG_CASE_ID]]) {
+    const { isError, text, json, sentQl } = await getCase(ref, formats);
+    assert.equal(isError, false, `${ref}: ${text}`);
+    assert.equal(json.id, id, ref);
+    assert.deepEqual(sentQl, [`shortId = '${ref.toUpperCase()}'`], ref);
+  }
+  const { isError, text } = await getCase("P-99999", formats);
+  assert.equal(isError, true);
+  assert.match(text, /No Fusion case with short ID P-99999/);
+  assert.doesNotMatch(text, /Classic/);
+});
+
 test("another two part ID is looked up as a short ID first, and gets the legacy hint only when nothing matches", async () => {
-  const found = await getCase("X-00042", [...BOTH_FORMATS, caseRecord({ id: "aaaaaaaa-0000-4000-8000-000000000042", shortId: "X-00042" })]);
+  const found = await getCase("X-1234", [...BOTH_FORMATS, caseRecord({ id: "aaaaaaaa-0000-4000-8000-000000000042", shortId: "X-1234" })]);
   assert.equal(found.isError, false, found.text);
   assert.equal(found.json.id, "aaaaaaaa-0000-4000-8000-000000000042");
 
-  const missing = await getCase("X-00042", BOTH_FORMATS);
-  assert.equal(missing.isError, true);
-  assert.deepEqual(missing.sentQl, ["shortId = 'X-00042'"]);
-  assert.match(missing.text, /No Fusion case with short ID X-00042/);
-  assert.match(missing.text, /Classic \(legacy\) Sophos Central case ID, use sophos_get_case/);
+  for (const ref of ["X-1234", "AP-23456789"]) {
+    const missing = await getCase(ref, BOTH_FORMATS);
+    assert.equal(missing.isError, true, ref);
+    assert.deepEqual(missing.sentQl, [`shortId = '${ref}'`], ref);
+    assert.match(missing.text, new RegExp(`No Fusion case with short ID ${ref}`), ref);
+    assert.match(missing.text, /Classic \(legacy\) Sophos Central case ID, use sophos_get_case/, ref);
+  }
 });
 
 test("an unrecognised case ID names both short ID formats", async () => {
   const { isError, text, documents } = await getCase("not a case", BOTH_FORMATS);
   assert.equal(isError, true);
-  assert.match(text, /a short ID like CSE00001 or E-01167/);
+  assert.match(text, /a short ID like P-12345 or CSE00001/);
   assert.deepEqual(documents, []);
 });

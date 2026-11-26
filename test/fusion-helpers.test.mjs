@@ -79,7 +79,7 @@ test("E-##### is a Fusion short ID, not a Classic ID; only digits-dash-digits is
     assert.equal(isLegacyCaseId(id), true, id);
     assert.equal(isOtherDashedCaseId(id), false, id);
   }
-  for (const id of ["X-00042", "AB-12", "E-0A"]) {
+  for (const id of ["X-1234", "AB-12", "AP-23456789", "E-0A"]) {
     assert.equal(isCaseShortId(id), false, id);
     assert.equal(isLegacyCaseId(id), false, id);
     assert.equal(isOtherDashedCaseId(id), true, id);
@@ -99,6 +99,23 @@ test("F-##### is a Fusion short ID, not a Classic ID or another two part ID", ()
     assert.equal(isOtherDashedCaseId(id), false, id);
   }
   for (const id of ["F-", "F08717", "F-0A"]) assert.equal(isCaseShortId(id), false, id);
+});
+
+// Since mid November 2026 a Fusion short ID is the region's first letter, a dash and five or more
+// digits (P-12345), unique across the region's tenants. Older cases keep CSE00001 style IDs.
+test("a region letter, a dash and five or more digits is a Fusion short ID, in any case", () => {
+  for (const id of ["P-12345", "p-12345", "F-08717", "E-01167", "A-1234567", "z-000001"]) {
+    assert.equal(isCaseShortId(id), true, id);
+    assert.equal(isLegacyCaseId(id), false, id);
+    assert.equal(isOtherDashedCaseId(id), false, id);
+  }
+  for (const id of ["AP-23456789", "X-1234", "P-", "P12345", "P-1234A", "P-12345-1", " P-12345"]) {
+    assert.equal(isCaseShortId(id), false, id);
+  }
+  assert.equal(isOtherDashedCaseId("AP-23456789"), true);
+  assert.equal(isOtherDashedCaseId("X-1234"), true);
+  assert.equal(isCaseShortId("1-598868"), false);
+  assert.equal(isLegacyCaseId("1-598868"), true);
 });
 
 test("qlString quotes and refuses embedded quotes", () => {

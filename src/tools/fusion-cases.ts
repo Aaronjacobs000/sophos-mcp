@@ -14,7 +14,7 @@
  *
  * These sit beside the Classic REST case tools in cases.ts. The two APIs hold
  * separate case sets: a Classic ID like 1-598868 never resolves here, and a
- * Fusion UUID or short ID (CSE00001, E-01167) never resolves there. For a tenant that has moved
+ * Fusion UUID or short ID (P-12345, CSE00001) never resolves there. For a tenant that has moved
  * to Fusion the Classic tools refuse and point here (fusion/migration.ts).
  *
  * Everything below about lag, expansion, source IDs, mentions and the
@@ -106,7 +106,7 @@ import type {
 import { jsonResult, withErrorHandling, withWarnings } from "./helpers.js";
 
 const ID_NOTE =
-  "Fusion case UUID or short ID (e.g. 'CSE00001' or 'E-01167'). Classic IDs like '1-598868' do not resolve here.";
+  "Fusion case UUID or short ID (e.g. 'P-12345', a region letter, a dash and five or more digits, or an older 'CSE00001'). Classic IDs like '1-598868' do not resolve here.";
 
 const MANAGED_BY_NOTE =
   "CUSTOMER keeps the case self managed. PROVIDER (Sophos MDR) is refused: MDR cases can't be created through the API by design, so raise an MDR service request in Sophos Fusion instead. Cannot be changed after creation.";
@@ -281,7 +281,7 @@ Returns:
       title: "Get Fusion Case",
       description: `Get full details of one Sophos Fusion case, including key findings (the REST "overview"), verdicts, links, processing status and evidence counts.
 
-Accepts the case UUID or the short ID (CSE00001 or E-01167); a short ID costs one extra lookup. Legacy Sophos Central case IDs ('1-598868') are a separate case set and do not resolve here.
+Accepts the case UUID or the short ID (P-12345, or an older CSE00001); a short ID costs one extra lookup. Legacy Sophos Central case IDs ('1-598868') are a separate case set and do not resolve here.
 
 Args:
   - case_id (string): ${ID_NOTE}
@@ -1783,7 +1783,7 @@ async function resolveCaseUuid(
   }
 
   throw new Error(
-    `Unrecognised case ID ${JSON.stringify(value)}. Expected a Fusion case UUID or a short ID like CSE00001 or E-01167.`
+    `Unrecognised case ID ${JSON.stringify(value)}. Expected a Fusion case UUID or a short ID like P-12345 or CSE00001.`
   );
 }
 
