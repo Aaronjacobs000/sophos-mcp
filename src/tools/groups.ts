@@ -28,6 +28,75 @@ interface SophosEndpointGroup {
   };
 }
 
+/**
+ * The 201 body of POST /endpoint/v1/endpoint-groups/{groupId}/endpoints. The
+ * Endpoint API reference gives addedEndpoints as { id, hostname } objects; the
+ * endpoint groups guide shows bare IDs, so both are read. Endpoints already in
+ * the group are in neither list.
+ */
+interface AddEndpointsToGroupResponse {
+  addedEndpoints?: Array<{ id: string; hostname?: string } | string>;
+  errors?: {
+    endpointsNotFound?: string[];
+    endpointsOfWrongType?: string[];
+  };
+}
+
+type NotAddedReason = "not_found" | "wrong_type" | "not_in_response";
+
+const NOT_ADDED_LABELS: Record<NotAddedReason, string> = {
+  not_found: "not found",
+  wrong_type: "of the wrong type for the group",
+  not_in_response: "not in the response (most likely already in the group)",
+};
+
+/** The request's distinct IDs, compared without case, in the caller's spelling. */
+function distinctIds(ids: string[]): string[] {
+  const seen = new Map<string, string>();
+  for (const id of ids) if (!seen.has(id.toLowerCase())) seen.set(id.toLowerCase(), id);
+  return [...seen.values()];
+}
+
+/** What Sophos added, what it did not and why, and a status that says which. */
+function addEndpointsResult(groupId: string, requested: string[], data: AddEndpointsToGroupResponse) {
+  const added = (data?.addedEndpoints ?? []).map((e) =>
+    typeof e === "string" ? { id: e } : { id: e.id, hostname: e.hostname }
+  );
+  const notAdded: Array<{ id: string; reason: NotAddedReason }> = [
+    ...(data?.errors?.endpointsNotFound ?? []).map((id) => ({ id, reason: "not_found" as const })),
+    ...(data?.errors?.endpointsOfWrongType ?? []).map((id) => ({ id, reason: "wrong_type" as const })),
+  ];
+  const reported = new Set([...added, ...notAdded].map((e) => e.id.toLowerCase()));
+  for (const id of requested) {
+    if (!reported.has(id.toLowerCase())) notAdded.push({ id, reason: "not_in_response" });
+  }
+
+  const status = added.length === 0 ? "none_added" : notAdded.length === 0 ? "added" : "partially_added";
+  const counts = (Object.keys(NOT_ADDED_LABELS) as NotAddedReason[])
+    .map((reason) => [notAdded.filter((e) => e.reason === reason).length, NOT_ADDED_LABELS[reason]] as const)
+    .filter(([n]) => n > 0)
+    .map(([n, label]) => `${n} ${label}`);
+  const message =
+    status === "added"
+      ? `Added ${added.length} endpoint(s) to group ${groupId}.`
+      : `Added ${added.length === 0 ? "none" : added.length} of ${requested.length} endpoint(s) to group ${groupId}. Not added: ${counts.join(", ")}.`;
+
+  return {
+    status,
+    group_id: groupId,
+    requested: requested.length,
+    endpoints_added: added.length,
+    added,
+    not_added: notAdded,
+    message,
+    ...(notAdded.some((e) => e.reason === "not_in_response")
+      ? {
+          note: "Sophos leaves endpoints that are already in the group out of its answer. Check membership with sophos_get_endpoint_group and include_endpoints true.",
+        }
+      : {}),
+  };
+}
+
 export function registerGroupTools(
   server: McpServer,
   client: SophosClient,
@@ -337,10 +406,20 @@ Args:
       title: "Add Endpoints to Sophos Group",
       description: `Add one or more endpoints to an existing endpoint group.
 
+Endpoints must match the group type (computer or server). Sophos adds the ones
+it can and lists the rest: IDs it could not find and endpoints of the wrong
+type. It leaves endpoints that are already in the group out of its answer.
+
 Args:
   - group_id (string): Group ID.
   - endpoint_ids (array): Array of endpoint IDs to add.
-  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.`,
+  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
+
+Returns:
+  status ("added", "partially_added" or "none_added"), requested and
+  endpoints_added counts, added (id and hostname), and not_added with a reason
+  for each ID: not_found, wrong_type, or not_in_response (most likely already
+  in the group).`,
       inputSchema: {
         group_id: z.string().guid().describe("Group ID"),
         endpoint_ids: z
@@ -363,7 +442,7 @@ Args:
     withErrorHandling(async ({ group_id, endpoint_ids, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
 
-      await client.tenantRequest(
+      const data = await client.tenantRequest<AddEndpointsToGroupResponse>(
         resolvedTenantId,
         `/endpoint/v1/endpoint-groups/${group_id}/endpoints`,
         {
@@ -372,12 +451,7 @@ Args:
         }
       );
 
-      return jsonResult({
-        status: "added",
-        group_id,
-        endpoints_added: endpoint_ids.length,
-        message: `Added ${endpoint_ids.length} endpoint(s) to group ${group_id}.`,
-      });
+      return jsonResult(addEndpointsResult(group_id, distinctIds(endpoint_ids), data));
     })
   );
 
