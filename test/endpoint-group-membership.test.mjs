@@ -176,3 +176,15 @@ test("addedEndpoints as bare IDs (the guide's shape) and IDs in another case sti
     await h.close();
   }
 });
+
+test("duplicate IDs are sent once, since the API requires unique IDs", async () => {
+  const h = await harness({ addedEndpoints: [{ id: A, hostname: "pc-a" }, { id: B, hostname: "pc-b" }] });
+  try {
+    const json = await h.add([A, B, A, A.toUpperCase()]);
+    assert.deepEqual(h.calls.map((c) => c.body), [{ ids: [A, B] }]);
+    assert.equal(json.status, "added");
+    assert.equal(json.requested, 2);
+  } finally {
+    await h.close();
+  }
+});

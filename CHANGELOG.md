@@ -5,6 +5,7 @@ Notes for 0.13.1 and earlier are on the [GitHub releases page](https://github.co
 ## Unreleased
 
 - `sophos_add_endpoints_to_group` reports what Sophos did. Before, it ignored the response and said every requested endpoint was added. It now returns `added` (id and hostname) from `addedEndpoints`, and `not_added` with a reason for each ID: `not_found` and `wrong_type` from `errors.endpointsNotFound` and `errors.endpointsOfWrongType`, or `not_in_response` for an ID in neither list (Sophos leaves out endpoints already in the group). `status` is `added`, `partially_added` or `none_added`, and `endpoints_added` is the real count.
+- `sophos_add_endpoints_to_group` drops duplicate endpoint IDs before it sends them. The API requires unique IDs.
 
 ## 0.13.7 (26/11/2026)
 

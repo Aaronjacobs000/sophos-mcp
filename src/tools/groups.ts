@@ -412,7 +412,7 @@ type. It leaves endpoints that are already in the group out of its answer.
 
 Args:
   - group_id (string): Group ID.
-  - endpoint_ids (array): Array of endpoint IDs to add.
+  - endpoint_ids (array): Array of endpoint IDs to add. Duplicates are dropped.
   - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
 
 Returns:
@@ -441,17 +441,19 @@ Returns:
     },
     withErrorHandling(async ({ group_id, endpoint_ids, tenant_id }) => {
       const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      // The API requires unique IDs.
+      const ids = distinctIds(endpoint_ids);
 
       const data = await client.tenantRequest<AddEndpointsToGroupResponse>(
         resolvedTenantId,
         `/endpoint/v1/endpoint-groups/${group_id}/endpoints`,
         {
           method: "POST",
-          body: { ids: endpoint_ids },
+          body: { ids },
         }
       );
 
-      return jsonResult(addEndpointsResult(group_id, distinctIds(endpoint_ids), data));
+      return jsonResult(addEndpointsResult(group_id, ids, data));
     })
   );
 
