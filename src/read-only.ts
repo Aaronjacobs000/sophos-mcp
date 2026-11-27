@@ -52,8 +52,8 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "sophos_list_migrations", "sophos_get_migration", "sophos_list_migration_endpoints",
   "sophos_list_recommended_packages", "sophos_list_static_packages",
   // endpoint-settings.ts
-  "sophos_list_installer_downloads", "sophos_list_blocked_addresses", "sophos_list_local_sites",
-  "sophos_list_web_control_categories", "sophos_get_tls_decryption_settings",
+  "sophos_list_installer_downloads", "sophos_get_helm_values", "sophos_list_blocked_addresses",
+  "sophos_list_local_sites", "sophos_list_web_control_categories", "sophos_get_tls_decryption_settings",
   "sophos_get_global_tamper_protection", "sophos_list_detected_exploits", "sophos_get_detected_exploit",
   "sophos_list_exploit_mitigation_categories", "sophos_get_exploit_mitigation_category",
   "sophos_list_exploit_mitigation_apps", "sophos_get_exploit_mitigation_app", "sophos_list_ips_exclusions",

@@ -273,6 +273,23 @@ export function errorResult(error: unknown): ToolResult {
 }
 
 /**
+ * The result of a bulk endpoint operation: counts plus the accepted and
+ * rejected lists exactly as Sophos returned them (items and errors).
+ */
+export function bulkActionResult(requested: number, data: { items?: unknown[]; errors?: unknown[] }, note?: string) {
+  const items = data.items ?? [];
+  const errors = data.errors ?? [];
+  return {
+    requested,
+    accepted: items.length,
+    rejected: errors.length,
+    items,
+    errors,
+    ...(note ? { note } : {}),
+  };
+}
+
+/**
  * Wraps an async tool handler with standard error handling.
  */
 export function withErrorHandling<TArgs>(

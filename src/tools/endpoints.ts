@@ -17,7 +17,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SophosClient } from "../client/sophos-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { SophosEndpointPage, SophosEndpoint } from "../types/sophos.js";
-import { itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
+import { bulkActionResult, itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
 /**
@@ -43,20 +43,6 @@ const lastSeenSchema = z
 interface BulkActionResponse {
   items?: Array<{ id: string; status: string; requestedAt: string }>;
   errors?: Array<{ id: string; errorCode: string; endpointErrorCode?: string; errorMessage: string }>;
-}
-
-/** Counts plus the accepted and rejected lists exactly as Sophos returned them. */
-function bulkActionResult(requested: number, data: BulkActionResponse, note?: string) {
-  const items = data.items ?? [];
-  const errors = data.errors ?? [];
-  return {
-    requested,
-    accepted: items.length,
-    rejected: errors.length,
-    items,
-    errors,
-    ...(note ? { note } : {}),
-  };
 }
 
 export function registerEndpointTools(

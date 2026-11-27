@@ -1,9 +1,9 @@
 /**
- * Tools: Endpoint Settings: installer downloads, blocked addresses, web control,
+ * Tools: Endpoint Settings: installer downloads, Helm chart values, blocked addresses, web control,
  *        tamper protection, exploit mitigation, IPS/isolation exclusions,
  *        peripheral control, event journal, update management, MTR.
  *
- * 26 tools covering the Sophos Central /endpoint/v1/settings/* and /endpoint/v1/downloads APIs.
+ * 27 tools covering the Sophos Central /endpoint/v1/settings/* and /endpoint/v1/downloads APIs.
  */
 
 import { z } from "zod";
@@ -13,6 +13,23 @@ import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { SophosPagedResponse } from "../types/sophos.js";
 import { itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
+
+/**
+ * The Helm values file as text. The reference gives the 200 body only as
+ * "string", so a JSON-encoded string is unwrapped and anything else is kept
+ * as Sophos sent it.
+ */
+function helmValuesText(body: string): string {
+  if (body.trimStart().startsWith('"')) {
+    try {
+      const parsed: unknown = JSON.parse(body);
+      if (typeof parsed === "string") return parsed;
+    } catch {
+      // Not JSON: the file itself.
+    }
+  }
+  return body;
+}
 
 export function registerEndpointSettingsTools(
   server: McpServer,
@@ -58,6 +75,51 @@ Returns:
         {}
       );
       return jsonResult(data, { narrow_with: [] });
+    })
+  );
+
+  server.registerTool(
+    "sophos_get_helm_values",
+    {
+      title: "Get Sophos Linux Sensor Helm Values",
+      description: `Download the tenant's values.yaml for installing Sophos Linux Sensor on Kubernetes with its Helm chart.
+
+Returns a secret. The file carries the tenant's Sophos Linux registry API key
+(mcsToken) beside its customer ID and MCS URL. Treat the output like a
+password: write it to values.yaml for the install and do not paste it into
+tickets, chat or logs.
+
+Needs a Sophos Linux Sensor entitlement on the tenant. The Sophos Linux Sensor
+docs install the chart from oci://registry.sophosupd.com/release/helm-sophos-linux-sensor
+with --values values.yaml.
+
+Args:
+  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
+
+Returns:
+  values_yaml: the file's text as Sophos generated it.`,
+      inputSchema: {
+        tenant_id: z
+          .string()
+          .guid()
+          .optional()
+          .describe("Tenant ID. Required for partner/org callers."),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    withErrorHandling(async ({ tenant_id }) => {
+      const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const body = await client.tenantRequest<string>(
+        resolvedTenantId,
+        "/endpoint/v1/downloads/helm/values",
+        { responseType: "text" }
+      );
+      return jsonResult({ values_yaml: helmValuesText(body) });
     })
   );
 

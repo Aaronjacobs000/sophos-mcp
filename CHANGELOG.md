@@ -4,6 +4,8 @@ Notes for 0.13.1 and earlier are on the [GitHub releases page](https://github.co
 
 ## Unreleased
 
+- New `sophos_bulk_change_endpoint_group` (Endpoint API bulk change group, 16/11/2026): moves endpoints into one group, or takes them out of their group with `group_id` null. It sends 500 IDs per request, in order, drops duplicates, and reports each endpoint's result as the bulk endpoint tools do (`requested`, `accepted`, `rejected`, `items`, `errors`). If a later batch fails, it stops and lists the IDs it could not confirm and the ones it did not send. Groups and endpoints synced from Active Directory are refused with a 409. A write, so read-only mode leaves it out.
+- New `sophos_get_helm_values` (Endpoint API Helm chart values, 17/11/2026): downloads the tenant's `values.yaml` for installing Sophos Linux Sensor with Helm. It holds the tenant's Sophos Linux registry API key (`mcsToken`), so the description says it returns a secret. Needs a Sophos Linux Sensor entitlement. A read, so read-only mode keeps it (177 of 362 tools).
 - `sophos_add_endpoints_to_group` reports what Sophos did. Before, it ignored the response and said every requested endpoint was added. It now returns `added` (id and hostname) from `addedEndpoints`, and `not_added` with a reason for each ID: `not_found` and `wrong_type` from `errors.endpointsNotFound` and `errors.endpointsOfWrongType`, or `not_in_response` for an ID in neither list (Sophos leaves out endpoints already in the group). `status` is `added`, `partially_added` or `none_added`, and `endpoints_added` is the real count.
 - `sophos_add_endpoints_to_group` drops duplicate endpoint IDs before it sends them. The API requires unique IDs.
 

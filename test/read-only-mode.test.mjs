@@ -79,17 +79,17 @@ test("SOPHOS_READ_ONLY is off unless set, and a value it does not know stops the
 
 test("off by default: every tool is registered", async () => {
   const { tools } = await listTools({ readOnly: false });
-  assert.equal(tools.length, 360);
+  assert.equal(tools.length, 362);
   assert.ok(tools.some((t) => t.annotations.readOnlyHint === false), "write tools are registered");
 });
 
-test("read-only mode registers the 176 classified read tools and no write tool", async () => {
+test("read-only mode registers the 177 classified read tools and no write tool", async () => {
   const all = (await listTools({ readOnly: false })).tools;
   const { tools, counts } = await listTools({ readOnly: true });
   const names = new Set(tools.map((t) => t.name));
 
-  assert.equal(tools.length, 176);
-  assert.deepEqual(counts, { registered: 176, leftOut: 184 });
+  assert.equal(tools.length, 177);
+  assert.deepEqual(counts, { registered: 177, leftOut: 185 });
   for (const tool of tools) {
     assert.equal(tool.annotations?.readOnlyHint, true, `${tool.name} is annotated read-only`);
     assert.ok(READ_ONLY_TOOLS.has(tool.name), `${tool.name} is classified`);
@@ -98,7 +98,8 @@ test("read-only mode registers the 176 classified read tools and no write tool",
     assert.ok(!names.has(tool.name), `write tool ${tool.name} is left out`);
   }
   for (const name of Object.keys(READ_ONLY_EXCLUDED)) assert.ok(!names.has(name), `${name} is left out`);
-  for (const name of ["sophos_isolate_endpoint", "sophos_wipe_mobile_device", "sophos_delete_endpoint", "sophos_fusion_update_case"]) {
+  assert.ok(names.has("sophos_get_helm_values"), "the Helm values download is a read");
+  for (const name of ["sophos_isolate_endpoint", "sophos_wipe_mobile_device", "sophos_delete_endpoint", "sophos_fusion_update_case", "sophos_bulk_change_endpoint_group"]) {
     assert.ok(!names.has(name), `${name} is left out`);
   }
 });
@@ -203,7 +204,7 @@ test("the entry point in read-only mode lists only read tools, answers a read an
     // The fake whoami is a tenant caller, so the partner only tools are not registered at all
     const listed = await rpc(port, 1, "tools/list", {});
     const tools = listed.result.tools;
-    assert.ok(tools.length > 100 && tools.length < 176, `${tools.length} tools`);
+    assert.ok(tools.length > 100 && tools.length < 177, `${tools.length} tools`);
     for (const tool of tools) assert.ok(READ_ONLY_TOOLS.has(tool.name), `${tool.name} is a classified read tool`);
     assert.ok(!tools.some((t) => t.name === "sophos_isolate_endpoint"));
     assert.match(stderr, new RegExp(`Read-only mode: ${tools.length} read tools registered, \\d+ left out`));

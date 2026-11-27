@@ -5,7 +5,7 @@
 > Sophos. It calls the public Sophos APIs using credentials you supply. Use it at your own
 > risk, and raise problems as issues on this repository rather than with Sophos support.
 
-MCP (Model Context Protocol) server for the Sophos Fusion and Sophos Central APIs. Supports partner, organisation, and single-tenant credential types with automatic region routing. **360 tools** covering 25 Sophos API namespaces: the Sophos Central REST APIs plus the Sophos Fusion GraphQL APIs (`sophos_fusion_*`). Install it as a Claude Desktop extension (`.mcpb`), run it with npx, or host it yourself over streamable HTTP.
+MCP (Model Context Protocol) server for the Sophos Fusion and Sophos Central APIs. Supports partner, organisation, and single-tenant credential types with automatic region routing. **362 tools** covering 25 Sophos API namespaces: the Sophos Central REST APIs plus the Sophos Fusion GraphQL APIs (`sophos_fusion_*`). Install it as a Claude Desktop extension (`.mcpb`), run it with npx, or host it yourself over streamable HTTP.
 
 The npm package, the `.mcpb` bundle and the binaries keep the `sophos-central-mcp-server` name so existing installs update in place.
 
@@ -170,7 +170,7 @@ The script:
 npm test
 ```
 
-Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, the policy assignment and web profile writes (body shapes, refusals, target lookups and read-back) against an in-memory policy store, the no-retry rule for a POST or mutation after a 5xx, the read-modify-write and PATCH update tools, the request shapes of the tools checked against the published specs, the request shapes of the October 2026 bulk endpoint, S/MIME and Search tools, the item and page totals the REST list tools report, the endpoint inventory's reduction to the latest snapshot and its stale flag, the AI Defense tools (request shapes, the HTTP 200 with `errors` case, not-found and deleted policies, the stale version hint, and the input checks that refuse before any call), read-only mode (the tool classification, the request guard refusing writes with no network call, and the default off), a registration check that lists all 360 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
+Builds, then runs the `node:test` suites in `test/` with `fetch` stubbed: the Fusion GraphQL transport (including the HTTP 200 with `errors` case), the QL builder, the reference-data cache, and the path-keyed retry for the intermittent case-write fault, the migration guard, the policy assignment and web profile writes (body shapes, refusals, target lookups and read-back) against an in-memory policy store, the no-retry rule for a POST or mutation after a 5xx, the read-modify-write and PATCH update tools, the request shapes of the tools checked against the published specs, the request shapes of the October 2026 bulk endpoint, S/MIME and Search tools and the November 2026 bulk change group and Helm values tools, the item and page totals the REST list tools report, the endpoint inventory's reduction to the latest snapshot and its stale flag, the AI Defense tools (request shapes, the HTTP 200 with `errors` case, not-found and deleted policies, the stale version hint, and the input checks that refuse before any call), read-only mode (the tool classification, the request guard refusing writes with no network call, and the default off), a registration check that lists all 362 tools over an in-memory transport and checks the descriptions for the measured warnings, the `SOPHOS_FUSION_GRAPHQL_URL` check, and the HTTP transport (Origin guard, bearer token, listen address, concurrent calls) run against an in-memory Sophos. Nothing in `npm test` reaches Sophos.
 
 To exercise the Fusion tools against a live tenant, put credentials in `.env` (or export them) and run:
 
@@ -199,7 +199,7 @@ It spawns the built server over stdio and calls the tools through an MCP client,
 - **One-click install**: Ships as a Claude Desktop extension (`.mcpb`) with credentials held in the OS secure store
 - **Two API generations**: the Sophos Central REST APIs and the Sophos Fusion GraphQL APIs on one credential, with `sophos_fusion_*` tools for the GraphQL side
 - **Migration aware**: the Classic case and detection tools refuse a tenant that has moved to Sophos Fusion and name the `sophos_fusion_*` tool to use instead; `sophos_fusion_list_case_reference_data` reports the tenant type
-- **Full API coverage**: 360 tools across endpoints, alerts, policies, firewalls, web filtering, licensing, audit events, email (including S/MIME), mobile, XDR, Data Lake search, cases, AI Defense, SIEM, and more
+- **Full API coverage**: 362 tools across endpoints, alerts, policies, firewalls, web filtering, licensing, audit events, email (including S/MIME), mobile, XDR, Data Lake search, cases, AI Defense, SIEM, and more
 
 ## Screenshots
 
@@ -244,7 +244,7 @@ TRANSPORT=http
 
 Set `SOPHOS_READ_ONLY=true` when the server must not change anything in the tenants it can reach. It then has two guards, and either one stops a write by itself:
 
-- It registers only the tools classified as reads in `src/read-only.ts` (176 of the 360). Every write tool is left out, and so are 11 tools annotated read-only. Ten of them create something in the tenant or run on its devices: the detection, Data Lake, and Live Discover query runs, the Fusion Data Lake searches and the endpoint inventory built on them, the firewall config export, and the quarantine attachment downloads. The eleventh, `sophos_get_ba_pricing`, is a POST that might store something. A tool added later stays out until someone classifies it.
+- It registers only the tools classified as reads in `src/read-only.ts` (177 of the 362). Every write tool is left out, and so are 11 tools annotated read-only. Ten of them create something in the tenant or run on its devices: the detection, Data Lake, and Live Discover query runs, the Fusion Data Lake searches and the endpoint inventory built on them, the firewall config export, and the quarantine attachment downloads. The eleventh, `sophos_get_ba_pricing`, is a POST that might store something. A tool added later stays out until someone classifies it.
 - Every outgoing request passes a guard that refuses any method but GET and HEAD. The exceptions are the OAuth token request, Fusion GraphQL documents with no mutation or subscription, and four REST searches: alerts, quarantine, post-delivery quarantine, and firewall threat feed indicators. A refused call returns an error before a token is fetched or anything is sent.
 
 `true`, `1`, `on`, and `yes` turn it on. A value the server does not recognize stops it at startup.
@@ -321,11 +321,12 @@ Two Fusion case writes, `createCase` and `addEvidenceToCase`, fail 74% of the ti
 | `sophos_bulk_reset_endpoint_health` | Reset health to green and clear all alerts on up to 500 Windows and Linux endpoints |
 | `sophos_bulk_update_tamper_protection` | Turn tamper protection on or off, or generate a new password, on up to 200 endpoints |
 
-### Endpoint Settings (26 tools)
+### Endpoint Settings (27 tools)
 
 | Tool | Description |
 |------|-------------|
 | `sophos_list_installer_downloads` | List available installer packages |
+| `sophos_get_helm_values` | Download the tenant's Helm values.yaml for Sophos Linux Sensor (contains the registry API key) |
 | `sophos_list_blocked_addresses` | List blocked network addresses |
 | `sophos_add_blocked_address` | Add a blocked network address |
 | `sophos_delete_blocked_address` | Delete a blocked address |
@@ -379,7 +380,7 @@ Assignments take plain ID arrays. A policy applies either to users and user grou
 
 Web profiles: setting `endpoint.web-control.web-profile-id` also sends `filter-by-web-profile.enabled` true, without which Sophos keeps the old value, and turns on `web-profile.enabled` unless you set it. A new web control policy gets `web-profile.enabled` set explicitly (true with a profile, false for legacy settings) instead of the API's default of true. The settings are read back after the write. A profile is linked from the policy side; the profile tools do not send `consumers`, which Sophos ignores.
 
-### Endpoint Groups (7 tools)
+### Endpoint Groups (8 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -388,7 +389,8 @@ Web profiles: setting `endpoint.web-control.web-profile-id` also sends `filter-b
 | `sophos_create_endpoint_group` | Create a new endpoint group |
 | `sophos_update_endpoint_group` | Rename or update a group |
 | `sophos_delete_endpoint_group` | Delete an endpoint group |
-| `sophos_add_endpoints_to_group` | Add endpoints to a group |
+| `sophos_add_endpoints_to_group` | Add endpoints to a group, reporting any Sophos did not add |
+| `sophos_bulk_change_endpoint_group` | Move up to 5000 endpoints into a group, or out of their group with null |
 | `sophos_remove_endpoint_from_group` | Remove an endpoint from a group |
 
 ### Exclusions & Allow/Block Lists (9 tools)

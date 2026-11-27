@@ -25,6 +25,8 @@ import { SophosClient } from "../dist/client/sophos-client.js";
 import { FusionClient } from "../dist/client/fusion-client.js";
 import { TokenManager } from "../dist/auth/token-manager.js";
 import { registerEndpointTools } from "../dist/tools/endpoints.js";
+import { registerGroupTools } from "../dist/tools/groups.js";
+import { registerEndpointSettingsTools } from "../dist/tools/endpoint-settings.js";
 import { SOPHOS_AUTH_URL, SOPHOS_FUSION_GRAPHQL_URL } from "../dist/config/config.js";
 
 enableReadOnlyMode();
@@ -205,6 +207,37 @@ test("a write tool registered without the filter is still stopped by the guard",
     }
     assert.equal(h.calls.length, 0, "nothing was sent");
     assert.equal(h.tokens(), 0, "no token was fetched");
+  } finally {
+    await client.close();
+    await server.close();
+    h.restore();
+  }
+});
+
+test("bulk change group is refused with nothing sent; the Helm values download still goes out", async () => {
+  const h = harness();
+  const server = new McpServer({ name: "test", version: "0.0.0" });
+  registerGroupTools(server, h.rest, h.tenantResolver);
+  registerEndpointSettingsTools(server, h.rest, h.tenantResolver);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  const client = new Client({ name: "test-client", version: "0.0.0" });
+  await client.connect(clientTransport);
+  try {
+    for (const group_id of ["00000000-0000-4000-8000-000000000091", null]) {
+      const result = await client.callTool({
+        name: "sophos_bulk_change_endpoint_group",
+        arguments: { endpoint_ids: [ENDPOINT], group_id, tenant_id: TENANT },
+      });
+      assert.equal(result.isError, true, String(group_id));
+      assert.match(result.content[0].text, /Read-only mode \(SOPHOS_READ_ONLY\) refused POST \/endpoint\/v1\/endpoint-groups\/endpoints/);
+    }
+    assert.equal(h.calls.length, 0, "nothing was sent");
+    assert.equal(h.tokens(), 0, "no token was fetched");
+
+    const read = await client.callTool({ name: "sophos_get_helm_values", arguments: { tenant_id: TENANT } });
+    assert.equal(read.isError, undefined, read.content[0]?.text);
+    assert.deepEqual(h.calls.map((c) => [c.method, new URL(c.url).pathname]), [["GET", "/endpoint/v1/downloads/helm/values"]]);
   } finally {
     await client.close();
     await server.close();

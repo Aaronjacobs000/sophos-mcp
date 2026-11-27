@@ -185,8 +185,8 @@ test("tools/list exposes the 307 Classic tools plus the 53 Fusion tools", async 
   assert.ok(modules.includes("email-smime"), "email-smime is imported by src/index.ts");
   assert.ok(modules.includes("fusion-ai-defense-policies"), "fusion-ai-defense-policies is imported by src/index.ts");
   assert.ok(modules.includes("fusion-ai-defense-activity"), "fusion-ai-defense-activity is imported by src/index.ts");
-  assert.equal(tools.length, 360);
-  assert.equal(names.size, 360, "tool names are unique");
+  assert.equal(tools.length, 362);
+  assert.equal(names.size, 362, "tool names are unique");
 
   for (const name of CLASSIC_CASE_TOOLS) assert.ok(names.has(name), `${name} still registered`);
   for (const name of CLASSIC_DETECTION_TOOLS) assert.ok(names.has(name), `${name} still registered`);

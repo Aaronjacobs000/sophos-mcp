@@ -2,7 +2,7 @@
  * Tools: sophos_list_endpoint_groups, sophos_get_endpoint_group,
  *        sophos_create_endpoint_group, sophos_update_endpoint_group,
  *        sophos_delete_endpoint_group, sophos_add_endpoints_to_group,
- *        sophos_remove_endpoint_from_group
+ *        sophos_bulk_change_endpoint_group, sophos_remove_endpoint_from_group
  * Interact with the Sophos Endpoint API /endpoint/v1/endpoint-groups
  */
 
@@ -11,7 +11,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SophosClient } from "../client/sophos-client.js";
 import type { TenantResolver } from "../client/tenant-resolver.js";
 import type { SophosPagedResponse } from "../types/sophos.js";
-import { itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
+import { bulkActionResult, itemTotal, jsonResult, withErrorHandling } from "./helpers.js";
 import { DEFAULT_PAGE_SIZE } from "../config/config.js";
 
 interface SophosEndpointGroup {
@@ -41,6 +41,22 @@ interface AddEndpointsToGroupResponse {
     endpointsOfWrongType?: string[];
   };
 }
+
+/**
+ * The 200 body of POST /endpoint/v1/endpoint-groups/endpoints (Endpoint API
+ * reference, "Change group membership"): the endpoints whose group changed,
+ * and the ones that could not be changed with an errorCode (notFound,
+ * notSupported, conflict, permissionDenied, internalError).
+ */
+interface BulkChangeGroupResponse {
+  items?: Array<{ id: string; hostname?: string }>;
+  errors?: Array<{ id: string; errorCode: string; endpointErrorCode?: string; errorMessage: string }>;
+}
+
+/** The API takes at most 500 endpoint IDs per request. */
+const BULK_CHANGE_GROUP_BATCH = 500;
+/** The most IDs one tool call takes: ten requests. */
+const BULK_CHANGE_GROUP_MAX = 5000;
 
 type NotAddedReason = "not_found" | "wrong_type" | "not_in_response";
 
@@ -454,6 +470,97 @@ Returns:
       );
 
       return jsonResult(addEndpointsResult(group_id, ids, data));
+    })
+  );
+
+  // --- Bulk Change Endpoint Group ---
+  server.registerTool(
+    "sophos_bulk_change_endpoint_group",
+    {
+      title: "Bulk Change Sophos Endpoint Group",
+      description: `Move endpoints into one endpoint group, or take them out of their current group, in bulk.
+
+group_id is the target group. Pass null to remove the endpoints from whatever
+group they are in, leaving them in no group. An endpoint leaves its old group
+when it moves. Sophos refuses groups synced from Active Directory, and
+endpoints synced from it, with a 409.
+
+Each endpoint succeeds or fails on its own. Changed ones come back in items
+(id, hostname); the rest come back in errors with an errorCode (notFound,
+notSupported, conflict, permissionDenied, internalError) and a message. The
+API takes 500 IDs per request, so a longer list goes in batches of 500, in
+order. If a batch fails after an earlier one went through, the tool stops and
+reports the IDs it could not confirm and the ones it did not send.
+
+Args:
+  - endpoint_ids (string[]): Endpoint IDs (1 to 5000). Duplicates are dropped.
+  - group_id (string or null): Target group ID, or null to remove the endpoints from their group.
+  - tenant_id (string, optional): Tenant ID. Required for partner/org callers.
+
+Returns:
+  requested, accepted and rejected counts, then items and errors as Sophos returned them.`,
+      inputSchema: {
+        endpoint_ids: z
+          .array(z.string().guid())
+          .min(1)
+          .max(BULK_CHANGE_GROUP_MAX)
+          .describe("Endpoint IDs to move (1 to 5000)"),
+        group_id: z
+          .string()
+          .guid()
+          .nullable()
+          .describe("Target group ID, or null to remove the endpoints from their current group"),
+        tenant_id: z
+          .string()
+          .guid()
+          .optional()
+          .describe("Tenant ID. Required for partner/org callers."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    withErrorHandling(async ({ endpoint_ids, group_id, tenant_id }) => {
+      const resolvedTenantId = tenantResolver.resolveTenantId(tenant_id);
+      const ids = distinctIds(endpoint_ids);
+      const batches = Math.ceil(ids.length / BULK_CHANGE_GROUP_BATCH);
+      const items: NonNullable<BulkChangeGroupResponse["items"]> = [];
+      const errors: NonNullable<BulkChangeGroupResponse["errors"]> = [];
+
+      for (let start = 0; start < ids.length; start += BULK_CHANGE_GROUP_BATCH) {
+        const batch = ids.slice(start, start + BULK_CHANGE_GROUP_BATCH);
+        let data: BulkChangeGroupResponse;
+        try {
+          data = await client.tenantRequest<BulkChangeGroupResponse>(
+            resolvedTenantId,
+            "/endpoint/v1/endpoint-groups/endpoints",
+            { method: "POST", body: { ids: batch, groupId: group_id } }
+          );
+        } catch (error) {
+          // Nothing went through yet: an ordinary error.
+          if (start === 0) throw error;
+          const notSent = ids.slice(start + BULK_CHANGE_GROUP_BATCH);
+          return jsonResult({
+            group_id,
+            stopped: true,
+            stopped_error: error instanceof Error ? error.message : String(error),
+            ...bulkActionResult(
+              ids.length,
+              { items, errors },
+              `Stopped at batch ${start / BULK_CHANGE_GROUP_BATCH + 1} of ${batches}. The first ${start} endpoint(s) were processed as items and errors show. The ${batch.length} in unconfirmed may or may not have moved; the ${notSent.length} in not_sent were not sent. Check before retrying them.`
+            ),
+            unconfirmed: batch,
+            not_sent: notSent,
+          });
+        }
+        items.push(...(data?.items ?? []));
+        errors.push(...(data?.errors ?? []));
+      }
+
+      return jsonResult({ group_id, ...bulkActionResult(ids.length, { items, errors }) });
     })
   );
 
