@@ -2,7 +2,7 @@
 
 Notes for 0.13.1 and earlier are on the [GitHub releases page](https://github.com/Aaronjacobs000/sophos-mcp/releases).
 
-## Unreleased
+## 0.14.0 (28/11/2026)
 
 - New `sophos_bulk_change_endpoint_group` (Endpoint API bulk change group, 16/11/2026): moves endpoints into one group, or takes them out of their group with `group_id` null. It sends 500 IDs per request, in order, drops duplicates, and reports each endpoint's result as the bulk endpoint tools do (`requested`, `accepted`, `rejected`, `items`, `errors`). If a later batch fails, it stops and lists the IDs it could not confirm and the ones it did not send. Groups and endpoints synced from Active Directory are refused with a 409. A write, so read-only mode leaves it out.
 - New `sophos_get_helm_values` (Endpoint API Helm chart values, 17/11/2026): downloads the tenant's `values.yaml` for installing Sophos Linux Sensor with Helm. It holds the tenant's Sophos Linux registry API key (`mcsToken`), so the description says it returns a secret. Needs a Sophos Linux Sensor entitlement. A read, so read-only mode keeps it (177 of 362 tools).
