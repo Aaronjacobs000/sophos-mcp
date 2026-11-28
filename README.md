@@ -199,6 +199,7 @@ It spawns the built server over stdio and calls the tools through an MCP client,
 - **One-click install**: Ships as a Claude Desktop extension (`.mcpb`) with credentials held in the OS secure store
 - **Two API generations**: the Sophos Central REST APIs and the Sophos Fusion GraphQL APIs on one credential, with `sophos_fusion_*` tools for the GraphQL side
 - **Migration aware**: the Classic case and detection tools refuse a tenant that has moved to Sophos Fusion and name the `sophos_fusion_*` tool to use instead; `sophos_fusion_list_case_reference_data` reports the tenant type
+- **Server instructions**: sends clients that support them a short note on what the server covers and how to start
 - **Full API coverage**: 362 tools across endpoints, alerts, policies, firewalls, web filtering, licensing, audit events, email (including S/MIME), mobile, XDR, Data Lake search, cases, AI Defense, SIEM, and more
 
 ## Screenshots
@@ -896,6 +897,7 @@ src/
 ├── http-guard.ts                # HTTP transport: refuse foreign browser Origins, optional bearer token
 ├── config/config.ts             # Environment config
 ├── read-only.ts                 # Read-only mode: the read tool list and the registration filter
+├── instructions.ts              # Server instructions sent in the initialize result
 ├── auth/token-manager.ts        # OAuth2 token lifecycle
 ├── client/
 │   ├── sophos-client.ts         # REST client with region routing (Sophos Central)

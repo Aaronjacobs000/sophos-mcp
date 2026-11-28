@@ -26,6 +26,7 @@ import { CaseReferenceDataCache } from "./fusion/case-reference-data.js";
 import { FusionMigrationGuard } from "./fusion/migration.js";
 import { enableReadOnlyMode } from "./client/read-only-guard.js";
 import { registerReadToolsOnly, type ReadOnlyRegistration } from "./read-only.js";
+import { serverInstructions } from "./instructions.js";
 import {
   MAX_MCP_MESSAGE_BYTES,
   openListenerWarning,
@@ -104,13 +105,15 @@ async function main(): Promise<void> {
   // Create the MCP server. One McpServer serves one transport at a time, so
   // the stateless HTTP transport builds a fresh one per request; stdio uses one.
   let readOnlyRegistration: ReadOnlyRegistration | undefined;
+  // Sent in the initialize result: when to use these tools and how to start
+  const instructions = serverInstructions({ idType: identity.idType, readOnly: config.readOnly });
   const createServer = (): McpServer => {
     const server = new McpServer(
       {
         name: "sophos-central-mcp-server",
         version: pkgVersion,
       },
-      { maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS }
+      { maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS, instructions }
     );
     // Read-only mode: only the read tools are registered (src/read-only.ts)
     if (config.readOnly) readOnlyRegistration = registerReadToolsOnly(server);

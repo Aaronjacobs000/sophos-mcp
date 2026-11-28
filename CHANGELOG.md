@@ -2,6 +2,10 @@
 
 Notes for 0.13.1 and earlier are on the [GitHub releases page](https://github.com/Aaronjacobs000/sophos-mcp/releases).
 
+## Unreleased
+
+- The server sends `instructions` in its initialize result, for clients that support them (Claude Code reads them to decide when to search the tools). The short text says what the server covers, the credential it was started with (a partner or organization credential needs a `tenant_id`, with `sophos_list_tenants` to find one; a tenant credential does not), the tool prefixes (`sophos_fusion_`, `sophos_fusion_ai_defense_`, the other `sophos_` tools), and that reads come before writes, with writes for changes the user has asked for. In read-only mode the last part says so instead. `src/instructions.ts` holds the text; a test fails when a tool or prefix it names is not registered for that caller and mode, or when it passes 150 words.
+
 ## 0.14.0 (28/11/2026)
 
 - New `sophos_bulk_change_endpoint_group` (Endpoint API bulk change group, 16/11/2026): moves endpoints into one group, or takes them out of their group with `group_id` null. It sends 500 IDs per request, in order, drops duplicates, and reports each endpoint's result as the bulk endpoint tools do (`requested`, `accepted`, `rejected`, `items`, `errors`). If a later batch fails, it stops and lists the IDs it could not confirm and the ones it did not send. Groups and endpoints synced from Active Directory are refused with a 409. A write, so read-only mode leaves it out.
