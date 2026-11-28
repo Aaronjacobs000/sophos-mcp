@@ -2,7 +2,7 @@
 
 Notes for 0.13.1 and earlier are on the [GitHub releases page](https://github.com/Aaronjacobs000/sophos-mcp/releases).
 
-## Unreleased
+## 0.15.0 (28/11/2026)
 
 - The server sends `instructions` in its initialize result, for clients that support them (Claude Code reads them to decide when to search the tools). The short text says what the server covers, the credential it was started with (a partner or organization credential needs a `tenant_id`, with `sophos_list_tenants` to find one; a tenant credential does not), the tool prefixes (`sophos_fusion_`, `sophos_fusion_ai_defense_`, the other `sophos_` tools), and that reads come before writes, with writes for changes the user has asked for. In read-only mode the last part says so instead. `src/instructions.ts` holds the text; a test fails when a tool or prefix it names is not registered for that caller and mode, or when it passes 150 words.
 
